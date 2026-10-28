@@ -1,0 +1,48 @@
+name: Build iOS App (.IPA)
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/build-ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Select Latest Xcode
+        run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
+
+      - name: Build iOS App Bundle (Unsigned)
+        run: |
+          cd ios
+          xcodebuild clean build \
+            -project CFXFrameStudio.xcodeproj \
+            -scheme CFXFrameStudio \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package .IPA for Sideloading
+        run: |
+          mkdir -p ios/Payload
+          cp -r ios/build/Build/Products/Release-iphoneos/CFXFrameStudio.app ios/Payload/
+          cd ios
+          zip -r CFXFrameStudio.ipa Payload
+          ls -lh CFXFrameStudio.ipa
+
+      - name: Upload .IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CFXFrameStudio-iOS-IPA
+          path: ios/CFXFrameStudio.ipa
+          retention-days: 14

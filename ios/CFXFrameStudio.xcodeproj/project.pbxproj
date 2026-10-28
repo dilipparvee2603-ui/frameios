@@ -1,0 +1,394 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		E20000012900000100000001 /* CFXFrameStudioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000001 /* CFXFrameStudioApp.swift */; };
+		E20000012900000100000002 /* ColorTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000002 /* ColorTokens.swift */; };
+		E20000012900000100000003 /* GlassCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000003 /* GlassCard.swift */; };
+		E20000012900000100000004 /* VideoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000004 /* VideoEngine.swift */; };
+		E20000012900000100000005 /* VideoTrimEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000005 /* VideoTrimEngine.swift */; };
+		E20000012900000100000006 /* LauncherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000006 /* LauncherView.swift */; };
+		E20000012900000100000007 /* VideoTrimmerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000007 /* VideoTrimmerView.swift */; };
+		E20000012900000100000008 /* FrameExporterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000008 /* FrameExporterView.swift */; };
+		E20000012900000100000009 /* TimecodeEntryModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000009 /* TimecodeEntryModal.swift */; };
+		E2000001290000010000000A /* VideoPlayerContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000000A /* VideoPlayerContainer.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		E10000012900000100000001 /* CFXFrameStudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CFXFrameStudioApp.swift; sourceTree = "<group>"; };
+		E10000012900000100000002 /* ColorTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorTokens.swift; sourceTree = "<group>"; };
+		E10000012900000100000003 /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
+		E10000012900000100000004 /* VideoEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000005 /* VideoTrimEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrimEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000006 /* LauncherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherView.swift; sourceTree = "<group>"; };
+		E10000012900000100000007 /* VideoTrimmerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrimmerView.swift; sourceTree = "<group>"; };
+		E10000012900000100000008 /* FrameExporterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameExporterView.swift; sourceTree = "<group>"; };
+		E10000012900000100000009 /* TimecodeEntryModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeEntryModal.swift; sourceTree = "<group>"; };
+		E1000001290000010000000A /* VideoPlayerContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerContainer.swift; sourceTree = "<group>"; };
+		E1000001290000010000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E1000001290000010000000C /* CFXFrameStudio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CFXFrameStudio.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E30000012900000100000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		E40000012900000100000001 = {
+			isa = PBXGroup;
+			children = (
+				E40000012900000100000002 /* CFXFrameStudio */,
+				E40000012900000100000007 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E40000012900000100000002 /* CFXFrameStudio */ = {
+			isa = PBXGroup;
+			children = (
+				E10000012900000100000001 /* CFXFrameStudioApp.swift */,
+				E1000001290000010000000B /* Info.plist */,
+				E40000012900000100000003 /* Theme */,
+				E40000012900000100000004 /* Engine */,
+				E40000012900000100000005 /* Views */,
+			);
+			path = CFXFrameStudio;
+			sourceTree = "<group>";
+		};
+		E40000012900000100000003 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				E10000012900000100000002 /* ColorTokens.swift */,
+				E10000012900000100000003 /* GlassCard.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		E40000012900000100000004 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				E10000012900000100000004 /* VideoEngine.swift */,
+				E10000012900000100000005 /* VideoTrimEngine.swift */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		E40000012900000100000005 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				E10000012900000100000006 /* LauncherView.swift */,
+				E10000012900000100000007 /* VideoTrimmerView.swift */,
+				E10000012900000100000008 /* FrameExporterView.swift */,
+				E40000012900000100000006 /* Components */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E40000012900000100000006 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				E10000012900000100000009 /* TimecodeEntryModal.swift */,
+				E1000001290000010000000A /* VideoPlayerContainer.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		E40000012900000100000007 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E1000001290000010000000C /* CFXFrameStudio.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E50000012900000100000001 /* CFXFrameStudio */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E70000012900000100000001 /* Build configuration list for PBXNativeTarget "CFXFrameStudio" */;
+			buildPhases = (
+				E60000012900000100000001 /* Sources */,
+				E30000012900000100000001 /* Frameworks */,
+				E60000012900000100000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CFXFrameStudio;
+			productName = CFXFrameStudio;
+			productReference = E1000001290000010000000C /* CFXFrameStudio.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E80000012900000100000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					E50000012900000100000001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = E70000012900000100000002 /* Build configuration list for PBXProject "CFXFrameStudio" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = E40000012900000100000001;
+			productRefGroup = E40000012900000100000007 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E50000012900000100000001 /* CFXFrameStudio */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E60000012900000100000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E60000012900000100000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E20000012900000100000001 /* CFXFrameStudioApp.swift in Sources */,
+				E20000012900000100000002 /* ColorTokens.swift in Sources */,
+				E20000012900000100000003 /* GlassCard.swift in Sources */,
+				E20000012900000100000004 /* VideoEngine.swift in Sources */,
+				E20000012900000100000005 /* VideoTrimEngine.swift in Sources */,
+				E20000012900000100000006 /* LauncherView.swift in Sources */,
+				E20000012900000100000007 /* VideoTrimmerView.swift in Sources */,
+				E20000012900000100000008 /* FrameExporterView.swift in Sources */,
+				E20000012900000100000009 /* TimecodeEntryModal.swift in Sources */,
+				E2000001290000010000000A /* VideoPlayerContainer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		E90000012900000100000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDEFINED_VARIABLES = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		E90000012900000100000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDEFINED_VARIABLES = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		E90000012900000100000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CFXFrameStudio/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "CFX Studio";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cfx.framestudio;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E90000012900000100000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CFXFrameStudio/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "CFX Studio";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cfx.framestudio;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		E70000012900000100000001 /* Build configuration list for PBXNativeTarget "CFXFrameStudio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E90000012900000100000003 /* Debug */,
+				E90000012900000100000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E70000012900000100000002 /* Build configuration list for PBXProject "CFXFrameStudio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E90000012900000100000001 /* Debug */,
+				E90000012900000100000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E80000012900000100000001 /* Project object */;
+}
