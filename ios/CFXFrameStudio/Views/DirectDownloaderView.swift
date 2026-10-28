@@ -12,6 +12,7 @@ struct DirectDownloaderView: View {
     @State private var showSettingsModal: Bool = false
     @State private var selectedQualityId: String = ""
     @State private var isRemuxingDownloadedFile: Bool = false
+    @State private var remuxProgress: Double = 0.0
 
     private var isYouTubeLink: Bool {
         YouTubeDownloadEngine.isYouTubeUrl(inputUrl)
@@ -528,7 +529,7 @@ struct DirectDownloaderView: View {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                         .scaleEffect(0.8)
-                                    Text("Remuxing to MP4...")
+                                    Text("Remuxing to MP4... \(Int(remuxProgress * 100))%")
                                         .font(.system(size: 13, weight: .bold))
                                 } else {
                                     Image(systemName: "bolt.fill")
@@ -752,9 +753,14 @@ struct DirectDownloaderView: View {
     private func remuxDownloadedMKV(url: URL) {
         guard !isRemuxingDownloadedFile else { return }
         isRemuxingDownloadedFile = true
+        remuxProgress = 0.0
         Task {
             do {
-                let mp4Url = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url)
+                let mp4Url = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { progress, _ in
+                    Task { @MainActor in
+                        self.remuxProgress = progress
+                    }
+                }
                 let saved = await engine.saveVideoToPhotos(url: mp4Url)
                 await MainActor.run {
                     self.isRemuxingDownloadedFile = false

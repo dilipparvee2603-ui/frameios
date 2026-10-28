@@ -21,7 +21,8 @@ struct VideoTrimmerView: View {
     @State private var exportProgress: Float = 0.0
 
     @State private var isRemuxing: Bool = false
-    @State private var remuxStatus: String = "Remuxing Matroska Movie..."
+    @State private var remuxProgress: Double = 0.0
+    @State private var remuxSpeedText: String = ""
 
     @State private var trimmedFileUrl: URL? = nil
     @State private var showShareSheet: Bool = false
@@ -453,24 +454,55 @@ struct VideoTrimmerView: View {
                     Color.black.opacity(0.85)
                         .ignoresSafeArea()
 
-                    GlassCard(cornerRadius: 20, padding: 24) {
+                    GlassCard(cornerRadius: 20, padding: 22) {
                         VStack(spacing: 16) {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .brandAccent))
-                                .scaleEffect(1.6)
+                            HStack {
+                                Image(systemName: "film.stack.fill")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(.brandAccent)
 
-                            VStack(spacing: 6) {
-                                Text("Remuxing Matroska Movie")
-                                    .font(.system(size: 16, weight: .bold))
+                                Text("Remuxing MKV Movie")
+                                    .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(.textPrimary)
 
-                                Text(remuxStatus)
-                                    .font(.system(size: 12))
+                                Spacer()
+
+                                Text("\(Int(remuxProgress * 100))%")
+                                    .font(.system(size: 22, weight: .black, design: .rounded))
+                                    .foregroundColor(.brandAccent)
+                            }
+
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.elevatedSurface)
+                                        .frame(height: 8)
+
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(LinearGradient.brandGradient)
+                                        .frame(width: max(0, geo.size.width * CGFloat(remuxProgress)), height: 8)
+                                        .animation(.linear(duration: 0.15), value: remuxProgress)
+                                }
+                            }
+                            .frame(height: 8)
+
+                            HStack {
+                                Text(remuxSpeedText.isEmpty ? "Losslessly repackaging to MP4..." : "Stream Copying @ \(remuxSpeedText)")
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(.emeraldAccent)
+
+                                Spacer()
+
+                                Text("0% Quality Loss")
+                                    .font(.system(size: 10, weight: .bold))
                                     .foregroundColor(.textMuted)
-                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color.elevatedSurface)
+                                    .cornerRadius(4)
                             }
                         }
-                        .frame(maxWidth: 280)
+                        .frame(maxWidth: 300)
                     }
                 }
                 .transition(.opacity)
@@ -565,10 +597,16 @@ struct VideoTrimmerView: View {
                 if MKVRemuxEngine.shared.isMatroska(url: destUrl) {
                     await MainActor.run {
                         self.isRemuxing = true
-                        self.remuxStatus = "Repackaging MKV container to Apple MP4 without quality loss..."
+                        self.remuxProgress = 0.0
+                        self.remuxSpeedText = ""
                     }
                     do {
-                        workingUrl = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: destUrl)
+                        workingUrl = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: destUrl) { progress, speed in
+                            Task { @MainActor in
+                                self.remuxProgress = progress
+                                self.remuxSpeedText = speed
+                            }
+                        }
                     } catch {
                         await MainActor.run {
                             self.isRemuxing = false
