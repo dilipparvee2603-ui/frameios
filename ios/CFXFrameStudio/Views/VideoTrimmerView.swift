@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import PhotosUI
+import UniformTypeIdentifiers
 
 struct VideoTrimmerView: View {
     @Environment(\.dismiss) private var dismiss
@@ -8,6 +9,7 @@ struct VideoTrimmerView: View {
     @StateObject private var playerModel = PlayerModel()
 
     @State private var selectedItem: PhotosPickerItem? = nil
+    @State private var showFilePicker: Bool = false
     @State private var videoUrl: URL? = nil
     @State private var videoInfo: VideoInfo? = nil
 
@@ -48,37 +50,90 @@ struct VideoTrimmerView: View {
 
                         Spacer()
 
-                        PhotosPicker(selection: $selectedItem, matching: .videos) {
-                            Image(systemName: "video.badge.plus")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.gradientStart)
-                                .frame(width: 36, height: 36)
-                                .background(Color.surfaceCard)
-                                .clipShape(Circle())
+                        HStack(spacing: 8) {
+                            PhotosPicker(selection: $selectedItem, matching: .videos) {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.gradientStart)
+                                    .frame(width: 36, height: 36)
+                                    .background(Color.surfaceCard)
+                                    .clipShape(Circle())
+                            }
+
+                            Button(action: { showFilePicker = true }) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.gradientStart)
+                                    .frame(width: 36, height: 36)
+                                    .background(Color.surfaceCard)
+                                    .clipShape(Circle())
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
 
                     if videoUrl == nil {
-                        // Empty State: Select Video
-                        PhotosPicker(selection: $selectedItem, matching: .videos) {
-                            GlassCard(cornerRadius: 18, padding: 32) {
-                                VStack(spacing: 14) {
-                                    Image(systemName: "scissors")
-                                        .font(.system(size: 44, weight: .semibold))
-                                        .foregroundColor(.gradientStart)
+                        // Empty State: Dual Import Options
+                        VStack(spacing: 14) {
+                            // Import from Camera Roll
+                            PhotosPicker(selection: $selectedItem, matching: .videos) {
+                                GlassCard(cornerRadius: 18, padding: 22) {
+                                    HStack(spacing: 16) {
+                                        ZStack {
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(Color.brandAccent.opacity(0.15))
+                                                .frame(width: 48, height: 48)
+                                            Image(systemName: "photo.on.rectangle.angled")
+                                                .font(.system(size: 22, weight: .bold))
+                                                .foregroundColor(.gradientStart)
+                                        }
 
-                                    Text("Select Video to Trim")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundColor(.textPrimary)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text("Import from Camera Roll")
+                                                .font(.system(size: 15, weight: .bold))
+                                                .foregroundColor(.textPrimary)
+                                            Text("Trim videos from your Photos library")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.textMuted)
+                                        }
 
-                                    Text("Supports 4K, 60fps MP4, MOV, YouTube videos\nLossless cut with 0-second re-encoding")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.textMuted)
-                                        .multilineTextAlignment(.center)
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(.textTertiary)
+                                    }
                                 }
-                                .frame(maxWidth: .infinity)
+                            }
+
+                            // Import from Files App
+                            Button(action: { showFilePicker = true }) {
+                                GlassCard(cornerRadius: 18, padding: 22) {
+                                    HStack(spacing: 16) {
+                                        ZStack {
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(Color.emeraldAccent.opacity(0.15))
+                                                .frame(width: 48, height: 48)
+                                            Image(systemName: "folder.fill")
+                                                .font(.system(size: 22, weight: .bold))
+                                                .foregroundColor(.emeraldAccent)
+                                        }
+
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text("Import from Files App")
+                                                .font(.system(size: 15, weight: .bold))
+                                                .foregroundColor(.textPrimary)
+                                            Text("Trim MP4, MOV, MKV from Downloads & iCloud")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.textMuted)
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(.textTertiary)
+                                    }
+                                }
                             }
                         }
                         .padding(.horizontal, 16)
@@ -371,6 +426,21 @@ struct VideoTrimmerView: View {
                 }
             }
         }
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie, UTType(filenameExtension: "mkv") ?? .movie],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    loadFromFiles(url: url)
+                }
+            case .failure(let error):
+                alertMessage = "File import error: \(error.localizedDescription)"
+                showAlert = true
+            }
+        }
         .alert(alertMessage ?? "", isPresented: $showAlert) {
             Button("OK", role: .cancel) { }
         }
@@ -398,6 +468,41 @@ struct VideoTrimmerView: View {
                 self.alertMessage = "Failed to load video: \(error.localizedDescription)"
                 self.showAlert = true
             }
+        }
+    }
+
+    private func loadFromFiles(url: URL) {
+        guard url.startAccessingSecurityScopedResource() else {
+            alertMessage = "Permission denied to read file"
+            showAlert = true
+            return
+        }
+
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let destUrl = tempDir.appendingPathComponent(url.lastPathComponent)
+        try? FileManager.default.removeItem(at: destUrl)
+
+        do {
+            try FileManager.default.copyItem(at: url, to: destUrl)
+            Task {
+                let info = try await VideoEngine.shared.extractVideoInfo(from: destUrl)
+                await MainActor.run {
+                    self.videoUrl = destUrl
+                    self.videoInfo = info
+                    self.inPointMs = 0
+                    self.outPointMs = info.durationMs
+                    self.playerModel.setup(with: destUrl) { ms in
+                        if self.outPointMs > 0 && ms >= self.outPointMs && self.playerModel.isPlaying {
+                            self.playerModel.seek(to: self.inPointMs)
+                        }
+                    }
+                }
+            }
+        } catch {
+            alertMessage = "Failed to access file: \(error.localizedDescription)"
+            showAlert = true
         }
     }
 
