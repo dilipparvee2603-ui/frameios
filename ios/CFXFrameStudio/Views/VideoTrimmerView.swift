@@ -364,7 +364,7 @@ struct VideoTrimmerView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        .onChange(of: selectedItem) { _, newItem in
+        .onChange(of: selectedItem) { newItem in
             Task {
                 if let item = newItem {
                     await loadVideo(from: item)

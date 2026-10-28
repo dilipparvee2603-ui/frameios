@@ -87,7 +87,13 @@ final class VideoTrimEngine {
                 }
             }
 
-            await session.export()
+            // Universally compatible async export across iOS 15, 16, 17, 18
+            await withCheckedContinuation { continuation in
+                session.exportAsynchronously {
+                    continuation.resume()
+                }
+            }
+
             progressTask.cancel()
 
             if session.status == .completed {
@@ -112,7 +118,7 @@ final class VideoTrimEngine {
     }
 
     private func saveVideoToPhotos(fileUrl: URL) async throws -> Bool {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        let status = await requestPhotoAuthorization()
         guard status == .authorized || status == .limited else {
             throw NSError(domain: "CFXFrameStudio", code: -5, userInfo: [NSLocalizedDescriptionKey: "Photo library access denied"])
         }
@@ -121,5 +127,13 @@ final class VideoTrimEngine {
             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileUrl)
         }
         return true
+    }
+
+    private func requestPhotoAuthorization() async -> PHAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                continuation.resume(returning: status)
+            }
+        }
     }
 }

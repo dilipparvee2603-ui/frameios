@@ -50,7 +50,6 @@ final class VideoEngine {
         let nominalFrameRate = try await videoTrack.load(.nominalFrameRate)
         let fps = nominalFrameRate > 0 ? Double(nominalFrameRate) : 30.0
 
-        // Handle video orientation transform (portrait / rotated camera videos)
         let isPortrait = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
         let width = Int(isPortrait ? naturalSize.height : naturalSize.width)
         let height = Int(isPortrait ? naturalSize.width : naturalSize.height)
@@ -71,17 +70,16 @@ final class VideoEngine {
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        // Zero tolerances guarantee exact uncompressed frame extraction (no keyframe approximation)
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
 
         let cmTime = CMTime(value: CMTimeValue(timeMs), timescale: 1000)
-        let (cgImage, _) = try await generator.image(at: cmTime)
+        let cgImage = try generator.copyCGImage(at: cmTime, actualTime: nil)
         return UIImage(cgImage: cgImage)
     }
 
     func saveFrameToPhotos(image: UIImage, format: FrameFormat) async throws -> Bool {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        let status = await requestPhotoAuthorization()
         guard status == .authorized || status == .limited else {
             throw NSError(domain: "CFXFrameStudio", code: -2, userInfo: [NSLocalizedDescriptionKey: "Photo library access denied"])
         }
@@ -103,5 +101,13 @@ final class VideoEngine {
             creationRequest.addResource(with: .photo, data: imageData, options: nil)
         }
         return true
+    }
+
+    private func requestPhotoAuthorization() async -> PHAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                continuation.resume(returning: status)
+            }
+        }
     }
 }
