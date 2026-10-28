@@ -201,17 +201,10 @@ final class SlowMoEngine {
            let attrs = try? FileManager.default.attributesOfItem(atPath: outputUrl.path),
            (attrs[.size] as? Int64 ?? 0) > 1024 {
 
-            var savedToPhotos = false
-            do {
-                savedToPhotos = try await saveVideoToPhotos(fileUrl: outputUrl)
-            } catch {
-                savedToPhotos = false
-            }
-
             return SlowMoResult(
                 success: true,
                 outputUrl: outputUrl,
-                errorMessage: savedToPhotos ? nil : "NEEDS_SHARE_SHEET"
+                errorMessage: nil
             )
         } else {
             let logs = session?.getAllLogsAsString() ?? session?.getFailStackTrace() ?? "Slow motion processing failed"
@@ -219,6 +212,11 @@ final class SlowMoEngine {
             try? FileManager.default.removeItem(at: outputUrl)
             return SlowMoResult(success: false, outputUrl: nil, errorMessage: "Processing error:\n\(lastLines)")
         }
+    }
+
+    /// Public method to export an applied slow-mo video to the user's Photos Camera Roll
+    func exportToPhotos(fileUrl: URL) async throws -> Bool {
+        return try await saveVideoToPhotos(fileUrl: fileUrl)
     }
 
     /// Chains multiple atempo filters since atempo only accepts multipliers between 0.5 and 2.0

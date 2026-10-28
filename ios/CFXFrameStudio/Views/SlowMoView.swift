@@ -10,17 +10,27 @@ struct SlowMoView: View {
 
     @State private var selectedPhotosItem: PhotosPickerItem? = nil
     @State private var showFilePicker: Bool = false
-    @State private var videoUrl: URL? = nil
-    @State private var videoInfo: VideoInfo? = nil
 
-    // Slow-Mo Retiming Controls
+    // Source Video State
+    @State private var sourceVideoUrl: URL? = nil
+    @State private var sourceVideoInfo: VideoInfo? = nil
+
+    // Applied Smooth Slow-Mo Video State
+    @State private var appliedSlowMoUrl: URL? = nil
+    @State private var appliedVideoInfo: VideoInfo? = nil
+
+    enum VideoDisplayMode: String, CaseIterable, Identifiable {
+        case appliedSlowMo = "✨ Applied Slow-Mo"
+        case original = "📹 Original Video"
+        var id: String { rawValue }
+    }
+    @State private var activeDisplayMode: VideoDisplayMode = .original
+
+    // Slow-Mo Settings
     @State private var speedPercentage: Double = 25.0 // Default 25% (4x slow motion)
     @State private var targetFps: Int = 60
     @State private var selectedInterpolation: SlowMoInterpolationMode = .opticalFlow
     @State private var selectedAudioMode: SlowMoAudioMode = .pitchPreserved
-
-    // Preview Mode (Slow-Mo Preview vs Realtime 1.0x)
-    @State private var isPreviewingSlowMo: Bool = true
 
     // Collapsible Sections State
     @State private var isSpeedSectionExpanded: Bool = true
@@ -36,7 +46,7 @@ struct SlowMoView: View {
     @State private var isProcessing: Bool = false
     @State private var processProgress: Double = 0.0
     @State private var processSpeedText: String = ""
-    @State private var exportedFileUrl: URL? = nil
+    @State private var isExportingToPhotos: Bool = false
     @State private var showShareSheet: Bool = false
 
     // Remuxing MKV Staging
@@ -55,12 +65,11 @@ struct SlowMoView: View {
         ("10% (10x)", 10.0)
     ]
 
-    private var effectivePreviewRate: Float {
-        if isPreviewingSlowMo {
-            return Float(max(0.01, speedPercentage / 100.0))
-        } else {
-            return 1.0
+    private var activeVideoInfo: VideoInfo? {
+        if activeDisplayMode == .appliedSlowMo, let applied = appliedVideoInfo {
+            return applied
         }
+        return sourceVideoInfo
     }
 
     var body: some View {
@@ -72,29 +81,31 @@ struct SlowMoView: View {
                     // Header Bar
                     headerBar
 
-                    if videoUrl == nil {
+                    if sourceVideoUrl == nil {
                         // Empty State: Dual Import Options
                         emptyStatePicker
-                    } else if let info = videoInfo {
+                    } else if let info = activeVideoInfo {
                         // 1. Video Player Container
                         playerCard(info: info)
 
-                        // 2. Slow-Mo vs Realtime Preview Mode Pill Bar
-                        previewModePillBar
+                        // 2. Applied Slow-Mo vs Original Video Switcher (if applied)
+                        if appliedSlowMoUrl != nil {
+                            displayModeSwitcher
+                        }
 
                         // 3. Transport, Timeline Scrubber & IN/OUT Markers
                         transportAndScrubberCard(info: info)
 
-                        // 4. Collapsible Settings Cards
+                        // 4. Primary Actions (Apply Preview or Export)
+                        primaryActionsCard(info: info)
+
+                        // 5. Collapsible Studio Settings Cards
                         collapsibleSpeedCard(info: info)
                         collapsibleEngineCard
                         collapsibleAudioAndFpsCard
                         collapsibleRangeCard(info: info)
 
-                        // 5. Generate & Export Actions
-                        actionSection(info: info)
-
-                        Spacer(minLength: 24)
+                        Spacer(minLength: 28)
                     }
                 }
                 .padding(.bottom, 20)
@@ -139,7 +150,7 @@ struct SlowMoView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            if let outUrl = exportedFileUrl {
+            if let outUrl = appliedSlowMoUrl {
                 ShareActivityView(activityItems: [outUrl])
             }
         }
@@ -170,7 +181,7 @@ struct SlowMoView: View {
 
             Spacer()
 
-            if videoUrl != nil {
+            if sourceVideoUrl != nil {
                 HStack(spacing: 8) {
                     PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
                         Image(systemName: "photo.on.rectangle.angled")
@@ -272,7 +283,7 @@ struct SlowMoView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.borderHairline, lineWidth: 1)
+                        .stroke(activeDisplayMode == .appliedSlowMo ? Color.emeraldAccent.opacity(0.6) : Color.borderHairline, lineWidth: activeDisplayMode == .appliedSlowMo ? 1.5 : 1)
                 )
 
             // Floating Mute Button
@@ -286,8 +297,15 @@ struct SlowMoView: View {
             }
             .padding(10)
 
-            // Resolution & FPS Badge
+            // Status Badge
             HStack(spacing: 4) {
+                if activeDisplayMode == .appliedSlowMo {
+                    Circle().fill(Color.emeraldAccent).frame(width: 6, height: 6)
+                    Text("APPLIED SLOW-MO")
+                        .foregroundColor(.emeraldAccent)
+                    Text("•")
+                        .foregroundColor(.textTertiary)
+                }
                 Text("\(info.width) × \(info.height)")
                 Text("•")
                 Text(String(format: "%.0f FPS", info.fps))
@@ -296,7 +314,7 @@ struct SlowMoView: View {
             .foregroundColor(.emeraldAccent)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color.black.opacity(0.75))
+            .background(Color.black.opacity(0.85))
             .cornerRadius(6)
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(10)
@@ -304,57 +322,55 @@ struct SlowMoView: View {
         .padding(.horizontal, 16)
     }
 
-    // MARK: - Preview Mode Pill Bar
+    // MARK: - Display Mode Switcher (Applied Slow-Mo vs Original)
 
-    private var previewModePillBar: some View {
+    private var displayModeSwitcher: some View {
         HStack(spacing: 8) {
-            // Slow-Mo Preview Pill
+            // Applied Slow-Mo Tab
             Button(action: {
-                isPreviewingSlowMo = true
+                guard activeDisplayMode != .appliedSlowMo, let appliedUrl = appliedSlowMoUrl, let appliedInfo = appliedVideoInfo else { return }
+                activeDisplayMode = .appliedSlowMo
                 playerModel.triggerHaptic()
-                if playerModel.isPlaying {
-                    playerModel.setRate(effectivePreviewRate)
-                }
+                switchPlayerTo(url: appliedUrl, info: appliedInfo, isApplied: true)
             }) {
                 HStack(spacing: 6) {
-                    Image(systemName: "gauge.with.dots.needle.bottom.0percent")
+                    Image(systemName: "sparkles")
                         .font(.system(size: 12, weight: .bold))
-                    Text(String(format: "Slow-Mo Preview (%.0f%%)", speedPercentage))
+                    Text("Applied Slow-Mo Preview")
                         .font(.system(size: 12, weight: .bold))
                 }
-                .foregroundColor(isPreviewingSlowMo ? .white : .textMuted)
+                .foregroundColor(activeDisplayMode == .appliedSlowMo ? .white : .textMuted)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(isPreviewingSlowMo ? Color.brandAccent : Color.surfaceCard)
+                .padding(.vertical, 9)
+                .background(activeDisplayMode == .appliedSlowMo ? Color.emeraldAccent : Color.surfaceCard)
                 .cornerRadius(8)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(isPreviewingSlowMo ? Color.brandAccent.opacity(0.5) : Color.borderHairline, lineWidth: 1)
+                        .stroke(activeDisplayMode == .appliedSlowMo ? Color.emeraldAccent.opacity(0.5) : Color.borderHairline, lineWidth: 1)
                 )
             }
 
-            // Realtime 1.0x Pill
+            // Original Source Tab
             Button(action: {
-                isPreviewingSlowMo = false
+                guard activeDisplayMode != .original, let sourceUrl = sourceVideoUrl, let sourceInfo = sourceVideoInfo else { return }
+                activeDisplayMode = .original
                 playerModel.triggerHaptic()
-                if playerModel.isPlaying {
-                    playerModel.setRate(1.0)
-                }
+                switchPlayerTo(url: sourceUrl, info: sourceInfo, isApplied: false)
             }) {
                 HStack(spacing: 6) {
-                    Image(systemName: "play.circle")
+                    Image(systemName: "film")
                         .font(.system(size: 12, weight: .bold))
-                    Text("1.0x Realtime")
+                    Text("Original Video")
                         .font(.system(size: 12, weight: .bold))
                 }
-                .foregroundColor(!isPreviewingSlowMo ? .white : .textMuted)
+                .foregroundColor(activeDisplayMode == .original ? .white : .textMuted)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(!isPreviewingSlowMo ? Color.skyAccent : Color.surfaceCard)
+                .padding(.vertical, 9)
+                .background(activeDisplayMode == .original ? Color.skyAccent : Color.surfaceCard)
                 .cornerRadius(8)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(!isPreviewingSlowMo ? Color.skyAccent.opacity(0.5) : Color.borderHairline, lineWidth: 1)
+                        .stroke(activeDisplayMode == .original ? Color.skyAccent.opacity(0.5) : Color.borderHairline, lineWidth: 1)
                 )
             }
         }
@@ -384,25 +400,31 @@ struct SlowMoView: View {
 
                     Spacer()
 
-                    let clipDurationSec = Double(max(100, outPointMs - inPointMs)) / 1000.0
-                    let outputDurationSec = clipDurationSec * (100.0 / speedPercentage)
-                    HStack(spacing: 4) {
-                        Text(String(format: "%.1fs Clip", clipDurationSec))
-                            .foregroundColor(.textMuted)
-                        Text("→")
-                            .foregroundColor(.textTertiary)
-                        Text(String(format: "%.1fs Slow-Mo", outputDurationSec))
+                    if activeDisplayMode == .appliedSlowMo {
+                        Text(String(format: "Slow-Mo Duration: %.1fs", Double(info.durationMs) / 1000.0))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundColor(.emeraldAccent)
+                    } else {
+                        let clipDurationSec = Double(max(100, outPointMs - inPointMs)) / 1000.0
+                        let outputDurationSec = clipDurationSec * (100.0 / speedPercentage)
+                        HStack(spacing: 4) {
+                            Text(String(format: "%.1fs Clip", clipDurationSec))
+                                .foregroundColor(.textMuted)
+                            Text("→")
+                                .foregroundColor(.textTertiary)
+                            Text(String(format: "%.1fs Slow-Mo", outputDurationSec))
+                                .foregroundColor(.emeraldAccent)
+                        }
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                     }
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                 }
 
                 // Interactive Scrubber Bar
                 GeometryReader { geo in
                     let width = geo.size.width
                     let duration = max(1, Double(info.durationMs))
-                    let inFrac = CGFloat(Double(inPointMs) / duration)
-                    let outFrac = CGFloat(Double(outPointMs) / duration)
+                    let inFrac = (activeDisplayMode == .appliedSlowMo) ? 0.0 : CGFloat(Double(inPointMs) / duration)
+                    let outFrac = (activeDisplayMode == .appliedSlowMo) ? 1.0 : CGFloat(Double(outPointMs) / duration)
                     let playheadFrac = CGFloat(Double(playerModel.currentPositionMs) / duration)
 
                     ZStack(alignment: .leading) {
@@ -438,77 +460,83 @@ struct SlowMoView: View {
 
                 // Master Transport Controls Bar
                 HStack(spacing: 8) {
-                    // Jump to IN
+                    // Jump to IN / Start
                     Button(action: {
                         playerModel.triggerHaptic()
-                        playerModel.seek(to: inPointMs, preservePlaybackState: true)
+                        let jumpMs = (activeDisplayMode == .appliedSlowMo) ? 0 : inPointMs
+                        playerModel.seek(to: jumpMs, preservePlaybackState: true)
                     }) {
                         Image(systemName: "backward.end.fill")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(.textPrimary)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 34, height: 34)
                             .background(Color.elevatedSurface)
                             .cornerRadius(6)
                     }
 
-                    // Set IN
-                    Button(action: {
-                        inPointMs = min(playerModel.currentPositionMs, max(0, outPointMs - 100))
-                        playerModel.triggerHaptic()
-                    }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.right.to.line")
-                            Text("IN")
-                                .font(.system(size: 11, weight: .bold))
+                    if activeDisplayMode == .original {
+                        // Set IN
+                        Button(action: {
+                            inPointMs = min(playerModel.currentPositionMs, max(0, outPointMs - 100))
+                            playerModel.triggerHaptic()
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.right.to.line")
+                                Text("IN")
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(6)
+                            .foregroundColor(.skyAccent)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .background(Color.elevatedSurface)
-                        .cornerRadius(6)
-                        .foregroundColor(.skyAccent)
                     }
 
-                    // Main Play / Pause Button with Rate Indicator
+                    // Main Play / Pause Button
                     Button(action: togglePlayPause) {
                         HStack(spacing: 6) {
                             Image(systemName: playerModel.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 14, weight: .bold))
-                            Text(playerModel.isPlaying ? (isPreviewingSlowMo ? "\(Int(speedPercentage))%" : "1.0x") : "Play")
+                                .font(.system(size: 15, weight: .bold))
+                            Text(playerModel.isPlaying ? "Pause" : (activeDisplayMode == .appliedSlowMo ? "Play Slow-Mo" : "Play"))
                                 .font(.system(size: 12, weight: .bold))
                         }
                         .foregroundColor(.white)
-                        .frame(minWidth: 74, minHeight: 34)
+                        .frame(minWidth: 100, minHeight: 34)
                         .background(LinearGradient.brandGradient)
                         .cornerRadius(8)
                         .shadow(color: Color.brandAccent.opacity(playerModel.isPlaying ? 0.4 : 0.0), radius: 6)
                     }
 
-                    // Set OUT
-                    Button(action: {
-                        outPointMs = max(playerModel.currentPositionMs, inPointMs + 100)
-                        playerModel.triggerHaptic()
-                    }) {
-                        HStack(spacing: 3) {
-                            Text("OUT")
-                                .font(.system(size: 11, weight: .bold))
-                            Image(systemName: "arrow.left.to.line")
+                    if activeDisplayMode == .original {
+                        // Set OUT
+                        Button(action: {
+                            outPointMs = max(playerModel.currentPositionMs, inPointMs + 100)
+                            playerModel.triggerHaptic()
+                        }) {
+                            HStack(spacing: 3) {
+                                Text("OUT")
+                                    .font(.system(size: 11, weight: .bold))
+                                Image(systemName: "arrow.left.to.line")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(6)
+                            .foregroundColor(.gradientStart)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .background(Color.elevatedSurface)
-                        .cornerRadius(6)
-                        .foregroundColor(.gradientStart)
                     }
 
-                    // Jump to OUT
+                    // Jump to OUT / End
                     Button(action: {
                         playerModel.triggerHaptic()
-                        playerModel.seek(to: outPointMs, preservePlaybackState: true)
+                        let jumpMs = (activeDisplayMode == .appliedSlowMo) ? (appliedVideoInfo?.durationMs ?? 0) : outPointMs
+                        playerModel.seek(to: jumpMs, preservePlaybackState: true)
                     }) {
                         Image(systemName: "forward.end.fill")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(.textPrimary)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 34, height: 34)
                             .background(Color.elevatedSurface)
                             .cornerRadius(6)
                     }
@@ -516,6 +544,131 @@ struct SlowMoView: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    // MARK: - Primary Action Card (Apply vs Export)
+
+    @ViewBuilder
+    private func primaryActionsCard(info: VideoInfo) -> some View {
+        VStack(spacing: 10) {
+            // Processing Card with Active Stop Button
+            if isProcessing {
+                GlassCard(cornerRadius: 14, padding: 14) {
+                    VStack(spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Synthesizing Optical Flow Frames...")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.textPrimary)
+                                Text(processSpeedText.isEmpty ? String(format: "Progress: %.0f%%", processProgress * 100.0) : "\(String(format: "%.0f%%", processProgress * 100.0)) @ \(processSpeedText)")
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.emeraldAccent)
+                            }
+
+                            Spacer()
+
+                            Button(action: stopProcess) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "stop.circle.fill")
+                                        .font(.system(size: 14, weight: .bold))
+                                    Text("Stop")
+                                        .font(.system(size: 12, weight: .bold))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(Color(hex: "FF453A"))
+                                .cornerRadius(8)
+                            }
+                        }
+
+                        ProgressView(value: processProgress)
+                            .tint(.brandAccent)
+                    }
+                }
+                .padding(.horizontal, 16)
+            } else if appliedSlowMoUrl != nil {
+                // Applied State: Prominent Export & Share Controls
+                VStack(spacing: 10) {
+                    // Export / Save to Photos Camera Roll Button
+                    Button(action: exportAppliedVideoToPhotos) {
+                        HStack(spacing: 8) {
+                            if isExportingToPhotos {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: "square.and.arrow.down.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                            }
+                            Text(isExportingToPhotos ? "Saving to Camera Roll..." : "Export & Save to Camera Roll")
+                                .font(.system(size: 15, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(hex: "00B4DB"), Color(hex: "0083B0")],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .cornerRadius(12)
+                        .shadow(color: Color(hex: "0083B0").opacity(0.35), radius: 8)
+                    }
+                    .disabled(isExportingToPhotos)
+
+                    HStack(spacing: 8) {
+                        // Share Sheet Button
+                        Button(action: { showShareSheet = true }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("Share / Files")
+                            }
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(10)
+                        }
+
+                        // Re-apply / Re-render Button
+                        Button(action: applySlowMotionPreview) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.clockwise")
+                                Text("Re-Apply Slow-Mo")
+                            }
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.brandAccent)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                            .background(Color.surfaceCard)
+                            .cornerRadius(10)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            } else {
+                // Initial State: Apply Smooth Slow-Mo Button
+                Button(action: applySlowMotionPreview) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Apply Smooth Slow-Mo (Preview)")
+                            .font(.system(size: 15, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(LinearGradient.brandGradient)
+                    .cornerRadius(12)
+                    .shadow(color: Color.brandAccent.opacity(0.35), radius: 8)
+                }
+                .disabled(isProcessing)
+                .padding(.horizontal, 16)
+            }
+        }
     }
 
     // MARK: - Collapsible 1: Speed & Presets
@@ -567,9 +720,6 @@ struct SlowMoView: View {
                                     Button(action: {
                                         speedPercentage = preset.pct
                                         playerModel.triggerHaptic()
-                                        if isPreviewingSlowMo && playerModel.isPlaying {
-                                            playerModel.setRate(effectivePreviewRate)
-                                        }
                                     }) {
                                         Text(preset.label)
                                             .font(.system(size: 11, weight: .bold))
@@ -583,14 +733,10 @@ struct SlowMoView: View {
                             }
                         }
 
-                        // Fine Slider (1.0% to 100.0%)
+                        // Fine Continuous Slider (1.0% to 100.0%)
                         VStack(spacing: 4) {
-                            Slider(value: $speedPercentage, in: 1.0...100.0, step: 0.5) { _ in
-                                if isPreviewingSlowMo && playerModel.isPlaying {
-                                    playerModel.setRate(effectivePreviewRate)
-                                }
-                            }
-                            .tint(.brandAccent)
+                            Slider(value: $speedPercentage, in: 1.0...100.0, step: 0.5)
+                                .tint(.brandAccent)
 
                             HStack {
                                 Text("1% (100x Ultra)")
@@ -793,7 +939,7 @@ struct SlowMoView: View {
         }
     }
 
-    // MARK: - Collapsible 4: Range & Trim Points
+    // MARK: - Collapsible 4: Range & Trim Markers
 
     @ViewBuilder
     private func collapsibleRangeCard(info: VideoInfo) -> some View {
@@ -856,18 +1002,20 @@ struct SlowMoView: View {
                             }
                         }
 
-                        Button(action: {
-                            inPointMs = 0
-                            outPointMs = info.durationMs
-                            playerModel.triggerHaptic()
-                        }) {
-                            Text("Reset to Full Video")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.textPrimary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                                .background(Color.elevatedSurface)
-                                .cornerRadius(6)
+                        if let sourceInfo = sourceVideoInfo {
+                            Button(action: {
+                                inPointMs = 0
+                                outPointMs = sourceInfo.durationMs
+                                playerModel.triggerHaptic()
+                            }) {
+                                Text("Reset to Full Video")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.textPrimary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                                    .background(Color.elevatedSurface)
+                                    .cornerRadius(6)
+                            }
                         }
                     }
                     .padding(.top, 4)
@@ -875,91 +1023,6 @@ struct SlowMoView: View {
             }
         }
         .padding(.horizontal, 16)
-    }
-
-    // MARK: - Action & Export Section
-
-    @ViewBuilder
-    private func actionSection(info: VideoInfo) -> some View {
-        VStack(spacing: 12) {
-            // Active Processing Card
-            if isProcessing {
-                GlassCard(cornerRadius: 14, padding: 14) {
-                    VStack(spacing: 10) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Synthesizing Optical Flow Frames...")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.textPrimary)
-                                Text(processSpeedText.isEmpty ? String(format: "Progress: %.0f%%", processProgress * 100.0) : "\(String(format: "%.0f%%", processProgress * 100.0)) @ \(processSpeedText)")
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.emeraldAccent)
-                            }
-
-                            Spacer()
-
-                            Button(action: stopProcess) {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "stop.circle.fill")
-                                        .font(.system(size: 14, weight: .bold))
-                                    Text("Stop")
-                                        .font(.system(size: 12, weight: .bold))
-                                }
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .background(Color(hex: "FF453A"))
-                                .cornerRadius(8)
-                            }
-                        }
-
-                        ProgressView(value: processProgress)
-                            .tint(.brandAccent)
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-
-            // Master Generate Button
-            Button(action: generateSlowMotion) {
-                HStack(spacing: 8) {
-                    if isProcessing {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 16, weight: .bold))
-                    }
-                    Text(isProcessing ? "Synthesizing Optical Flow..." : "Generate Smooth Slow-Mo Video")
-                        .font(.system(size: 15, weight: .bold))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(LinearGradient.brandGradient)
-                .cornerRadius(12)
-                .shadow(color: Color.brandAccent.opacity(0.35), radius: 8)
-            }
-            .disabled(isProcessing)
-            .padding(.horizontal, 16)
-
-            // Share Sheet Button (if already exported)
-            if let _ = exportedFileUrl, !isProcessing {
-                Button(action: { showShareSheet = true }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "square.and.arrow.up")
-                        Text("Share / Save Slow-Mo Video")
-                    }
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.brandAccent)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 42)
-                    .background(Color.surfaceCard)
-                    .cornerRadius(10)
-                }
-                .padding(.horizontal, 16)
-            }
-        }
     }
 
     // MARK: - Remuxing Modal
@@ -1018,11 +1081,12 @@ struct SlowMoView: View {
         if playerModel.isPlaying {
             playerModel.pause()
         } else {
-            // If at end or beyond outPoint, wrap to inPointMs
-            if playerModel.currentPositionMs >= outPointMs {
-                playerModel.seek(to: inPointMs, preservePlaybackState: true)
+            let maxDuration = (activeDisplayMode == .appliedSlowMo) ? (appliedVideoInfo?.durationMs ?? 0) : outPointMs
+            if playerModel.currentPositionMs >= maxDuration {
+                let startPos = (activeDisplayMode == .appliedSlowMo) ? 0 : inPointMs
+                playerModel.seek(to: startPos, preservePlaybackState: true)
             }
-            playerModel.play(rate: effectivePreviewRate)
+            playerModel.play(rate: 1.0)
         }
     }
 
@@ -1033,8 +1097,8 @@ struct SlowMoView: View {
         processProgress = 0.0
     }
 
-    private func generateSlowMotion() {
-        guard let url = videoUrl, !isProcessing else { return }
+    private func applySlowMotionPreview() {
+        guard let url = sourceVideoUrl, !isProcessing else { return }
         isProcessing = true
         processProgress = 0.0
         processSpeedText = "Calculating motion vectors..."
@@ -1050,7 +1114,7 @@ struct SlowMoView: View {
                 audioMode: selectedAudioMode,
                 inPointMs: inPointMs,
                 outPointMs: outPointMs,
-                totalSourceDurationMs: videoInfo?.durationMs ?? 0
+                totalSourceDurationMs: sourceVideoInfo?.durationMs ?? 0
             ) { progress, speed in
                 Task { @MainActor in
                     self.processProgress = progress
@@ -1061,17 +1125,47 @@ struct SlowMoView: View {
             await MainActor.run {
                 self.isProcessing = false
                 if result.success, let outputUrl = result.outputUrl {
-                    self.exportedFileUrl = outputUrl
-                    self.playerModel.triggerHaptic()
-                    if result.errorMessage == "NEEDS_SHARE_SHEET" {
-                        self.showShareSheet = true
-                    } else {
-                        self.alertMessage = "Smooth Slow-Mo video saved to Photos Camera Roll!"
-                        self.showAlert = true
+                    Task {
+                        if let newInfo = try? await VideoEngine.shared.extractVideoInfo(from: outputUrl) {
+                            await MainActor.run {
+                                self.appliedSlowMoUrl = outputUrl
+                                self.appliedVideoInfo = newInfo
+                                self.activeDisplayMode = .appliedSlowMo
+                                self.switchPlayerTo(url: outputUrl, info: newInfo, isApplied: true)
+                                self.playerModel.triggerHaptic()
+                                // Auto-start preview of applied slow motion
+                                self.playerModel.play(rate: 1.0)
+                            }
+                        }
                     }
                 } else if let error = result.errorMessage, error != "OPERATION_CANCELLED" {
                     self.alertMessage = error
                     self.showAlert = true
+                }
+            }
+        }
+    }
+
+    private func exportAppliedVideoToPhotos() {
+        guard let url = appliedSlowMoUrl, !isExportingToPhotos else { return }
+        isExportingToPhotos = true
+        playerModel.triggerHaptic()
+
+        Task {
+            var success = false
+            do {
+                success = try await SlowMoEngine.shared.exportToPhotos(fileUrl: url)
+            } catch {
+                success = false
+            }
+
+            await MainActor.run {
+                self.isExportingToPhotos = false
+                if success {
+                    self.alertMessage = "Smooth Slow-Mo video successfully exported to Photos Camera Roll!"
+                    self.showAlert = true
+                } else {
+                    self.showShareSheet = true
                 }
             }
         }
@@ -1083,7 +1177,14 @@ struct SlowMoView: View {
                 let url = movie.url
                 let info = try await VideoEngine.shared.extractVideoInfo(from: url)
                 await MainActor.run {
-                    self.setupPlayer(url: url, info: info)
+                    self.sourceVideoUrl = url
+                    self.sourceVideoInfo = info
+                    self.appliedSlowMoUrl = nil
+                    self.appliedVideoInfo = nil
+                    self.activeDisplayMode = .original
+                    self.inPointMs = 0
+                    self.outPointMs = info.durationMs
+                    self.switchPlayerTo(url: url, info: info, isApplied: false)
                 }
             }
         } catch {
@@ -1148,7 +1249,14 @@ struct SlowMoView: View {
             do {
                 let info = try await VideoEngine.shared.extractVideoInfo(from: workingUrl)
                 await MainActor.run {
-                    self.setupPlayer(url: workingUrl, info: info)
+                    self.sourceVideoUrl = workingUrl
+                    self.sourceVideoInfo = info
+                    self.appliedSlowMoUrl = nil
+                    self.appliedVideoInfo = nil
+                    self.activeDisplayMode = .original
+                    self.inPointMs = 0
+                    self.outPointMs = info.durationMs
+                    self.switchPlayerTo(url: workingUrl, info: info, isApplied: false)
                 }
             } catch {
                 await MainActor.run {
@@ -1159,17 +1267,18 @@ struct SlowMoView: View {
         }
     }
 
-    private func setupPlayer(url: URL, info: VideoInfo) {
-        self.videoUrl = url
-        self.videoInfo = info
-        self.inPointMs = 0
-        self.outPointMs = info.durationMs
-        self.playerModel.setup(with: url) { [weak playerModel] currentMs in
+    private func switchPlayerTo(url: URL, info: VideoInfo, isApplied: Bool) {
+        playerModel.setup(with: url) { [weak playerModel] currentMs in
             guard let playerModel = playerModel else { return }
-            let limitMs = self.outPointMs > 0 ? self.outPointMs : info.durationMs
-            if currentMs >= limitMs && playerModel.isPlaying {
-                // Loop smoothly back to inPointMs
-                playerModel.seek(to: self.inPointMs, preservePlaybackState: true)
+            if isApplied {
+                if currentMs >= info.durationMs && playerModel.isPlaying {
+                    playerModel.seek(to: 0, preservePlaybackState: true)
+                }
+            } else {
+                let limitMs = self.outPointMs > 0 ? self.outPointMs : info.durationMs
+                if currentMs >= limitMs && playerModel.isPlaying {
+                    playerModel.seek(to: self.inPointMs, preservePlaybackState: true)
+                }
             }
         }
     }
