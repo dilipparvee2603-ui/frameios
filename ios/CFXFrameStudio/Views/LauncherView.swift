@@ -65,6 +65,15 @@ struct LauncherView: View {
                                     accentColor: .amberAccent
                                 )
                             }
+
+                            NavigationLink(destination: DirectDownloaderView()) {
+                                toolCard(
+                                    title: "Direct Link Downloader",
+                                    subtitle: "Download Cloudflare & CDN links with smart codec save",
+                                    icon: "arrow.down.circle",
+                                    accentColor: .skyAccent
+                                )
+                            }
                         }
                         .padding(.horizontal, 20)
                         .padding(.bottom, 16)

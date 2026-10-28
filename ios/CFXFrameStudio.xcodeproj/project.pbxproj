@@ -22,6 +22,8 @@
 		E2000001290000010000000D /* VideoConverterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000000F /* VideoConverterView.swift */; };
 		E2000001290000010000000E /* ImageCropEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000010 /* ImageCropEngine.swift */; };
 		E2000001290000010000000F /* ImageCropperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000011 /* ImageCropperView.swift */; };
+		E20000012900000100000010 /* DirectDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000012 /* DirectDownloadEngine.swift */; };
+		E20000012900000100000011 /* DirectDownloaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000013 /* DirectDownloaderView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +44,8 @@
 		E1000001290000010000000F /* VideoConverterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoConverterView.swift; sourceTree = "<group>"; };
 		E10000012900000100000010 /* ImageCropEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCropEngine.swift; sourceTree = "<group>"; };
 		E10000012900000100000011 /* ImageCropperView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCropperView.swift; sourceTree = "<group>"; };
+		E10000012900000100000012 /* DirectDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectDownloadEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000013 /* DirectDownloaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectDownloaderView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -92,6 +96,7 @@
 				E1000001290000010000000D /* PlayerModel.swift */,
 				E1000001290000010000000E /* VideoConvertEngine.swift */,
 				E10000012900000100000010 /* ImageCropEngine.swift */,
+				E10000012900000100000012 /* DirectDownloadEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -104,6 +109,7 @@
 				E10000012900000100000008 /* FrameExporterView.swift */,
 				E1000001290000010000000F /* VideoConverterView.swift */,
 				E10000012900000100000011 /* ImageCropperView.swift */,
+				E10000012900000100000013 /* DirectDownloaderView.swift */,
 				E40000012900000100000006 /* Components */,
 			);
 			path = Views;
@@ -209,6 +215,8 @@
 				E2000001290000010000000D /* VideoConverterView.swift in Sources */,
 				E2000001290000010000000E /* ImageCropEngine.swift in Sources */,
 				E2000001290000010000000F /* ImageCropperView.swift in Sources */,
+				E20000012900000100000010 /* DirectDownloadEngine.swift in Sources */,
+				E20000012900000100000011 /* DirectDownloaderView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
