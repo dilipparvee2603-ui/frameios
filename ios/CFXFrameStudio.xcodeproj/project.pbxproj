@@ -18,6 +18,8 @@
 		E20000012900000100000009 /* TimecodeEntryModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000009 /* TimecodeEntryModal.swift */; };
 		E2000001290000010000000A /* VideoPlayerContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000000A /* VideoPlayerContainer.swift */; };
 		E2000001290000010000000B /* PlayerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000000D /* PlayerModel.swift */; };
+		E2000001290000010000000C /* VideoConvertEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000000E /* VideoConvertEngine.swift */; };
+		E2000001290000010000000D /* VideoConverterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000000F /* VideoConverterView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +36,8 @@
 		E1000001290000010000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E1000001290000010000000C /* CFXFrameStudio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CFXFrameStudio.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1000001290000010000000D /* PlayerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerModel.swift; sourceTree = "<group>"; };
+		E1000001290000010000000E /* VideoConvertEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoConvertEngine.swift; sourceTree = "<group>"; };
+		E1000001290000010000000F /* VideoConverterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoConverterView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,6 +86,7 @@
 				E10000012900000100000004 /* VideoEngine.swift */,
 				E10000012900000100000005 /* VideoTrimEngine.swift */,
 				E1000001290000010000000D /* PlayerModel.swift */,
+				E1000001290000010000000E /* VideoConvertEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -92,6 +97,7 @@
 				E10000012900000100000006 /* LauncherView.swift */,
 				E10000012900000100000007 /* VideoTrimmerView.swift */,
 				E10000012900000100000008 /* FrameExporterView.swift */,
+				E1000001290000010000000F /* VideoConverterView.swift */,
 				E40000012900000100000006 /* Components */,
 			);
 			path = Views;
@@ -193,6 +199,8 @@
 				E20000012900000100000009 /* TimecodeEntryModal.swift in Sources */,
 				E2000001290000010000000A /* VideoPlayerContainer.swift in Sources */,
 				E2000001290000010000000B /* PlayerModel.swift in Sources */,
+				E2000001290000010000000C /* VideoConvertEngine.swift in Sources */,
+				E2000001290000010000000D /* VideoConverterView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

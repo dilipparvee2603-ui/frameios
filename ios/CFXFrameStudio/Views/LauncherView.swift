@@ -99,6 +99,42 @@ struct LauncherView: View {
                                 }
                             }
                         }
+
+                        // Video Format Converter Card
+                        NavigationLink(destination: VideoConverterView()) {
+                            GlassCard(cornerRadius: 18, padding: 20) {
+                                HStack(spacing: 16) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .fill(Color.elevatedSurface)
+                                            .frame(width: 52, height: 52)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 14)
+                                                    .stroke(Color.emeraldAccent.opacity(0.4), lineWidth: 1)
+                                            )
+                                        Image(systemName: "arrow.triangle.2.circlepath")
+                                            .font(.system(size: 24, weight: .bold))
+                                            .foregroundColor(.emeraldAccent)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Video Format Converter")
+                                            .font(.system(size: 16, weight: .bold))
+                                            .foregroundColor(.textPrimary)
+                                        Text("Convert MP4 ↔ MOV, MKV, ProRes at 100% original resolution")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.textMuted)
+                                            .multilineTextAlignment(.leading)
+                                    }
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .foregroundColor(.textTertiary)
+                                        .font(.system(size: 14, weight: .semibold))
+                                }
+                            }
+                        }
                     }
                     .padding(.horizontal, 20)
 
