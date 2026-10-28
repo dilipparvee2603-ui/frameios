@@ -72,6 +72,18 @@ final class VideoConvertEngine {
             let asset = AVURLAsset(url: srcUrl)
             let duration = try await asset.load(.duration)
 
+            // Check if source is HEVC
+            var isSourceHEVC = false
+            if let videoTracks = try? await asset.loadTracks(withMediaType: .video), let vTrack = videoTracks.first {
+                if let descs = try? await vTrack.load(.formatDescriptions), let first = descs.first {
+                    let subType = CMFormatDescriptionGetMediaSubType(first)
+                    let fourCC = fourCharCodeToString(subType).lowercased()
+                    if fourCC.contains("hvc") || fourCC.contains("hev") {
+                        isSourceHEVC = true
+                    }
+                }
+            }
+
             let exportAsset: AVAsset
             if includeAudio {
                 exportAsset = asset
@@ -90,56 +102,67 @@ final class VideoConvertEngine {
                 exportAsset = composition
             }
 
+            let highestQualityPreset = isSourceHEVC ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality
             var chosenPreset = targetCodec.preset(for: targetContainer)
+
+            // AVComposition cannot do Passthrough; fallback to highest quality
+            if targetCodec == .auto && !includeAudio {
+                chosenPreset = highestQualityPreset
+            }
 
             // ProRes is only supported in MOV
             if targetCodec == .prores && targetContainer != .mov {
                 chosenPreset = AVAssetExportPresetHEVCHighestQuality
             }
 
-            // Check if passthrough is supported; if not, fall back to highest quality
-            var exportSession = AVAssetExportSession(asset: exportAsset, presetName: chosenPreset)
-            if exportSession == nil || !exportSession!.supportedFileTypes.contains(targetContainer.avFileType) {
-                chosenPreset = (targetCodec == .hevc) ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality
-                exportSession = AVAssetExportSession(asset: exportAsset, presetName: chosenPreset)
-            }
-
-            guard let session = exportSession else {
-                return ConvertResult(success: false, outputUrl: nil, errorMessage: "Could not create conversion export session")
-            }
-
-            if FileManager.default.fileExists(atPath: tempOutUrl.path) {
-                try? FileManager.default.removeItem(at: tempOutUrl)
-            }
-
-            session.outputURL = tempOutUrl
-            session.outputFileType = targetContainer.avFileType
-            session.shouldOptimizeForNetworkUse = true
-
-            // Progress monitor
-            let progressTask = Task {
-                while !Task.isCancelled {
-                    let p = session.progress
-                    DispatchQueue.main.async {
-                        onProgress(p)
-                    }
-                    if session.status == .completed || session.status == .failed || session.status == .cancelled {
-                        break
-                    }
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+            // Helper function to run export
+            func runExport(withPreset preset: String) async -> (status: AVAssetExportSession.Status, error: Error?) {
+                guard let session = AVAssetExportSession(asset: exportAsset, presetName: preset),
+                      session.supportedFileTypes.contains(targetContainer.avFileType) else {
+                    return (.failed, NSError(domain: "CFXFrameStudio", code: -11, userInfo: [NSLocalizedDescriptionKey: "Preset \(preset) not supported for \(targetContainer.rawValue)"]))
                 }
-            }
 
-            // Universally compatible async export
-            await withCheckedContinuation { continuation in
-                session.exportAsynchronously {
-                    continuation.resume()
+                if FileManager.default.fileExists(atPath: tempOutUrl.path) {
+                    try? FileManager.default.removeItem(at: tempOutUrl)
                 }
+
+                session.outputURL = tempOutUrl
+                session.outputFileType = targetContainer.avFileType
+                session.shouldOptimizeForNetworkUse = true
+
+                // Progress monitor
+                let progressTask = Task {
+                    while !Task.isCancelled {
+                        let p = session.progress
+                        DispatchQueue.main.async {
+                            onProgress(p)
+                        }
+                        if session.status == .completed || session.status == .failed || session.status == .cancelled {
+                            break
+                        }
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                }
+
+                await withCheckedContinuation { continuation in
+                    session.exportAsynchronously {
+                        continuation.resume()
+                    }
+                }
+
+                progressTask.cancel()
+                return (session.status, session.error)
             }
 
-            progressTask.cancel()
+            // First attempt
+            var (status, exportError) = await runExport(withPreset: chosenPreset)
 
-            if session.status == .completed {
+            // If passthrough failed (e.g. incompatible track format in container), auto-fallback to Highest Quality transcode
+            if status != .completed && targetCodec == .auto {
+                (status, exportError) = await runExport(withPreset: highestQualityPreset)
+            }
+
+            if status == .completed {
                 // Try saving to Photos library if format is supported by Camera Roll
                 var savedToPhotos = false
                 if targetContainer == .mp4 || targetContainer == .mov {
@@ -152,7 +175,7 @@ final class VideoConvertEngine {
                     errorMessage: savedToPhotos ? nil : "Video converted! Available in Files/Share."
                 )
             } else {
-                let err = session.error?.localizedDescription ?? "Conversion failed"
+                let err = exportError?.localizedDescription ?? "Conversion failed"
                 try? FileManager.default.removeItem(at: tempOutUrl)
                 return ConvertResult(success: false, outputUrl: nil, errorMessage: err)
             }
