@@ -61,44 +61,30 @@ final class PlayerModel: ObservableObject {
         player.isMuted = isMuted
     }
 
-    func step(byCount count: Int, fps: Double, completion: (() -> Void)? = nil) {
+    func step(byCount count: Int, fps: Double, durationMs: Int64 = 0, completion: (() -> Void)? = nil) {
         pause()
 
-        guard let item = player.currentItem else { return }
+        let safeFps = max(1.0, fps)
+        let currentSec = CMTimeGetSeconds(player.currentTime())
+        let currentFrameIndex = Int64(round(currentSec * safeFps))
+        let targetFrameIndex = max(0, currentFrameIndex + Int64(count))
+        let targetSec = Double(targetFrameIndex) / safeFps
+        let targetCm = CMTime(seconds: targetSec, preferredTimescale: 60000)
 
-        if count > 0 && item.canStepForward {
-            item.step(byCount: count)
-            let seconds = CMTimeGetSeconds(item.currentTime())
-            self.currentPositionMs = Int64(seconds * 1000.0)
+        player.seek(to: targetCm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            guard let self = self else { return }
+            self.pause()
+            self.currentPositionMs = Int64(round(targetSec * 1000.0))
             completion?()
-        } else if count < 0 && item.canStepBackward {
-            item.step(byCount: count)
-            let seconds = CMTimeGetSeconds(item.currentTime())
-            self.currentPositionMs = Int64(seconds * 1000.0)
-            completion?()
-        } else {
-            // High-precision CMTime seek fallback
-            let deltaSec = Double(count) / max(1.0, fps)
-            let currentSec = CMTimeGetSeconds(item.currentTime())
-            // Add a half-frame epsilon so rounding never settles on the same frame
-            let halfFrame = (0.5 / max(1.0, fps)) * (count > 0 ? 1.0 : -1.0)
-            let targetSec = max(0, currentSec + deltaSec + halfFrame)
-            let targetCm = CMTime(seconds: targetSec, preferredTimescale: 60000)
-
-            player.seek(to: targetCm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                guard let self = self else { return }
-                self.pause()
-                let ms = Int64(CMTimeGetSeconds(self.player.currentTime()) * 1000.0)
-                self.currentPositionMs = ms
-                completion?()
-            }
         }
     }
 
     func seek(to ms: Int64, completion: (() -> Void)? = nil) {
+        pause()
         let cmTime = CMTime(value: CMTimeValue(ms), timescale: 1000)
         player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             guard let self = self else { return }
+            self.pause()
             self.currentPositionMs = ms
             completion?()
         }

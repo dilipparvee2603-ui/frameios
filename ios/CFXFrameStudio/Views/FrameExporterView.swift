@@ -11,7 +11,6 @@ struct FrameExporterView: View {
     @State private var videoUrl: URL? = nil
     @State private var videoInfo: VideoInfo? = nil
 
-    @State private var previewImage: UIImage? = nil
     @State private var selectedFormat: FrameFormat = .png
     @State private var isExporting: Bool = false
 
@@ -90,14 +89,6 @@ struct FrameExporterView: View {
                                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                                         .stroke(Color.borderHairline, lineWidth: 1)
                                 )
-
-                            // Exact Uncompressed Frame Overlay when paused
-                            if !playerModel.isPlaying, let img = previewImage {
-                                Image(uiImage: img)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            }
 
                             // Floating Mute Button (Top-Left)
                             Button(action: { playerModel.toggleMute() }) {
@@ -338,42 +329,18 @@ struct FrameExporterView: View {
     private func togglePlayPause() {
         if playerModel.isPlaying {
             playerModel.pause()
-            updateExactFramePreview()
         } else {
-            previewImage = nil
             playerModel.play()
         }
     }
 
     private func seek(to ms: Int64) {
-        previewImage = nil
-        playerModel.seek(to: ms) {
-            if !self.playerModel.isPlaying {
-                self.updateExactFramePreview()
-            }
-        }
+        playerModel.seek(to: ms)
     }
 
     private func stepFrames(_ delta: Int64) {
         guard let info = videoInfo else { return }
-        previewImage = nil
-        playerModel.step(byCount: Int(delta), fps: info.fps) {
-            self.updateExactFramePreview()
-        }
-    }
-
-    private func updateExactFramePreview() {
-        guard let url = videoUrl, !playerModel.isPlaying else { return }
-        let ms = playerModel.currentPositionMs
-        Task {
-            if let frame = try? await VideoEngine.shared.extractFrame(from: url, at: ms) {
-                await MainActor.run {
-                    if !self.playerModel.isPlaying && self.playerModel.currentPositionMs == ms {
-                        self.previewImage = frame
-                    }
-                }
-            }
-        }
+        playerModel.step(byCount: Int(delta), fps: info.fps, durationMs: info.durationMs)
     }
 
     private func exportCurrentFrame() {
