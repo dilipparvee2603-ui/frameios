@@ -23,40 +23,52 @@ struct LauncherView: View {
                             .font(.system(size: 13))
                             .foregroundColor(.textMuted)
                     }
-                    .padding(.top, 40)
-                    .padding(.bottom, 28)
+                    .padding(.top, 24)
+                    .padding(.bottom, 20)
 
-                    // 3 Clean Tool Cards
-                    VStack(spacing: 16) {
-                        NavigationLink(destination: VideoTrimmerView()) {
-                            toolCard(
-                                title: "Lossless Video Trimmer",
-                                subtitle: "Instant stream-copy cut with optional audio muting",
-                                icon: "scissors",
-                                accentColor: .brandAccent,
-                                gradient: LinearGradient.brandGradient
-                            )
-                        }
+                    // 4 Clean Tool Cards
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 12) {
+                            NavigationLink(destination: VideoTrimmerView()) {
+                                toolCard(
+                                    title: "Lossless Video Trimmer",
+                                    subtitle: "Instant stream-copy cut with optional audio muting",
+                                    icon: "scissors",
+                                    accentColor: .brandAccent,
+                                    gradient: LinearGradient.brandGradient
+                                )
+                            }
 
-                        NavigationLink(destination: FrameExporterView()) {
-                            toolCard(
-                                title: "Precise Frame Exporter",
-                                subtitle: "1f & 10f hardware stepping to uncompressed PNG",
-                                icon: "photo.stack",
-                                accentColor: .skyAccent
-                            )
-                        }
+                            NavigationLink(destination: FrameExporterView()) {
+                                toolCard(
+                                    title: "Precise Frame Exporter",
+                                    subtitle: "1f & 10f hardware stepping to uncompressed PNG",
+                                    icon: "photo.stack",
+                                    accentColor: .skyAccent
+                                )
+                            }
 
-                        NavigationLink(destination: VideoConverterView()) {
-                            toolCard(
-                                title: "Video Format Converter",
-                                subtitle: "Convert MP4 ↔ MOV at 100% original resolution",
-                                icon: "arrow.triangle.2.circlepath",
-                                accentColor: .emeraldAccent
-                            )
+                            NavigationLink(destination: VideoConverterView()) {
+                                toolCard(
+                                    title: "Video Format Converter",
+                                    subtitle: "Convert MP4 ↔ MOV at 100% original resolution",
+                                    icon: "arrow.triangle.2.circlepath",
+                                    accentColor: .emeraldAccent
+                                )
+                            }
+
+                            NavigationLink(destination: ImageCropperView()) {
+                                toolCard(
+                                    title: "Lossless Image Cropper",
+                                    subtitle: "Crop to custom & social ratios (1:1, 4:5, 16:9, 9:16)",
+                                    icon: "crop",
+                                    accentColor: .amberAccent
+                                )
+                            }
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
                     }
-                    .padding(.horizontal, 20)
 
                     Spacer()
 
