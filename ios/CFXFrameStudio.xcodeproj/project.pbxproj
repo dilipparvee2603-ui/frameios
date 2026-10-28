@@ -30,6 +30,7 @@
 		E20000012900000100000014 /* StorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000016 /* StorageManager.swift */; };
 		E20000012900000100000015 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000017 /* SettingsView.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
+		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -69,6 +70,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E30000012900000100000002 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXGroup section */
 		E40000012900000100000001 = {
@@ -159,6 +174,7 @@
 				E60000012900000100000001 /* Sources */,
 				E30000012900000100000001 /* Frameworks */,
 				E60000012900000100000002 /* Resources */,
+				E30000012900000100000002 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);

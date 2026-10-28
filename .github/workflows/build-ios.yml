@@ -54,7 +54,24 @@ jobs:
           cd ios
           APP_PATH=$(find build -name "CFXFrameStudio.app" -type d | head -n 1)
           echo "Found app at: $APP_PATH"
+          mkdir -p "$APP_PATH/Frameworks"
+
+          # Copy any PackageFrameworks that Xcode did not embed automatically
+          if [ -d "build/Build/Products/Release-iphoneos/PackageFrameworks" ]; then
+            echo "Copying PackageFrameworks into $APP_PATH/Frameworks/..."
+            cp -R build/Build/Products/Release-iphoneos/PackageFrameworks/* "$APP_PATH/Frameworks/" 2>/dev/null || true
+          fi
+
+          echo "Embedded frameworks inside CFXFrameStudio.app/Frameworks:"
+          ls -la "$APP_PATH/Frameworks"
+
           cp CFXFrameStudio/AppIcon*.png "$APP_PATH/" 2>/dev/null || true
+
+          # Ad-hoc code sign all embedded frameworks and the main executable for reliable sideloading
+          echo "Ad-hoc code signing all frameworks..."
+          find "$APP_PATH/Frameworks" -mindepth 1 -maxdepth 1 -name "*.framework" -exec /usr/bin/codesign --force --sign - --timestamp=none {} \; 2>/dev/null || true
+          /usr/bin/codesign --force --sign - --timestamp=none "$APP_PATH" 2>/dev/null || true
+
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -r -y CFXFrameStudio.ipa Payload
