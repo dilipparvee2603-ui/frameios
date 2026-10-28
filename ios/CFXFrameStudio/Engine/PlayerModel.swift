@@ -15,9 +15,11 @@ final class PlayerModel: ObservableObject {
     func setup(with url: URL, onTick: ((Int64) -> Void)? = nil) {
         cleanup()
         let playerItem = AVPlayerItem(url: url)
+        // High quality pitch algorithm prevents distortion during slow or retimed playback
+        playerItem.audioTimePitchAlgorithm = .timeDomain
         player = AVPlayer(playerItem: playerItem)
         player.isMuted = isMuted
-        player.actionAtItemEnd = .pause
+        player.actionAtItemEnd = .none
 
         // Prime decoder to display frame 0 immediately upon loading
         player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -50,16 +52,23 @@ final class PlayerModel: ObservableObject {
         isPlaying = false
     }
 
-    func play() {
-        player.play()
+    func play(rate: Float = 1.0) {
+        let safeRate = max(0.01, rate)
+        player.rate = safeRate
         isPlaying = true
     }
 
-    func togglePlayPause() {
+    func setRate(_ rate: Float) {
+        if isPlaying {
+            player.rate = max(0.01, rate)
+        }
+    }
+
+    func togglePlayPause(rate: Float = 1.0) {
         if isPlaying {
             pause()
         } else {
-            play()
+            play(rate: rate)
         }
     }
 
@@ -93,15 +102,24 @@ final class PlayerModel: ObservableObject {
         }
     }
 
-    func seek(to ms: Int64, completion: (() -> Void)? = nil) {
-        pause()
+    func seek(to ms: Int64, preservePlaybackState: Bool = false, completion: (() -> Void)? = nil) {
+        let wasPlaying = isPlaying
+        let activeRate = player.rate
+        if !preservePlaybackState {
+            pause()
+        }
         let targetSec = Double(ms) / 1000.0
         let cmTime = CMTime(seconds: targetSec, preferredTimescale: 60000)
         player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             guard let self = self else { return }
-            self.pause()
             self.currentPositionTime = cmTime
             self.currentPositionMs = ms
+            if preservePlaybackState && wasPlaying {
+                self.player.rate = (activeRate > 0) ? activeRate : 1.0
+                self.isPlaying = true
+            } else if !preservePlaybackState {
+                self.pause()
+            }
             completion?()
         }
     }

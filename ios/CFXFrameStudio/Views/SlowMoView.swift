@@ -19,6 +19,15 @@ struct SlowMoView: View {
     @State private var selectedInterpolation: SlowMoInterpolationMode = .opticalFlow
     @State private var selectedAudioMode: SlowMoAudioMode = .pitchPreserved
 
+    // Preview Mode (Slow-Mo Preview vs Realtime 1.0x)
+    @State private var isPreviewingSlowMo: Bool = true
+
+    // Collapsible Sections State
+    @State private var isSpeedSectionExpanded: Bool = true
+    @State private var isEngineSectionExpanded: Bool = false
+    @State private var isAudioFpsSectionExpanded: Bool = false
+    @State private var isRangeSectionExpanded: Bool = false
+
     // Sub-range trimming
     @State private var inPointMs: Int64 = 0
     @State private var outPointMs: Int64 = 0
@@ -46,172 +55,49 @@ struct SlowMoView: View {
         ("10% (10x)", 10.0)
     ]
 
+    private var effectivePreviewRate: Float {
+        if isPreviewingSlowMo {
+            return Float(max(0.01, speedPercentage / 100.0))
+        } else {
+            return 1.0
+        }
+    }
+
     var body: some View {
         ZStack {
             Color.voidCanvas.ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     // Header Bar
-                    HStack {
-                        Button(action: {
-                            playerModel.cleanup()
-                            dismiss()
-                        }) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.textPrimary)
-                                .frame(width: 36, height: 36)
-                                .background(Color.surfaceCard)
-                                .clipShape(Circle())
-                        }
-
-                        Text("SMOOTH SLOW-MO STUDIO")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.textPrimary)
-
-                        Spacer()
-
-                        if videoUrl != nil {
-                            HStack(spacing: 8) {
-                                PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
-                                    Image(systemName: "photo.on.rectangle.angled")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundColor(.brandAccent)
-                                        .frame(width: 36, height: 36)
-                                        .background(Color.surfaceCard)
-                                        .clipShape(Circle())
-                                }
-
-                                Button(action: { showFilePicker = true }) {
-                                    Image(systemName: "folder.fill")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundColor(.brandAccent)
-                                        .frame(width: 36, height: 36)
-                                        .background(Color.surfaceCard)
-                                        .clipShape(Circle())
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
+                    headerBar
 
                     if videoUrl == nil {
                         // Empty State: Dual Import Options
-                        VStack(spacing: 14) {
-                            PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
-                                GlassCard(cornerRadius: 18, padding: 22) {
-                                    HStack(spacing: 16) {
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .fill(Color.brandAccent.opacity(0.15))
-                                                .frame(width: 48, height: 48)
-                                            Image(systemName: "gauge.with.dots.needle.bottom.0percent")
-                                                .font(.system(size: 22, weight: .bold))
-                                                .foregroundColor(.brandAccent)
-                                        }
+                        emptyStatePicker
+                    } else if let info = videoInfo {
+                        // 1. Video Player Container
+                        playerCard(info: info)
 
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text("Import from Camera Roll")
-                                                .font(.system(size: 15, weight: .bold))
-                                                .foregroundColor(.textPrimary)
-                                            Text("Photos library videos (24, 30, 60, 120, 240fps)")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.textMuted)
-                                        }
+                        // 2. Slow-Mo vs Realtime Preview Mode Pill Bar
+                        previewModePillBar
 
-                                        Spacer()
+                        // 3. Transport, Timeline Scrubber & IN/OUT Markers
+                        transportAndScrubberCard(info: info)
 
-                                        Image(systemName: "chevron.right")
-                                            .foregroundColor(.textTertiary)
-                                    }
-                                }
-                            }
+                        // 4. Collapsible Settings Cards
+                        collapsibleSpeedCard(info: info)
+                        collapsibleEngineCard
+                        collapsibleAudioAndFpsCard
+                        collapsibleRangeCard(info: info)
 
-                            Button(action: { showFilePicker = true }) {
-                                GlassCard(cornerRadius: 18, padding: 22) {
-                                    HStack(spacing: 16) {
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 12)
-                                                .fill(Color.skyAccent.opacity(0.15))
-                                                .frame(width: 48, height: 48)
-                                            Image(systemName: "folder.fill")
-                                                .font(.system(size: 22, weight: .bold))
-                                                .foregroundColor(.skyAccent)
-                                        }
+                        // 5. Generate & Export Actions
+                        actionSection(info: info)
 
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text("Import from Files App")
-                                                .font(.system(size: 15, weight: .bold))
-                                                .foregroundColor(.textPrimary)
-                                            Text("MP4, MOV, MKV, WebM from Downloads & iCloud")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.textMuted)
-                                        }
-
-                                        Spacer()
-
-                                        Image(systemName: "chevron.right")
-                                            .foregroundColor(.textTertiary)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 40)
-                    } else {
-                        // Video Player Card with Live Rate
-                        ZStack(alignment: .topLeading) {
-                            VideoPlayerView(player: playerModel.player)
-                                .aspectRatio(16 / 9, contentMode: .fit)
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .stroke(Color.borderHairline, lineWidth: 1)
-                                )
-
-                            // Floating Mute Button
-                            Button(action: { playerModel.toggleMute() }) {
-                                Image(systemName: playerModel.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(playerModel.isMuted ? Color(hex: "FF5252") : .white)
-                                    .frame(width: 34, height: 34)
-                                    .background(Color.black.opacity(0.75))
-                                    .clipShape(Circle())
-                            }
-                            .padding(10)
-
-                            // Resolution & Source FPS Badge
-                            if let info = videoInfo {
-                                HStack(spacing: 4) {
-                                    Text("\(info.width) × \(info.height)")
-                                    Text("•")
-                                    Text(String(format: "%.0f FPS", info.fps))
-                                }
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.emeraldAccent)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.black.opacity(0.75))
-                                .cornerRadius(6)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                .padding(10)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-
-                        // Transport & Range Card
-                        if let info = videoInfo {
-                            rangeAndTransportCard(info: info)
-                            speedControlCard(info: info)
-                            interpolationCard
-                            audioAndFramerateCard
-                            actionSection(info: info)
-                            Spacer(minLength: 24)
-                        }
+                        Spacer(minLength: 24)
                     }
                 }
+                .padding(.bottom, 20)
             }
 
             // Remuxing MKV Modal
@@ -262,15 +148,228 @@ struct SlowMoView: View {
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Header Bar
+
+    private var headerBar: some View {
+        HStack {
+            Button(action: {
+                playerModel.cleanup()
+                dismiss()
+            }) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.textPrimary)
+                    .frame(width: 36, height: 36)
+                    .background(Color.surfaceCard)
+                    .clipShape(Circle())
+            }
+
+            Text("SMOOTH SLOW-MO STUDIO")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundColor(.textPrimary)
+
+            Spacer()
+
+            if videoUrl != nil {
+                HStack(spacing: 8) {
+                    PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.brandAccent)
+                            .frame(width: 36, height: 36)
+                            .background(Color.surfaceCard)
+                            .clipShape(Circle())
+                    }
+
+                    Button(action: { showFilePicker = true }) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.brandAccent)
+                            .frame(width: 36, height: 36)
+                            .background(Color.surfaceCard)
+                            .clipShape(Circle())
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStatePicker: some View {
+        VStack(spacing: 14) {
+            PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
+                GlassCard(cornerRadius: 18, padding: 22) {
+                    HStack(spacing: 16) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.brandAccent.opacity(0.15))
+                                .frame(width: 48, height: 48)
+                            Image(systemName: "gauge.with.dots.needle.bottom.0percent")
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(.brandAccent)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Import from Camera Roll")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.textPrimary)
+                            Text("Photos library videos (24, 30, 60, 120, 240fps)")
+                                .font(.system(size: 12))
+                                .foregroundColor(.textMuted)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.textTertiary)
+                    }
+                }
+            }
+
+            Button(action: { showFilePicker = true }) {
+                GlassCard(cornerRadius: 18, padding: 22) {
+                    HStack(spacing: 16) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.skyAccent.opacity(0.15))
+                                .frame(width: 48, height: 48)
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(.skyAccent)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Import from Files App")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.textPrimary)
+                            Text("MP4, MOV, MKV, WebM from Downloads & iCloud")
+                                .font(.system(size: 12))
+                                .foregroundColor(.textMuted)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.textTertiary)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 40)
+    }
+
+    // MARK: - Video Player Card
 
     @ViewBuilder
-    private func rangeAndTransportCard(info: VideoInfo) -> some View {
+    private func playerCard(info: VideoInfo) -> some View {
+        ZStack(alignment: .topLeading) {
+            VideoPlayerView(player: playerModel.player)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.borderHairline, lineWidth: 1)
+                )
+
+            // Floating Mute Button
+            Button(action: { playerModel.toggleMute() }) {
+                Image(systemName: playerModel.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(playerModel.isMuted ? Color(hex: "FF5252") : .white)
+                    .frame(width: 32, height: 32)
+                    .background(Color.black.opacity(0.75))
+                    .clipShape(Circle())
+            }
+            .padding(10)
+
+            // Resolution & FPS Badge
+            HStack(spacing: 4) {
+                Text("\(info.width) × \(info.height)")
+                Text("•")
+                Text(String(format: "%.0f FPS", info.fps))
+            }
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundColor(.emeraldAccent)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.black.opacity(0.75))
+            .cornerRadius(6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(10)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Preview Mode Pill Bar
+
+    private var previewModePillBar: some View {
+        HStack(spacing: 8) {
+            // Slow-Mo Preview Pill
+            Button(action: {
+                isPreviewingSlowMo = true
+                playerModel.triggerHaptic()
+                if playerModel.isPlaying {
+                    playerModel.setRate(effectivePreviewRate)
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "gauge.with.dots.needle.bottom.0percent")
+                        .font(.system(size: 12, weight: .bold))
+                    Text(String(format: "Slow-Mo Preview (%.0f%%)", speedPercentage))
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .foregroundColor(isPreviewingSlowMo ? .white : .textMuted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(isPreviewingSlowMo ? Color.brandAccent : Color.surfaceCard)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isPreviewingSlowMo ? Color.brandAccent.opacity(0.5) : Color.borderHairline, lineWidth: 1)
+                )
+            }
+
+            // Realtime 1.0x Pill
+            Button(action: {
+                isPreviewingSlowMo = false
+                playerModel.triggerHaptic()
+                if playerModel.isPlaying {
+                    playerModel.setRate(1.0)
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "play.circle")
+                        .font(.system(size: 12, weight: .bold))
+                    Text("1.0x Realtime")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .foregroundColor(!isPreviewingSlowMo ? .white : .textMuted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(!isPreviewingSlowMo ? Color.skyAccent : Color.surfaceCard)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(!isPreviewingSlowMo ? Color.skyAccent.opacity(0.5) : Color.borderHairline, lineWidth: 1)
+                )
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Transport & Scrubber Card
+
+    @ViewBuilder
+    private func transportAndScrubberCard(info: VideoInfo) -> some View {
         GlassCard(cornerRadius: 16, padding: 14) {
             VStack(spacing: 12) {
-                // Header: Current SMPTE & Active Range
+                // Timecode Header
                 HStack {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 6) {
                         Image(systemName: "clock")
                             .font(.system(size: 11))
                             .foregroundColor(.brandAccent)
@@ -287,12 +386,18 @@ struct SlowMoView: View {
 
                     let clipDurationSec = Double(max(100, outPointMs - inPointMs)) / 1000.0
                     let outputDurationSec = clipDurationSec * (100.0 / speedPercentage)
-                    Text(String(format: "In: %.1fs → Out: %.1fs", clipDurationSec, outputDurationSec))
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.emeraldAccent)
+                    HStack(spacing: 4) {
+                        Text(String(format: "%.1fs Clip", clipDurationSec))
+                            .foregroundColor(.textMuted)
+                        Text("→")
+                            .foregroundColor(.textTertiary)
+                        Text(String(format: "%.1fs Slow-Mo", outputDurationSec))
+                            .foregroundColor(.emeraldAccent)
+                    }
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                 }
 
-                // Interactive Scrubber
+                // Interactive Scrubber Bar
                 GeometryReader { geo in
                     let width = geo.size.width
                     let duration = max(1, Double(info.durationMs))
@@ -301,21 +406,22 @@ struct SlowMoView: View {
                     let playheadFrac = CGFloat(Double(playerModel.currentPositionMs) / duration)
 
                     ZStack(alignment: .leading) {
+                        // Background track
                         RoundedRectangle(cornerRadius: 3)
                             .fill(Color.elevatedSurface)
                             .frame(height: 6)
 
-                        // Highlighted Range
+                        // Highlighted IN -> OUT range
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.brandAccent.opacity(0.85))
+                            .fill(LinearGradient.brandGradient)
                             .frame(width: max(2, (outFrac - inFrac) * width), height: 6)
                             .offset(x: inFrac * width)
 
-                        // Playhead
+                        // Playhead indicator
                         Circle()
                             .fill(Color.white)
                             .frame(width: 14, height: 14)
-                            .shadow(radius: 3)
+                            .shadow(color: Color.brandAccent.opacity(0.6), radius: 4)
                             .offset(x: max(0, min(width - 14, playheadFrac * width - 7)))
                     }
                     .contentShape(Rectangle())
@@ -324,21 +430,35 @@ struct SlowMoView: View {
                             .onChanged { value in
                                 let frac = max(0, min(1, value.location.x / width))
                                 let targetMs = Int64(frac * duration)
-                                playerModel.seek(to: targetMs)
+                                playerModel.seek(to: targetMs, preservePlaybackState: true)
                             }
                     )
                 }
-                .frame(height: 18)
+                .frame(height: 16)
 
-                // Range Set Buttons
+                // Master Transport Controls Bar
                 HStack(spacing: 8) {
+                    // Jump to IN
                     Button(action: {
-                        inPointMs = min(playerModel.currentPositionMs, outPointMs - 100)
+                        playerModel.triggerHaptic()
+                        playerModel.seek(to: inPointMs, preservePlaybackState: true)
+                    }) {
+                        Image(systemName: "backward.end.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(6)
+                    }
+
+                    // Set IN
+                    Button(action: {
+                        inPointMs = min(playerModel.currentPositionMs, max(0, outPointMs - 100))
                         playerModel.triggerHaptic()
                     }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Image(systemName: "arrow.right.to.line")
-                            Text("Set IN")
+                            Text("IN")
                                 .font(.system(size: 11, weight: .bold))
                         }
                         .frame(maxWidth: .infinity)
@@ -348,24 +468,28 @@ struct SlowMoView: View {
                         .foregroundColor(.skyAccent)
                     }
 
-                    Button(action: {
-                        playerModel.seek(to: inPointMs)
-                        togglePlayPause()
-                    }) {
-                        Image(systemName: playerModel.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 32)
-                            .background(LinearGradient.brandGradient)
-                            .cornerRadius(8)
+                    // Main Play / Pause Button with Rate Indicator
+                    Button(action: togglePlayPause) {
+                        HStack(spacing: 6) {
+                            Image(systemName: playerModel.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 14, weight: .bold))
+                            Text(playerModel.isPlaying ? (isPreviewingSlowMo ? "\(Int(speedPercentage))%" : "1.0x") : "Play")
+                                .font(.system(size: 12, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(minWidth: 74, minHeight: 34)
+                        .background(LinearGradient.brandGradient)
+                        .cornerRadius(8)
+                        .shadow(color: Color.brandAccent.opacity(playerModel.isPlaying ? 0.4 : 0.0), radius: 6)
                     }
 
+                    // Set OUT
                     Button(action: {
                         outPointMs = max(playerModel.currentPositionMs, inPointMs + 100)
                         playerModel.triggerHaptic()
                     }) {
-                        HStack(spacing: 4) {
-                            Text("Set OUT")
+                        HStack(spacing: 3) {
+                            Text("OUT")
                                 .font(.system(size: 11, weight: .bold))
                             Image(systemName: "arrow.left.to.line")
                         }
@@ -375,176 +499,278 @@ struct SlowMoView: View {
                         .cornerRadius(6)
                         .foregroundColor(.gradientStart)
                     }
+
+                    // Jump to OUT
+                    Button(action: {
+                        playerModel.triggerHaptic()
+                        playerModel.seek(to: outPointMs, preservePlaybackState: true)
+                    }) {
+                        Image(systemName: "forward.end.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(6)
+                    }
                 }
             }
         }
         .padding(.horizontal, 16)
     }
 
+    // MARK: - Collapsible 1: Speed & Presets
+
     @ViewBuilder
-    private func speedControlCard(info: VideoInfo) -> some View {
+    private func collapsibleSpeedCard(info: VideoInfo) -> some View {
         GlassCard(cornerRadius: 16, padding: 14) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                // Accordion Header
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isSpeedSectionExpanded.toggle()
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "gauge.with.dots.needle.bottom.0percent")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.brandAccent)
+                            .frame(width: 20)
+
                         Text("SLOW-MO SPEED")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .tracking(0.8)
+
+                        Spacer()
+
+                        Text(String(format: "%.1f%% (%.1fx Slow)", speedPercentage, 100.0 / speedPercentage))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(.brandAccent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(6)
+
+                        Image(systemName: isSpeedSectionExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(.textTertiary)
-                            .tracking(1.0)
-
-                        let slowMultiplier = 100.0 / speedPercentage
-                        Text(String(format: "%.1f%% Speed (%.1fx Slow-Mo)", speedPercentage, slowMultiplier))
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                            .foregroundColor(.brandAccent)
                     }
-
-                    Spacer()
-
-                    let clipDurationSec = Double(max(100, outPointMs - inPointMs)) / 1000.0
-                    let outputDurationSec = clipDurationSec * (100.0 / speedPercentage)
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("Output Duration")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.textMuted)
-                        Text(String(format: "%.1fs", outputDurationSec))
-                            .font(.system(size: 14, weight: .bold, design: .monospaced))
-                            .foregroundColor(.emeraldAccent)
-                    }
+                    .contentShape(Rectangle())
                 }
 
-                // Preset Pills
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(speedPresets, id: \.pct) { preset in
-                            Button(action: {
-                                speedPercentage = preset.pct
-                                playerModel.triggerHaptic()
-                                updatePlayerRate()
-                            }) {
-                                Text(preset.label)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(speedPercentage == preset.pct ? .white : .textMuted)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(speedPercentage == preset.pct ? Color.brandAccent : Color.elevatedSurface)
-                                    .cornerRadius(6)
+                if isSpeedSectionExpanded {
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Preset Buttons
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(speedPresets, id: \.pct) { preset in
+                                    Button(action: {
+                                        speedPercentage = preset.pct
+                                        playerModel.triggerHaptic()
+                                        if isPreviewingSlowMo && playerModel.isPlaying {
+                                            playerModel.setRate(effectivePreviewRate)
+                                        }
+                                    }) {
+                                        Text(preset.label)
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(speedPercentage == preset.pct ? .white : .textMuted)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .background(speedPercentage == preset.pct ? Color.brandAccent : Color.elevatedSurface)
+                                            .cornerRadius(6)
+                                    }
+                                }
                             }
                         }
-                    }
-                }
 
-                // Fine Continuous Slider (1% to 100%)
-                VStack(spacing: 4) {
-                    Slider(value: $speedPercentage, in: 1.0...100.0, step: 0.5) { _ in
-                        updatePlayerRate()
-                    }
-                    .tint(.brandAccent)
+                        // Fine Slider (1.0% to 100.0%)
+                        VStack(spacing: 4) {
+                            Slider(value: $speedPercentage, in: 1.0...100.0, step: 0.5) { _ in
+                                if isPreviewingSlowMo && playerModel.isPlaying {
+                                    playerModel.setRate(effectivePreviewRate)
+                                }
+                            }
+                            .tint(.brandAccent)
 
-                    HStack {
-                        Text("1% (100x Ultra)")
-                        Spacer()
-                        Text("50% (2x)")
-                        Spacer()
-                        Text("100% (Normal)")
+                            HStack {
+                                Text("1% (100x Ultra)")
+                                Spacer()
+                                Text("50% (2x)")
+                                Spacer()
+                                Text("100% (Normal)")
+                            }
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.textTertiary)
+                        }
                     }
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.textTertiary)
+                    .padding(.top, 4)
                 }
             }
         }
         .padding(.horizontal, 16)
     }
 
-    @ViewBuilder
-    private var interpolationCard: some View {
-        GlassCard(cornerRadius: 16, padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("MOTION INTERPOLATION ENGINE")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.textTertiary)
-                        .tracking(1.0)
-                    Spacer()
-                    Image(systemName: "wand.and.stars")
-                        .foregroundColor(.brandAccent)
-                        .font(.system(size: 12))
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(SlowMoInterpolationMode.allCases) { mode in
-                            Button(action: {
-                                selectedInterpolation = mode
-                                playerModel.triggerHaptic()
-                            }) {
-                                Text(mode.rawValue)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(selectedInterpolation == mode ? .white : .textMuted)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(selectedInterpolation == mode ? Color.brandAccent : Color.elevatedSurface)
-                                    .cornerRadius(6)
-                            }
-                        }
-                    }
-                }
-
-                Text(selectedInterpolation.description)
-                    .font(.system(size: 11))
-                    .foregroundColor(.textMuted)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.horizontal, 16)
-    }
+    // MARK: - Collapsible 2: Motion Interpolation Engine
 
     @ViewBuilder
-    private var audioAndFramerateCard: some View {
+    private var collapsibleEngineCard: some View {
         GlassCard(cornerRadius: 16, padding: 14) {
             VStack(alignment: .leading, spacing: 12) {
-                // Target Framerate
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("TARGET OUTPUT FRAMERATE")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.textTertiary)
-                        .tracking(1.0)
-
-                    HStack(spacing: 6) {
-                        fpsPill(60, label: "60 FPS (Ultra Smooth)")
-                        fpsPill(30, label: "30 FPS")
-                        fpsPill(24, label: "24 FPS (Cinematic)")
+                // Accordion Header
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isEngineSectionExpanded.toggle()
                     }
+                }) {
+                    HStack {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.brandAccent)
+                            .frame(width: 20)
+
+                        Text("INTERPOLATION ENGINE")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .tracking(0.8)
+
+                        Spacer()
+
+                        Text(selectedInterpolation.rawValue.components(separatedBy: " ").first ?? "")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.emeraldAccent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(6)
+
+                        Image(systemName: isEngineSectionExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textTertiary)
+                    }
+                    .contentShape(Rectangle())
                 }
 
-                Divider().background(Color.borderHairline)
-
-                // Audio Retiming Mode
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("AUDIO RETIMING")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.textTertiary)
-                        .tracking(1.0)
-
-                    HStack(spacing: 6) {
-                        ForEach(SlowMoAudioMode.allCases) { mode in
-                            Button(action: {
-                                selectedAudioMode = mode
-                                playerModel.triggerHaptic()
-                            }) {
-                                Text(mode.rawValue)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(selectedAudioMode == mode ? .white : .textMuted)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 6)
-                                    .background(selectedAudioMode == mode ? Color.skyAccent : Color.elevatedSurface)
-                                    .cornerRadius(6)
+                if isEngineSectionExpanded {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(SlowMoInterpolationMode.allCases) { mode in
+                                    Button(action: {
+                                        selectedInterpolation = mode
+                                        playerModel.triggerHaptic()
+                                    }) {
+                                        Text(mode.rawValue)
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(selectedInterpolation == mode ? .white : .textMuted)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .background(selectedInterpolation == mode ? Color.brandAccent : Color.elevatedSurface)
+                                            .cornerRadius(6)
+                                    }
+                                }
                             }
                         }
-                    }
 
-                    Text(selectedAudioMode.description)
-                        .font(.system(size: 11))
-                        .foregroundColor(.textMuted)
+                        Text(selectedInterpolation.description)
+                            .font(.system(size: 11))
+                            .foregroundColor(.textMuted)
+                            .lineLimit(2)
+                    }
+                    .padding(.top, 4)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Collapsible 3: Audio & Target Framerate
+
+    @ViewBuilder
+    private var collapsibleAudioAndFpsCard: some View {
+        GlassCard(cornerRadius: 16, padding: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Accordion Header
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isAudioFpsSectionExpanded.toggle()
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "waveform.badge.magnifyingglass")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.brandAccent)
+                            .frame(width: 20)
+
+                        Text("AUDIO & TARGET FPS")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .tracking(0.8)
+
+                        Spacer()
+
+                        Text("\(targetFps) FPS • \(selectedAudioMode.rawValue)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.skyAccent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(6)
+
+                        Image(systemName: isAudioFpsSectionExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textTertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+
+                if isAudioFpsSectionExpanded {
+                    VStack(alignment: .leading, spacing: 10) {
+                        // Framerate Selector
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("TARGET OUTPUT FRAMERATE")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.textTertiary)
+                                .tracking(1.0)
+
+                            HStack(spacing: 6) {
+                                fpsPill(60, label: "60 FPS (Ultra Smooth)")
+                                fpsPill(30, label: "30 FPS")
+                                fpsPill(24, label: "24 FPS (Cinematic)")
+                            }
+                        }
+
+                        Divider().background(Color.borderHairline)
+
+                        // Audio Mode Selector
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("AUDIO RETIMING MODE")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.textTertiary)
+                                .tracking(1.0)
+
+                            HStack(spacing: 6) {
+                                ForEach(SlowMoAudioMode.allCases) { mode in
+                                    Button(action: {
+                                        selectedAudioMode = mode
+                                        playerModel.triggerHaptic()
+                                    }) {
+                                        Text(mode.rawValue)
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(selectedAudioMode == mode ? .white : .textMuted)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 6)
+                                            .background(selectedAudioMode == mode ? Color.skyAccent : Color.elevatedSurface)
+                                            .cornerRadius(6)
+                                    }
+                                }
+                            }
+
+                            Text(selectedAudioMode.description)
+                                .font(.system(size: 11))
+                                .foregroundColor(.textMuted)
+                        }
+                    }
+                    .padding(.top, 4)
                 }
             }
         }
@@ -567,10 +793,96 @@ struct SlowMoView: View {
         }
     }
 
+    // MARK: - Collapsible 4: Range & Trim Points
+
+    @ViewBuilder
+    private func collapsibleRangeCard(info: VideoInfo) -> some View {
+        GlassCard(cornerRadius: 16, padding: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Accordion Header
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isRangeSectionExpanded.toggle()
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "scissors")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.brandAccent)
+                            .frame(width: 20)
+
+                        Text("RANGE MARKERS")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .tracking(0.8)
+
+                        Spacer()
+
+                        let clipDurationSec = Double(max(100, outPointMs - inPointMs)) / 1000.0
+                        Text(String(format: "%.1fs Clip", clipDurationSec))
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(.emeraldAccent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.elevatedSurface)
+                            .cornerRadius(6)
+
+                        Image(systemName: isRangeSectionExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textTertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+
+                if isRangeSectionExpanded {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("IN POINT")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.textMuted)
+                                Text(String(format: "%.2fs", Double(inPointMs) / 1000.0))
+                                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.skyAccent)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("OUT POINT")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.textMuted)
+                                Text(String(format: "%.2fs", Double(outPointMs) / 1000.0))
+                                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.gradientStart)
+                            }
+                        }
+
+                        Button(action: {
+                            inPointMs = 0
+                            outPointMs = info.durationMs
+                            playerModel.triggerHaptic()
+                        }) {
+                            Text("Reset to Full Video")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .background(Color.elevatedSurface)
+                                .cornerRadius(6)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: - Action & Export Section
+
     @ViewBuilder
     private func actionSection(info: VideoInfo) -> some View {
         VStack(spacing: 12) {
-            // Processing Card with Active Stop Button
+            // Active Processing Card
             if isProcessing {
                 GlassCard(cornerRadius: 14, padding: 14) {
                     VStack(spacing: 10) {
@@ -601,145 +913,116 @@ struct SlowMoView: View {
                             }
                         }
 
-                        ProgressView(value: processProgress, total: 1.0)
-                            .progressViewStyle(LinearProgressViewStyle(tint: .brandAccent))
+                        ProgressView(value: processProgress)
+                            .tint(.brandAccent)
                     }
                 }
                 .padding(.horizontal, 16)
             }
 
-            // Export / Stop Action Button
-            if isProcessing {
-                Button(action: stopProcess) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "stop.fill")
+            // Master Generate Button
+            Button(action: generateSlowMotion) {
+                HStack(spacing: 8) {
+                    if isProcessing {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "wand.and.stars")
                             .font(.system(size: 16, weight: .bold))
-                        Text("Stop Slow-Mo Processing")
-                            .font(.system(size: 14, weight: .bold))
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color(hex: "FF453A"))
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+                    Text(isProcessing ? "Synthesizing Optical Flow..." : "Generate Smooth Slow-Mo Video")
+                        .font(.system(size: 15, weight: .bold))
                 }
-                .padding(.horizontal, 16)
-            } else {
-                Button(action: generateSlowMotion) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 16, weight: .bold))
-                        Text(String(format: "Export Smooth Slow-Mo (%.0f%%)", speedPercentage))
-                            .font(.system(size: 14, weight: .bold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(LinearGradient.brandGradient)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-                }
-                .padding(.horizontal, 16)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(LinearGradient.brandGradient)
+                .cornerRadius(12)
+                .shadow(color: Color.brandAccent.opacity(0.35), radius: 8)
             }
+            .disabled(isProcessing)
+            .padding(.horizontal, 16)
 
-            // Share / Save to Files Button
-            if let _ = exportedFileUrl {
+            // Share Sheet Button (if already exported)
+            if let _ = exportedFileUrl, !isProcessing {
                 Button(action: { showShareSheet = true }) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 15, weight: .bold))
                         Text("Share / Save Slow-Mo Video")
-                            .font(.system(size: 13, weight: .bold))
                     }
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.brandAccent)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(Color.elevatedSurface)
-                    .foregroundColor(.skyAccent)
-                    .cornerRadius(12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.skyAccent.opacity(0.4), lineWidth: 1)
-                    )
+                    .frame(height: 42)
+                    .background(Color.surfaceCard)
+                    .cornerRadius(10)
                 }
                 .padding(.horizontal, 16)
             }
         }
     }
+
+    // MARK: - Remuxing Modal
 
     private var remuxModal: some View {
         ZStack {
             Color.black.opacity(0.85).ignoresSafeArea()
-            GlassCard(cornerRadius: 20, padding: 22) {
-                VStack(spacing: 16) {
-                    HStack {
-                        Image(systemName: "film.stack.fill")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.brandAccent)
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.4)
+                    .tint(.brandAccent)
 
-                        Text("Remuxing MKV Movie")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.textPrimary)
+                Text("Preparing Matroska Media")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.textPrimary)
 
-                        Spacer()
+                Text("Remuxing stream data losslessly to MP4 for iOS hardware decoding...")
+                    .font(.system(size: 12))
+                    .foregroundColor(.textMuted)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
 
-                        Text("\(Int(remuxProgress * 100))%")
-                            .font(.system(size: 22, weight: .black, design: .rounded))
-                            .foregroundColor(.brandAccent)
-                    }
-
-                    ProgressView(value: remuxProgress, total: 1.0)
-                        .progressViewStyle(LinearProgressViewStyle(tint: .brandAccent))
-
-                    HStack {
-                        Text(remuxSpeedText.isEmpty ? "Losslessly repackaging to MP4..." : "Stream Copying @ \(remuxSpeedText)")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.emeraldAccent)
-
-                        Spacer()
-
-                        Text("0% Quality Loss")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.textMuted)
-                    }
-
-                    Button(action: {
-                        MKVRemuxEngine.shared.cancel()
-                        isRemuxing = false
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "xmark.circle.fill")
-                            Text("Cancel Remux")
-                        }
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Color(hex: "FF453A"))
-                        .cornerRadius(8)
-                    }
+                if remuxProgress > 0 {
+                    ProgressView(value: remuxProgress)
+                        .tint(.brandAccent)
+                        .padding(.horizontal, 32)
                 }
-                .frame(maxWidth: 300)
+
+                Button(action: {
+                    MKVRemuxEngine.shared.cancel()
+                    isRemuxing = false
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "xmark.circle.fill")
+                        Text("Cancel Remux")
+                    }
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(hex: "FF453A"))
+                    .cornerRadius(8)
+                }
             }
+            .padding(24)
+            .background(Color.surfaceCard)
+            .cornerRadius(16)
+            .padding(.horizontal, 32)
         }
-        .transition(.opacity)
-        .zIndex(99)
     }
 
-    // MARK: - Logic & Actions
+    // MARK: - Playback Logic & Actions
 
     private func togglePlayPause() {
+        playerModel.triggerHaptic()
         if playerModel.isPlaying {
             playerModel.pause()
         } else {
-            updatePlayerRate()
-            playerModel.play()
-        }
-    }
-
-    private func updatePlayerRate() {
-        // Preview rate in AVPlayer
-        let rate = Float(max(0.1, speedPercentage / 100.0))
-        if playerModel.isPlaying {
-            playerModel.player.rate = rate
+            // If at end or beyond outPoint, wrap to inPointMs
+            if playerModel.currentPositionMs >= outPointMs {
+                playerModel.seek(to: inPointMs, preservePlaybackState: true)
+            }
+            playerModel.play(rate: effectivePreviewRate)
         }
     }
 
@@ -754,9 +1037,9 @@ struct SlowMoView: View {
         guard let url = videoUrl, !isProcessing else { return }
         isProcessing = true
         processProgress = 0.0
-        processSpeedText = "Initializing..."
-
-        let info = videoInfo
+        processSpeedText = "Calculating motion vectors..."
+        playerModel.pause()
+        playerModel.triggerHaptic()
 
         Task {
             let result = await SlowMoEngine.shared.createSlowMotion(
@@ -767,28 +1050,27 @@ struct SlowMoView: View {
                 audioMode: selectedAudioMode,
                 inPointMs: inPointMs,
                 outPointMs: outPointMs,
-                totalSourceDurationMs: info?.durationMs ?? 0,
-                onProgress: { p, speed in
-                    self.processProgress = p
+                totalSourceDurationMs: videoInfo?.durationMs ?? 0
+            ) { progress, speed in
+                Task { @MainActor in
+                    self.processProgress = progress
                     self.processSpeedText = speed
                 }
-            )
+            }
 
             await MainActor.run {
                 self.isProcessing = false
-                if result.errorMessage == "OPERATION_CANCELLED" {
-                    return
-                }
-                if result.success, let outUrl = result.outputUrl {
-                    self.exportedFileUrl = outUrl
-                    if result.errorMessage != nil {
+                if result.success, let outputUrl = result.outputUrl {
+                    self.exportedFileUrl = outputUrl
+                    self.playerModel.triggerHaptic()
+                    if result.errorMessage == "NEEDS_SHARE_SHEET" {
                         self.showShareSheet = true
                     } else {
-                        self.alertMessage = "✓ Smooth slow-mo video exported and saved to Camera Roll!"
+                        self.alertMessage = "Smooth Slow-Mo video saved to Photos Camera Roll!"
                         self.showAlert = true
                     }
-                } else {
-                    self.alertMessage = "Slow-Mo Error: \(result.errorMessage ?? "Unknown error")"
+                } else if let error = result.errorMessage, error != "OPERATION_CANCELLED" {
+                    self.alertMessage = error
                     self.showAlert = true
                 }
             }
@@ -801,11 +1083,7 @@ struct SlowMoView: View {
                 let url = movie.url
                 let info = try await VideoEngine.shared.extractVideoInfo(from: url)
                 await MainActor.run {
-                    self.videoUrl = url
-                    self.videoInfo = info
-                    self.inPointMs = 0
-                    self.outPointMs = info.durationMs
-                    self.playerModel.setup(with: url)
+                    self.setupPlayer(url: url, info: info)
                 }
             }
         } catch {
@@ -870,17 +1148,28 @@ struct SlowMoView: View {
             do {
                 let info = try await VideoEngine.shared.extractVideoInfo(from: workingUrl)
                 await MainActor.run {
-                    self.videoUrl = workingUrl
-                    self.videoInfo = info
-                    self.inPointMs = 0
-                    self.outPointMs = info.durationMs
-                    self.playerModel.setup(with: workingUrl)
+                    self.setupPlayer(url: workingUrl, info: info)
                 }
             } catch {
                 await MainActor.run {
                     self.alertMessage = "Failed to load video: \(error.localizedDescription)"
                     self.showAlert = true
                 }
+            }
+        }
+    }
+
+    private func setupPlayer(url: URL, info: VideoInfo) {
+        self.videoUrl = url
+        self.videoInfo = info
+        self.inPointMs = 0
+        self.outPointMs = info.durationMs
+        self.playerModel.setup(with: url) { [weak playerModel] currentMs in
+            guard let playerModel = playerModel else { return }
+            let limitMs = self.outPointMs > 0 ? self.outPointMs : info.durationMs
+            if currentMs >= limitMs && playerModel.isPlaying {
+                // Loop smoothly back to inPointMs
+                playerModel.seek(to: self.inPointMs, preservePlaybackState: true)
             }
         }
     }
