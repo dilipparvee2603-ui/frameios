@@ -23,9 +23,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>CFX FrameStudio needs access to your Photo Library to load videos for trimming and frame export.</string>
+	<string>CFX FrameStudio needs access to your Photo Library to load videos and photos for lossless precision editing and cropping.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>CFX FrameStudio needs permission to save trimmed videos and lossless frames directly to your Camera Roll.</string>
+	<string>CFX FrameStudio needs permission to save trimmed videos, converted media, and lossless cropped images directly to your Camera Roll.</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

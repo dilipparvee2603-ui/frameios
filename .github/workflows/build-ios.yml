@@ -7,6 +7,9 @@ on:
       - '.github/workflows/build-ios.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -49,3 +52,30 @@ jobs:
           name: CFXFrameStudio-iOS-IPA
           path: ios/CFXFrameStudio.ipa
           retention-days: 14
+
+      - name: Publish Direct 1-Click .IPA to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: "v1.0-latest"
+          name: "CFX FrameStudio iOS — Direct 1-Click IPA"
+          body: |
+            ### ⚡ Direct 1-Click IPA Sideload
+            
+            Download **`CFXFrameStudio.ipa`** directly to your iPhone below (no unzipping needed!).
+            
+            #### 📱 Direct iPhone Install:
+            1. Tap **`CFXFrameStudio.ipa`** below to download directly in Safari.
+            2. When downloaded, open Safari Downloads > tap Share.
+            3. Choose **AltStore**, **Sideloadly**, or **TrollStore** to install.
+            
+            #### 🛠️ Studio Tools Included:
+            - ✂️ **Lossless Video Trimmer** (Instant stream-copy cut & audio toggle)
+            - 🎞️ **Precise Frame Exporter** (1f & 10f hardware stepping to PNG/JPG)
+            - 🔄 **Video Format Converter** (MP4 ↔ MOV with ProRes & HEVC)
+            - 📐 **Lossless Image Cropper** (Adjustable frame, 4-corner handles, pinch zoom & social aspect ratios)
+            - 📁 **Files App Integration** (`On My iPhone > CFX Studio`)
+          files: ios/CFXFrameStudio.ipa
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
