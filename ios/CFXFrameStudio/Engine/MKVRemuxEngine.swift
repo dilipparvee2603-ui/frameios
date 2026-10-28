@@ -42,7 +42,7 @@ final class MKVRemuxEngine {
         ]
 
         return try await Task.detached(priority: .userInitiated) {
-            let session = FFmpegKit.executeWithArguments(arguments)
+            let session = FFmpegKit.execute(withArguments: arguments)
             guard let session = session else {
                 throw NSError(
                     domain: "MKVRemuxEngine",
