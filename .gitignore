@@ -28,6 +28,10 @@ local.properties
 *.jpg
 *.jpeg
 
+# Preserve iOS Asset Catalog & AppIcon images
+!ios/CFXFrameStudio/Assets.xcassets/**
+!ios/CFXFrameStudio/AppIcon*.png
+
 # iOS & Xcode
 ios/build/
 ios/Payload/

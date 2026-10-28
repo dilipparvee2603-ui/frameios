@@ -49,6 +49,7 @@ jobs:
           cd ios
           APP_PATH=$(find build -name "CFXFrameStudio.app" -type d | head -n 1)
           echo "Found app at: $APP_PATH"
+          cp CFXFrameStudio/AppIcon*.png "$APP_PATH/" 2>/dev/null || true
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -r CFXFrameStudio.ipa Payload
