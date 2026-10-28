@@ -147,11 +147,17 @@ final class YouTubeDownloadEngine: ObservableObject {
                 let m4aAudio = audioFormats.first { ($0["container"] as? String)?.lowercased() == "m4a" } ?? audioFormats.first
                 if let a = m4aAudio, let aUrl = a["url"] as? String {
                     bestAudioUrl = aUrl
-                    bestAudioBytes = (a["clen"] as? String).flatMap { Int64($0) } ?? (a["bitrate"] as? Int64)
+                    var aBytes = (a["clen"] as? String).flatMap { Int64($0) }
+                    if aBytes == nil, let bit = a["bitrate"] as? Int64, duration > 0 {
+                        aBytes = (bit * Int64(duration)) / 8
+                    }
+                    bestAudioBytes = aBytes
                 }
             } else if let audioStreams = json["audioStreams"] as? [[String: Any]], let first = audioStreams.first {
                 bestAudioUrl = first["url"] as? String
-                bestAudioBytes = first["bitrate"] as? Int64
+                if let bit = first["bitrate"] as? Int64, duration > 0 {
+                    bestAudioBytes = (bit * Int64(duration)) / 8
+                }
             }
 
             // 1. Process Combined formatStreams (e.g. 720p, 360p)
@@ -223,6 +229,12 @@ final class YouTubeDownloadEngine: ObservableObject {
                         label = "\(quality) (\(container))"
                     }
 
+                    var videoBytes = (v["clen"] as? String).flatMap { Int64($0) }
+                    if videoBytes == nil, let bit = v["bitrate"] as? Int64, duration > 0 {
+                        videoBytes = (bit * Int64(duration)) / 8
+                    }
+                    let totalApproxBytes: Int64? = canMuxAudio ? ((videoBytes ?? 0) + (bestAudioBytes ?? 0)) : videoBytes
+
                     let opt = YouTubeQualityOption(
                         id: key,
                         label: label,
@@ -232,7 +244,7 @@ final class YouTubeDownloadEngine: ObservableObject {
                         audioCodec: canMuxAudio ? "AAC" : "None",
                         downloadUrl: streamUrl,
                         audioUrl: canMuxAudio ? bestAudioUrl : nil,
-                        approximateBytes: (v["clen"] as? String).flatMap { Int64($0) } ?? (v["bitrate"] as? Int64),
+                        approximateBytes: totalApproxBytes,
                         isCameraRollCompatible: isCompatible
                     )
                     options.append(opt)

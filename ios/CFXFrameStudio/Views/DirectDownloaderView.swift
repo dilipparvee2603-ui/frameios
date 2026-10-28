@@ -10,6 +10,7 @@ struct DirectDownloaderView: View {
     @State private var showShareSheet: Bool = false
     @State private var recentDownloads: [URL] = []
     @State private var showSettingsModal: Bool = false
+    @State private var selectedQualityId: String = ""
 
     private var isYouTubeLink: Bool {
         YouTubeDownloadEngine.isYouTubeUrl(inputUrl)
@@ -223,8 +224,21 @@ struct DirectDownloaderView: View {
         }
     }
 
+    private func currentSelectedQuality(info: YouTubeVideoInfo) -> YouTubeQualityOption {
+        if let match = info.qualities.first(where: { $0.id == selectedQualityId }) {
+            return match
+        }
+        return info.qualities.first ?? YouTubeQualityOption(
+            id: "fallback", label: "Auto (Best Quality)", resolution: 1080, format: "MP4",
+            videoCodec: "H.264", audioCodec: "AAC", downloadUrl: "", audioUrl: nil,
+            approximateBytes: nil, isCameraRollCompatible: true
+        )
+    }
+
     @ViewBuilder
     private func ytQualitiesCard(info: YouTubeVideoInfo) -> some View {
+        let currentOption = currentSelectedQuality(info: info)
+
         GlassCard(cornerRadius: 18, padding: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 // Video Header
@@ -255,99 +269,115 @@ struct DirectDownloaderView: View {
 
                 Divider().background(Color.borderHairline)
 
-                Text("AVAILABLE STREAM QUALITIES")
+                Text("SELECT RESOLUTION / QUALITY")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.textMuted)
                     .tracking(1.0)
 
-                VStack(spacing: 8) {
+                // Dropdown Menu Selector
+                Menu {
                     ForEach(info.qualities) { option in
-                        ytQualityRow(option: option)
+                        Button(action: {
+                            selectedQualityId = option.id
+                        }) {
+                            HStack {
+                                Text(option.label)
+                                if option.isCameraRollCompatible {
+                                    Image(systemName: "checkmark.circle.fill")
+                                } else {
+                                    Image(systemName: "folder.fill")
+                                }
+                                if !option.displaySize.isEmpty {
+                                    Text("(\(option.displaySize))")
+                                }
+                            }
+                        }
                     }
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Text(currentOption.label)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.textPrimary)
+
+                                if currentOption.isCameraRollCompatible {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 9))
+                                        Text("Camera Roll")
+                                            .font(.system(size: 9, weight: .bold))
+                                    }
+                                    .foregroundColor(.emeraldAccent)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.emeraldAccent.opacity(0.12))
+                                    .clipShape(Capsule())
+                                } else {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "folder.fill")
+                                            .font(.system(size: 9))
+                                        Text("CFX Files")
+                                            .font(.system(size: 9, weight: .bold))
+                                    }
+                                    .foregroundColor(.amberAccent)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.amberAccent.opacity(0.12))
+                                    .clipShape(Capsule())
+                                }
+                            }
+
+                            HStack(spacing: 8) {
+                                Text("\(currentOption.format) • \(currentOption.videoCodec)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.textTertiary)
+
+                                if !currentOption.displaySize.isEmpty {
+                                    Text("• \(currentOption.displaySize)")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(.textMuted)
+                                }
+                            }
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.skyAccent)
+                            .padding(8)
+                            .background(Color.voidCanvas.opacity(0.6))
+                            .clipShape(Circle())
+                    }
+                    .padding(12)
+                    .background(Color.elevatedSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.borderHairline, lineWidth: 1)
+                    )
                 }
+
+                // Download Button for Selected Quality
+                Button(action: {
+                    engine.startYouTubeDownload(option: currentOption, videoTitle: info.title)
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 15, weight: .bold))
+                        Text("Download \(currentOption.resolution > 0 ? "\(currentOption.resolution)p" : currentOption.format)")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(LinearGradient.brandGradient)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .disabled(engine.isDownloading)
             }
         }
-    }
-
-    @ViewBuilder
-    private func ytQualityRow(option: YouTubeQualityOption) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(option.label)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.textPrimary)
-
-                    if option.isCameraRollCompatible {
-                        HStack(spacing: 3) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 9))
-                            Text("Camera Roll")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        .foregroundColor(.emeraldAccent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.emeraldAccent.opacity(0.12))
-                        .clipShape(Capsule())
-                    } else {
-                        HStack(spacing: 3) {
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 9))
-                            Text("CFX Files")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        .foregroundColor(.amberAccent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.amberAccent.opacity(0.12))
-                        .clipShape(Capsule())
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    Text("\(option.format) • \(option.videoCodec)")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.textTertiary)
-
-                    if !option.displaySize.isEmpty {
-                        Text("• \(option.displaySize)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.textMuted)
-                    }
-                }
-            }
-
-            Spacer()
-
-            Button(action: {
-                if let info = ytEngine.videoInfo {
-                    engine.startYouTubeDownload(option: option, videoTitle: info.title)
-                } else {
-                    engine.startDownload(urlString: option.downloadUrl)
-                }
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("Download")
-                        .font(.system(size: 11, weight: .bold))
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(option.isCameraRollCompatible ? Color.emeraldAccent : Color.brandAccent)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            .disabled(engine.isDownloading)
-        }
-        .padding(10)
-        .background(Color.elevatedSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.borderHairline, lineWidth: 1)
-        )
     }
 
     @ViewBuilder

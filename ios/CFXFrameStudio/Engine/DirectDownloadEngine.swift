@@ -30,6 +30,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
     @Published var statusMessage: String = ""
 
     private var downloadTask: URLSessionDownloadTask?
+    private var activeDownloadTask: Task<Void, Never>?
     private var urlSession: URLSession?
     private var lastSpeedCheckTime: Date = Date()
     private var lastSpeedBytes: Int64 = 0
@@ -70,48 +71,86 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
     func startYouTubeDownload(option: YouTubeQualityOption, videoTitle: String) {
         reset()
         self.isDownloading = true
+        self.statusMessage = "Starting high-speed stream..."
         self.lastSpeedCheckTime = Date()
         self.lastSpeedBytes = 0
 
         let safeTitle = sanitizeFilename(videoTitle)
 
-        // Check if adaptive video + audio mux is required (MP4 with audio)
-        if let audioUrlStr = option.audioUrl,
-           let audioUrl = URL(string: audioUrlStr),
-           option.format == "MP4",
-           let videoUrl = URL(string: option.downloadUrl) {
+        activeDownloadTask = Task {
+            do {
+                if let audioUrlStr = option.audioUrl,
+                   let audioUrl = URL(string: audioUrlStr),
+                   option.format == "MP4",
+                   let videoUrl = URL(string: option.downloadUrl) {
 
-            self.isMuxWorkflow = true
-            self.pendingAudioUrl = audioUrl
-            self.tempVideoFileUrl = nil
-            self.customTargetFilename = "\(safeTitle) - \(option.resolution)p.mp4"
-            self.statusMessage = "Downloading Video (\(option.resolution)p)..."
+                    self.isMuxWorkflow = true
+                    let tempVideo = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("cfx_vid_\(UUID().uuidString).mp4")
+                    let tempAudio = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("cfx_aud_\(UUID().uuidString).m4a")
+                    self.tempVideoFileUrl = tempVideo
 
-            let task = urlSession?.downloadTask(with: videoUrl)
-            self.downloadTask = task
-            task?.resume()
-        } else {
-            // Single stream (audio-only, progressive combined, or WebM)
-            self.isMuxWorkflow = false
-            let ext = option.format.lowercased()
-            let cleanLabel = option.label
-                .replacingOccurrences(of: "/", with: "-")
-                .replacingOccurrences(of: "•", with: "-")
-            self.customTargetFilename = "\(safeTitle) - \(cleanLabel).\(ext)"
-            self.statusMessage = "Downloading \(option.label)..."
+                    // Stage 1: High-Speed Chunked Video Download (0% -> 85%)
+                    self.statusMessage = "Downloading Video (\(option.resolution)p)..."
+                    try await self.downloadChunked(from: videoUrl, to: tempVideo, baseProgress: 0.0, weight: 0.85)
 
-            if let url = URL(string: option.downloadUrl) {
-                let task = urlSession?.downloadTask(with: url)
-                self.downloadTask = task
-                task?.resume()
-            } else {
-                self.errorMessage = "Invalid stream URL."
+                    // Stage 2: Audio Download (85% -> 95%)
+                    self.statusMessage = "Downloading Audio Track (AAC)..."
+                    try await self.downloadChunked(from: audioUrl, to: tempAudio, baseProgress: 0.85, weight: 0.10)
+
+                    // Stage 3: Lossless Passthrough Mux
+                    self.statusMessage = "Losslessly Merging Video & Audio..."
+                    self.progress = 0.96
+
+                    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true, attributes: nil)
+                    let destinationUrl = docs.appendingPathComponent("\(safeTitle) - \(option.resolution)p.mp4")
+
+                    try await self.muxVideoAndAudio(videoUrl: tempVideo, audioUrl: tempAudio, outputUrl: destinationUrl)
+
+                    try? FileManager.default.removeItem(at: tempVideo)
+                    try? FileManager.default.removeItem(at: tempAudio)
+                    self.tempVideoFileUrl = nil
+
+                    await self.finalizeDownload(destinationUrl: destinationUrl)
+                } else {
+                    // Single stream (audio-only, WebM 4K, or combined)
+                    self.isMuxWorkflow = false
+                    let ext = option.format.lowercased()
+                    let cleanLabel = option.label
+                        .replacingOccurrences(of: "/", with: "-")
+                        .replacingOccurrences(of: "•", with: "-")
+                    let filename = "\(safeTitle) - \(cleanLabel).\(ext)"
+
+                    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true, attributes: nil)
+                    let destinationUrl = docs.appendingPathComponent(sanitizeFilename(filename))
+
+                    self.statusMessage = "Downloading \(option.label)..."
+                    if let url = URL(string: option.downloadUrl) {
+                        try await self.downloadChunked(from: url, to: destinationUrl, baseProgress: 0.0, weight: 1.0)
+                        await self.finalizeDownload(destinationUrl: destinationUrl)
+                    } else {
+                        self.errorMessage = "Invalid stream URL."
+                        self.isDownloading = false
+                    }
+                }
+            } catch {
+                if Task.isCancelled {
+                    self.isDownloading = false
+                    return
+                }
                 self.isDownloading = false
+                self.errorMessage = "Download Error: \(error.localizedDescription)"
+                self.cleanupTempFiles()
             }
         }
     }
 
     func cancelDownload() {
+        activeDownloadTask?.cancel()
+        activeDownloadTask = nil
         downloadTask?.cancel()
         downloadTask = nil
         cleanupTempFiles()
@@ -135,6 +174,92 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         pendingAudioUrl = nil
         tempVideoFileUrl = nil
         customTargetFilename = nil
+    }
+
+    // MARK: - High-Speed Chunked Streaming (Bypasses YouTube Throttling)
+
+    private func downloadChunked(from url: URL, to destinationUrl: URL, baseProgress: Double, weight: Double) async throws {
+        // Probe size with Range: bytes=0-0
+        var probeReq = URLRequest(url: url)
+        probeReq.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        probeReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        probeReq.timeoutInterval = 12.0
+
+        let (zeroData, probeResp) = try await URLSession.shared.data(for: probeReq)
+        var totalBytes: Int64 = -1
+
+        if let http = probeResp as? HTTPURLResponse,
+           let contentRange = http.value(forHTTPHeaderField: "Content-Range") {
+            if let totalStr = contentRange.components(separatedBy: "/").last,
+               let parsed = Int64(totalStr) {
+                totalBytes = parsed
+            }
+        }
+
+        if totalBytes <= 0 {
+            totalBytes = probeResp.expectedContentLength
+        }
+
+        if FileManager.default.fileExists(atPath: destinationUrl.path) {
+            try? FileManager.default.removeItem(at: destinationUrl)
+        }
+        FileManager.default.createFile(atPath: destinationUrl.path, contents: nil, attributes: nil)
+
+        let fileHandle = try FileHandle(forWritingTo: destinationUrl)
+        defer {
+            try? fileHandle.close()
+        }
+
+        guard totalBytes > 0 else {
+            var directReq = URLRequest(url: url)
+            directReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+            let (data, _) = try await URLSession.shared.data(for: directReq)
+            try fileHandle.write(contentsOf: data)
+            self.bytesWritten = Int64(data.count)
+            self.totalBytes = Int64(data.count)
+            self.progress = baseProgress + weight
+            return
+        }
+
+        try fileHandle.write(contentsOf: zeroData)
+        var downloadedBytes: Int64 = Int64(zeroData.count)
+
+        // 5MB chunks (YouTube sweet spot for full multi-megabyte burst speed)
+        let chunkSize: Int64 = 5 * 1024 * 1024
+        var startOffset: Int64 = downloadedBytes
+
+        var lastSpeedTime = Date()
+        var lastSpeedBytes: Int64 = downloadedBytes
+
+        while startOffset < totalBytes {
+            try Task.checkCancellation()
+
+            let endOffset = min(totalBytes - 1, startOffset + chunkSize - 1)
+            var chunkReq = URLRequest(url: url)
+            chunkReq.setValue("bytes=\(startOffset)-\(endOffset)", forHTTPHeaderField: "Range")
+            chunkReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+            chunkReq.timeoutInterval = 30.0
+
+            let (chunkData, _) = try await URLSession.shared.data(for: chunkReq)
+            try fileHandle.write(contentsOf: chunkData)
+            downloadedBytes += Int64(chunkData.count)
+            startOffset = endOffset + 1
+
+            let currentBytes = downloadedBytes
+            let now = Date()
+            let timeDiff = now.timeIntervalSince(lastSpeedTime)
+            if timeDiff >= 0.25 {
+                let speedBps = Double(currentBytes - lastSpeedBytes) / timeDiff
+                self.downloadSpeedMBs = max(0.0, speedBps / (1024.0 * 1024.0))
+                lastSpeedTime = now
+                lastSpeedBytes = currentBytes
+            }
+
+            self.bytesWritten = currentBytes
+            self.totalBytes = totalBytes
+            let fraction = Double(currentBytes) / Double(max(1, totalBytes))
+            self.progress = min(1.0, baseProgress + (fraction * weight))
+        }
     }
 
     private func cleanupTempFiles() {
