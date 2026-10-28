@@ -185,6 +185,23 @@ struct VideoConverterView: View {
                                     .background(Color.elevatedSurface)
                                     .cornerRadius(4)
                             }
+
+                            // Cancel Remux Button
+                            Button(action: {
+                                MKVRemuxEngine.shared.cancel()
+                                isRemuxing = false
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "xmark.circle.fill")
+                                    Text("Cancel Remux")
+                                }
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(Color(hex: "FF453A"))
+                                .cornerRadius(8)
+                            }
                         }
                         .frame(maxWidth: 300)
                     }
@@ -519,34 +536,76 @@ struct VideoConverterView: View {
             }
             .padding(.horizontal, 16)
 
-            // Conversion Progress
+            // Conversion Progress with Active Stop Button
             if isConverting {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: convertProgress, total: 1.0)
-                        .progressViewStyle(LinearProgressViewStyle(tint: .brandAccent))
-                    Text(String(format: "Converting video: %.0f%%", convertProgress * 100.0))
-                        .font(.system(size: 11))
-                        .foregroundColor(.textMuted)
+                GlassCard(cornerRadius: 14, padding: 14) {
+                    VStack(spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Converting Video...")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.textPrimary)
+                                Text(String(format: "Progress: %.0f%%", convertProgress * 100.0))
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.emeraldAccent)
+                            }
+
+                            Spacer()
+
+                            Button(action: stopConversion) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "stop.circle.fill")
+                                        .font(.system(size: 14, weight: .bold))
+                                    Text("Stop")
+                                        .font(.system(size: 12, weight: .bold))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .background(Color(hex: "FF453A"))
+                                .cornerRadius(8)
+                            }
+                        }
+
+                        ProgressView(value: convertProgress, total: 1.0)
+                            .progressViewStyle(LinearProgressViewStyle(tint: .brandAccent))
+                    }
                 }
                 .padding(.horizontal, 16)
             }
 
-            // Convert Action Button
-            Button(action: startConversion) {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 16, weight: .bold))
-                    Text(isConverting ? "Converting..." : "Convert to \(targetContainer.rawValue) (\(info.width)×\(info.height))")
-                        .font(.system(size: 14, weight: .bold))
+            // Convert Action / Stop Button
+            if isConverting {
+                Button(action: stopConversion) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Stop Conversion Process")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color(hex: "FF453A"))
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(LinearGradient.brandGradient)
-                .foregroundColor(.white)
-                .cornerRadius(12)
+                .padding(.horizontal, 16)
+            } else {
+                Button(action: startConversion) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Convert to \(targetContainer.rawValue) (\(info.width)×\(info.height))")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(LinearGradient.brandGradient)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal, 16)
             }
-            .disabled(isConverting)
-            .padding(.horizontal, 16)
 
             // Share / Save to Files Button if finished
             if let outUrl = convertedFileUrl {
@@ -658,6 +717,12 @@ struct VideoConverterView: View {
         }
     }
 
+    private func stopConversion() {
+        VideoConvertEngine.shared.cancel()
+        isConverting = false
+        convertProgress = 0.0
+    }
+
     private func startConversion() {
         guard let url = videoUrl, !isConverting else { return }
         isConverting = true
@@ -677,6 +742,10 @@ struct VideoConverterView: View {
 
             await MainActor.run {
                 self.isConverting = false
+                if result.errorMessage == "OPERATION_CANCELLED" {
+                    // User tapped Stop — reset cleanly without error popups
+                    return
+                }
                 if result.success, let outUrl = result.outputUrl {
                     self.convertedFileUrl = outUrl
                     if result.errorMessage != nil {

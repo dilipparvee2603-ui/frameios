@@ -18,7 +18,16 @@ struct TrimResult {
 final class VideoTrimEngine {
     static let shared = VideoTrimEngine()
 
+    private var activeSession: AVAssetExportSession?
+    private var isCancelled: Bool = false
+
     private init() {}
+
+    func cancel() {
+        isCancelled = true
+        activeSession?.cancelExport()
+        activeSession = nil
+    }
 
     func trimVideo(
         srcUrl: URL,
@@ -103,6 +112,12 @@ final class VideoTrimEngine {
             session.timeRange = timeRange
             session.shouldOptimizeForNetworkUse = true
 
+            self.isCancelled = false
+            self.activeSession = session
+            defer {
+                self.activeSession = nil
+            }
+
             // Progress monitor task
             let progressTask = Task {
                 while !Task.isCancelled {
@@ -125,6 +140,11 @@ final class VideoTrimEngine {
             }
 
             progressTask.cancel()
+
+            if isCancelled || session.status == .cancelled {
+                try? FileManager.default.removeItem(at: tempOutUrl)
+                return TrimResult(success: false, outputUrl: nil, errorMessage: "OPERATION_CANCELLED")
+            }
 
             if session.status == .completed {
                 // Attempt to save to iOS Photos Library if supported

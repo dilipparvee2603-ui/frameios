@@ -479,34 +479,76 @@ struct VideoTrimmerView: View {
                             }
                             .padding(.horizontal, 16)
 
-                            // Export Progress Indicator
+                            // Export Progress with Active Stop Button
                             if isExporting {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ProgressView(value: exportProgress, total: 1.0)
-                                        .progressViewStyle(LinearProgressViewStyle(tint: .brandAccent))
-                                    Text(String(format: "Trimming clip: %.0f%%", exportProgress * 100.0))
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.textMuted)
+                                GlassCard(cornerRadius: 14, padding: 14) {
+                                    VStack(spacing: 10) {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("Trimming Clip...")
+                                                    .font(.system(size: 13, weight: .bold))
+                                                    .foregroundColor(.textPrimary)
+                                                Text(String(format: "Progress: %.0f%%", exportProgress * 100.0))
+                                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                                    .foregroundColor(.emeraldAccent)
+                                            }
+
+                                            Spacer()
+
+                                            Button(action: stopTrimProcess) {
+                                                HStack(spacing: 5) {
+                                                    Image(systemName: "stop.circle.fill")
+                                                        .font(.system(size: 14, weight: .bold))
+                                                    Text("Stop")
+                                                        .font(.system(size: 12, weight: .bold))
+                                                }
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 7)
+                                                .background(Color(hex: "FF453A"))
+                                                .cornerRadius(8)
+                                            }
+                                        }
+
+                                        ProgressView(value: exportProgress, total: 1.0)
+                                            .progressViewStyle(LinearProgressViewStyle(tint: .brandAccent))
+                                    }
                                 }
                                 .padding(.horizontal, 16)
                             }
 
-                            // Export Action Button
-                            Button(action: exportTrimmedVideo) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "arrow.down.circle.fill")
-                                        .font(.system(size: 16, weight: .bold))
-                                    Text(isExporting ? "Exporting Video..." : (includeAudioInExport ? "Export Trimmed Video" : "Export Muted Video Clip"))
-                                        .font(.system(size: 14, weight: .bold))
+                            // Export Action / Stop Button
+                            if isExporting {
+                                Button(action: stopTrimProcess) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "stop.fill")
+                                            .font(.system(size: 16, weight: .bold))
+                                        Text("Stop Trimming Process")
+                                            .font(.system(size: 14, weight: .bold))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 48)
+                                    .background(Color(hex: "FF453A"))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(12)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 48)
-                                .background(LinearGradient.brandGradient)
-                                .foregroundColor(.white)
-                                .cornerRadius(12)
+                                .padding(.horizontal, 16)
+                            } else {
+                                Button(action: exportTrimmedVideo) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "arrow.down.circle.fill")
+                                            .font(.system(size: 16, weight: .bold))
+                                        Text(includeAudioInExport ? "Export Trimmed Video" : "Export Muted Video Clip")
+                                            .font(.system(size: 14, weight: .bold))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 48)
+                                    .background(LinearGradient.brandGradient)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(12)
+                                }
+                                .padding(.horizontal, 16)
                             }
-                            .disabled(isExporting)
-                            .padding(.horizontal, 16)
 
                             // Share / Save to Files Button
                             if let _ = trimmedFileUrl {
@@ -609,6 +651,23 @@ struct VideoTrimmerView: View {
                                     .padding(.vertical, 3)
                                     .background(Color.elevatedSurface)
                                     .cornerRadius(4)
+                            }
+
+                            // Cancel Remux Button
+                            Button(action: {
+                                MKVRemuxEngine.shared.cancel()
+                                isRemuxing = false
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "xmark.circle.fill")
+                                    Text("Cancel Remux")
+                                }
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(Color(hex: "FF453A"))
+                                .cornerRadius(8)
                             }
                         }
                         .frame(maxWidth: 300)
@@ -802,6 +861,13 @@ struct VideoTrimmerView: View {
         playerModel.seek(to: outPointMs)
     }
 
+    private func stopTrimProcess() {
+        VideoTrimEngine.shared.cancel()
+        playerModel.triggerHaptic()
+        isExporting = false
+        exportProgress = 0.0
+    }
+
     private func exportTrimmedVideo() {
         guard let url = videoUrl, !isExporting else { return }
         isExporting = true
@@ -821,6 +887,10 @@ struct VideoTrimmerView: View {
 
             await MainActor.run {
                 self.isExporting = false
+                if result.errorMessage == "OPERATION_CANCELLED" {
+                    // User tapped Stop — reset cleanly without error popups
+                    return
+                }
                 if result.success, let outUrl = result.outputUrl {
                     self.trimmedFileUrl = outUrl
                     if result.errorMessage != nil {

@@ -414,6 +414,23 @@ struct FrameExporterView: View {
                                     .background(Color.elevatedSurface)
                                     .cornerRadius(4)
                             }
+
+                            // Cancel Remux Button
+                            Button(action: {
+                                MKVRemuxEngine.shared.cancel()
+                                isRemuxing = false
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "xmark.circle.fill")
+                                    Text("Cancel Remux")
+                                }
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(Color(hex: "FF453A"))
+                                .cornerRadius(8)
+                            }
                         }
                         .frame(maxWidth: 300)
                     }

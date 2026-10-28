@@ -55,7 +55,17 @@ struct ConvertResult {
 final class VideoConvertEngine {
     static let shared = VideoConvertEngine()
 
+    private var activeSession: AVAssetExportSession?
+    private var isCancelled: Bool = false
+
     private init() {}
+
+    func cancel() {
+        isCancelled = true
+        activeSession?.cancelExport()
+        activeSession = nil
+        MKVRemuxEngine.shared.cancel()
+    }
 
     func convertVideo(
         srcUrl: URL,
@@ -130,6 +140,12 @@ final class VideoConvertEngine {
                 session.outputFileType = targetContainer.avFileType
                 session.shouldOptimizeForNetworkUse = true
 
+                self.isCancelled = false
+                self.activeSession = session
+                defer {
+                    self.activeSession = nil
+                }
+
                 // Progress monitor
                 let progressTask = Task {
                     while !Task.isCancelled {
@@ -157,9 +173,19 @@ final class VideoConvertEngine {
             // First attempt
             var (status, exportError) = await runExport(withPreset: chosenPreset)
 
+            if isCancelled || status == .cancelled {
+                try? FileManager.default.removeItem(at: tempOutUrl)
+                return ConvertResult(success: false, outputUrl: nil, errorMessage: "OPERATION_CANCELLED")
+            }
+
             // If passthrough failed (e.g. incompatible track format in container), auto-fallback to Highest Quality transcode
             if status != .completed && targetCodec == .auto {
                 (status, exportError) = await runExport(withPreset: highestQualityPreset)
+            }
+
+            if isCancelled || status == .cancelled {
+                try? FileManager.default.removeItem(at: tempOutUrl)
+                return ConvertResult(success: false, outputUrl: nil, errorMessage: "OPERATION_CANCELLED")
             }
 
             if status == .completed {

@@ -27,6 +27,11 @@ final class MKVRemuxEngine {
     static let shared = MKVRemuxEngine()
     private init() {}
 
+    /// Cancels any active FFmpeg remuxing or transcoding operation
+    func cancel() {
+        FFmpegKit.cancel()
+    }
+
     private static var cachedSupportedVideoEncoder: String? = nil
 
     /// Detects the highest-performing video encoder supported by the runtime FFmpeg build
