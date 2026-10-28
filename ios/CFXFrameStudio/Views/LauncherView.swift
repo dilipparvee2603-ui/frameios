@@ -1,30 +1,49 @@
 import SwiftUI
 
 struct LauncherView: View {
+    @State private var showSettings: Bool = false
+
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.voidCanvas.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Header Branding
-                    VStack(spacing: 8) {
-                        HStack(spacing: 8) {
-                            Circle()
-                                .fill(Color.brandAccent)
-                                .frame(width: 8, height: 8)
-                            Text("CFX FRAME STUDIO")
-                                .font(.system(size: 20, weight: .black, design: .rounded))
-                                .foregroundColor(.textPrimary)
-                                .tracking(1.5)
+                    // Header Branding & Settings Button
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(Color.brandAccent)
+                                    .frame(width: 8, height: 8)
+                                Text("CFX FRAME STUDIO")
+                                    .font(.system(size: 19, weight: .black, design: .rounded))
+                                    .foregroundColor(.textPrimary)
+                                    .tracking(1.2)
+                            }
+
+                            Text("Lossless Video & Frame Engine")
+                                .font(.system(size: 12))
+                                .foregroundColor(.textMuted)
                         }
 
-                        Text("Lossless Video & Frame Precision Engine")
-                            .font(.system(size: 13))
-                            .foregroundColor(.textMuted)
+                        Spacer()
+
+                        Button(action: { showSettings = true }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.textSecondary)
+                                .frame(width: 38, height: 38)
+                                .background(Color.elevatedSurface)
+                                .clipShape(Circle())
+                                .overlay(
+                                    Circle().stroke(Color.borderHairline, lineWidth: 1)
+                                )
+                        }
                     }
-                    .padding(.top, 24)
-                    .padding(.bottom, 20)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 16)
 
                     // 4 Clean Tool Cards
                     ScrollView(showsIndicators: false) {
@@ -88,6 +107,9 @@ struct LauncherView: View {
                         .padding(.bottom, 24)
                 }
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
         .preferredColorScheme(.dark)
     }

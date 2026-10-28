@@ -128,8 +128,13 @@ final class VideoTrimEngine {
             throw NSError(domain: "CFXFrameStudio", code: -5, userInfo: [NSLocalizedDescriptionKey: "Photo library access denied"])
         }
 
+        var assetId: String?
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileUrl)
+            let request = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileUrl)
+            assetId = request?.placeholderForCreatedAsset?.localIdentifier
+        }
+        if let id = assetId {
+            StorageManager.shared.trackSavedAsset(localIdentifier: id)
         }
         return true
     }

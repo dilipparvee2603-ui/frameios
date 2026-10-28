@@ -146,9 +146,14 @@ final class VideoEngine {
             throw NSError(domain: "CFXFrameStudio", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image"])
         }
 
+        var assetId: String?
         try await PHPhotoLibrary.shared().performChanges {
             let creationRequest = PHAssetCreationRequest.forAsset()
             creationRequest.addResource(with: .photo, data: imageData, options: nil)
+            assetId = creationRequest.placeholderForCreatedAsset?.localIdentifier
+        }
+        if let id = assetId {
+            StorageManager.shared.trackSavedAsset(localIdentifier: id)
         }
         return true
     }

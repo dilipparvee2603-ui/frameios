@@ -95,6 +95,7 @@ jobs:
             - 🔄 **Video Format Converter** (MP4 ↔ MOV & MKV with ProRes & HEVC)
             - 📐 **Lossless Image Cropper** (Adjustable frame, 4-corner handles, pinch zoom & social aspect ratios)
             - ⬇️ **Direct & YouTube Downloader** (Fetch Cloudflare, S3, CDN & YouTube up to 4K/8K with smart Camera Roll & Files routing)
+            - 🧹 **App Storage & Cache Manager** (Clear temporary cache, wipe downloaded documents, and purge app media from Camera Roll)
             - 📁 **Files App Integration** (`On My iPhone > CFX Studio`)
           files: ios/CFXFrameStudio.ipa
           make_latest: true

@@ -191,8 +191,13 @@ final class VideoConvertEngine {
             return false
         }
 
+        var assetId: String?
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileUrl)
+            let request = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileUrl)
+            assetId = request?.placeholderForCreatedAsset?.localIdentifier
+        }
+        if let id = assetId {
+            StorageManager.shared.trackSavedAsset(localIdentifier: id)
         }
         return true
     }

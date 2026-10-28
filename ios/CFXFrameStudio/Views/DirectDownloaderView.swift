@@ -74,6 +74,12 @@ struct DirectDownloaderView: View {
                 ShareActivityView(activityItems: [url])
             }
         }
+        .sheet(isPresented: $showSettingsModal) {
+            SettingsView()
+                .onDisappear {
+                    refreshRecentDownloads()
+                }
+        }
     }
 
     // MARK: - Subviews
@@ -96,13 +102,24 @@ struct DirectDownloaderView: View {
 
             Spacer()
 
-            Button(action: { pasteFromClipboard() }) {
-                Image(systemName: "doc.on.clipboard")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.skyAccent)
-                    .frame(width: 36, height: 36)
-                    .background(Color.surfaceCard)
-                    .clipShape(Circle())
+            HStack(spacing: 8) {
+                Button(action: { pasteFromClipboard() }) {
+                    Image(systemName: "doc.on.clipboard")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.skyAccent)
+                        .frame(width: 36, height: 36)
+                        .background(Color.surfaceCard)
+                        .clipShape(Circle())
+                }
+
+                Button(action: { showSettingsModal = true }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.textSecondary)
+                        .frame(width: 36, height: 36)
+                        .background(Color.surfaceCard)
+                        .clipShape(Circle())
+                }
             }
         }
     }

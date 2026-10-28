@@ -27,6 +27,8 @@
 		E20000012900000100000011 /* DirectDownloaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000013 /* DirectDownloaderView.swift */; };
 		E20000012900000100000012 /* YouTubeDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000014 /* YouTubeDownloadEngine.swift */; };
 		E20000012900000100000013 /* MKVRemuxEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000015 /* MKVRemuxEngine.swift */; };
+		E20000012900000100000014 /* StorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000016 /* StorageManager.swift */; };
+		E20000012900000100000015 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000017 /* SettingsView.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 /* End PBXBuildFile section */
 
@@ -53,6 +55,8 @@
 		E10000012900000100000013 /* DirectDownloaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectDownloaderView.swift; sourceTree = "<group>"; };
 		E10000012900000100000014 /* YouTubeDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeDownloadEngine.swift; sourceTree = "<group>"; };
 		E10000012900000100000015 /* MKVRemuxEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MKVRemuxEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000016 /* StorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageManager.swift; sourceTree = "<group>"; };
+		E10000012900000100000017 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -108,6 +112,7 @@
 				E10000012900000100000012 /* DirectDownloadEngine.swift */,
 				E10000012900000100000014 /* YouTubeDownloadEngine.swift */,
 				E10000012900000100000015 /* MKVRemuxEngine.swift */,
+				E10000012900000100000016 /* StorageManager.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -121,6 +126,7 @@
 				E1000001290000010000000F /* VideoConverterView.swift */,
 				E10000012900000100000011 /* ImageCropperView.swift */,
 				E10000012900000100000013 /* DirectDownloaderView.swift */,
+				E10000012900000100000017 /* SettingsView.swift */,
 				E40000012900000100000006 /* Components */,
 			);
 			path = Views;
@@ -237,6 +243,8 @@
 				E20000012900000100000011 /* DirectDownloaderView.swift in Sources */,
 				E20000012900000100000012 /* YouTubeDownloadEngine.swift in Sources */,
 				E20000012900000100000013 /* MKVRemuxEngine.swift in Sources */,
+				E20000012900000100000014 /* StorageManager.swift in Sources */,
+				E20000012900000100000015 /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

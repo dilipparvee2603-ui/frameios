@@ -708,10 +708,15 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
             return false
         }
 
+        var assetId: String?
         do {
             try await PHPhotoLibrary.shared().performChanges {
                 let request = PHAssetCreationRequest.forAsset()
                 request.addResource(with: .video, fileURL: url, options: nil)
+                assetId = request.placeholderForCreatedAsset?.localIdentifier
+            }
+            if let id = assetId {
+                StorageManager.shared.trackSavedAsset(localIdentifier: id)
             }
             return true
         } catch {
@@ -729,10 +734,15 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
             return false
         }
 
+        var assetId: String?
         do {
             try await PHPhotoLibrary.shared().performChanges {
                 let request = PHAssetCreationRequest.forAsset()
                 request.addResource(with: .photo, fileURL: url, options: nil)
+                assetId = request.placeholderForCreatedAsset?.localIdentifier
+            }
+            if let id = assetId {
+                StorageManager.shared.trackSavedAsset(localIdentifier: id)
             }
             return true
         } catch {

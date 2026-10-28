@@ -179,9 +179,14 @@ struct ImageCropEngine {
             throw NSError(domain: "ImageCropEngine", code: -2, userInfo: [NSLocalizedDescriptionKey: "Photos access not granted."])
         }
 
+        var assetId: String?
         try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetCreationRequest.forAsset()
             request.addResource(with: .photo, fileURL: tempUrl, options: nil)
+            assetId = request.placeholderForCreatedAsset?.localIdentifier
+        }
+        if let id = assetId {
+            StorageManager.shared.trackSavedAsset(localIdentifier: id)
         }
 
         return tempUrl
