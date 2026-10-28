@@ -187,11 +187,11 @@ struct FrameExporterView: View {
                                     // Timecode & Frame Counter Header
                                     HStack {
                                         Button(action: { showTimecodeModal = true }) {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "clock")
+                                            HStack(spacing: 5) {
+                                                Image(systemName: "clock.badge.checkmark")
                                                     .font(.system(size: 11))
                                                     .foregroundColor(.skyAccent)
-                                                Text(formatMsToTimecode(playerModel.currentPositionMs))
+                                                Text(playerModel.smpteTimecode(fps: info.fps))
                                                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                                                     .foregroundColor(.textPrimary)
                                             }
@@ -203,9 +203,10 @@ struct FrameExporterView: View {
 
                                         Spacer()
 
-                                        let currentFrame = Int64((Double(playerModel.currentPositionMs) / 1000.0) * info.fps)
-                                        Text("Frame \(currentFrame) / \(info.totalFrames)")
-                                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                        let currentFrame = playerModel.currentFrameIndex(fps: info.fps)
+                                        let pct = min(100.0, max(0.0, (Double(currentFrame) / max(1.0, Double(info.totalFrames))) * 100.0))
+                                        Text("Frame #\(currentFrame) / \(info.totalFrames) (\(String(format: "%.1f", pct))%)")
+                                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                             .foregroundColor(.textMuted)
                                     }
 
@@ -274,21 +275,28 @@ struct FrameExporterView: View {
                             }
                             .padding(.horizontal, 16)
 
-                            // Format Picker (PNG / JPG)
+                            // Master Format Picker (PNG / JPG 100% / HEIC / TIFF)
                             GlassCard(cornerRadius: 14, padding: 12) {
-                                HStack {
-                                    Text("Image Format")
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundColor(.textPrimary)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("Master Export Format")
+                                            .font(.system(size: 13, weight: .bold))
+                                            .foregroundColor(.textPrimary)
 
-                                    Spacer()
+                                        Spacer()
 
-                                    HStack(spacing: 6) {
-                                        formatPill("PNG (Lossless)", isSelected: selectedFormat == .png) {
-                                            selectedFormat = .png
-                                        }
-                                        formatPill("JPG (95%)", isSelected: selectedFormat == .jpg) {
-                                            selectedFormat = .jpg
+                                        Text(selectedFormat.rawValue)
+                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                            .foregroundColor(.skyAccent)
+                                    }
+
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 6) {
+                                            ForEach(FrameFormat.allCases) { fmt in
+                                                formatPill(fmt.rawValue, isSelected: selectedFormat == fmt) {
+                                                    selectedFormat = fmt
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -588,9 +596,19 @@ struct FrameExporterView: View {
         guard let url = videoUrl, !isExporting else { return }
         isExporting = true
 
+        let currentCm = playerModel.currentPositionTime
+        let currentMs = playerModel.currentPositionMs
+
         Task {
             do {
-                let frame = try await VideoEngine.shared.extractFrame(from: url, at: playerModel.currentPositionMs)
+                // High-precision CMTime extraction eliminating fractional-millisecond drift
+                let frame: UIImage
+                if currentCm != .zero {
+                    frame = try await VideoEngine.shared.extractFrame(from: url, at: currentCm)
+                } else {
+                    frame = try await VideoEngine.shared.extractFrame(from: url, at: currentMs)
+                }
+
                 let tempFile = try VideoEngine.shared.saveFrameToTempFile(image: frame, format: selectedFormat)
 
                 var savedToPhotos = false
@@ -605,7 +623,7 @@ struct FrameExporterView: View {
                     self.isExporting = false
                     self.exportedFileUrl = tempFile
                     if savedToPhotos {
-                        self.alertMessage = "✓ Frame exported and saved to Camera Roll!"
+                        self.alertMessage = "✓ Master frame (\(self.selectedFormat.rawValue)) saved to Photos!"
                         self.showAlert = true
                     } else {
                         // Automatically open Save to Files / Share Sheet!

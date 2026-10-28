@@ -2,6 +2,8 @@ import Foundation
 import AVFoundation
 import UIKit
 import Photos
+import ImageIO
+import UniformTypeIdentifiers
 
 struct VideoInfo: Identifiable {
     let id = UUID()
@@ -26,14 +28,18 @@ struct VideoInfo: Identifiable {
 }
 
 enum FrameFormat: String, CaseIterable, Identifiable {
-    case png = "PNG"
-    case jpg = "JPG"
+    case png = "PNG (Lossless)"
+    case jpg = "JPG (100%)"
+    case heic = "HEIC (P3)"
+    case tiff = "TIFF (Master)"
     var id: String { rawValue }
 
     var fileExtension: String {
         switch self {
         case .png: return "png"
         case .jpg: return "jpg"
+        case .heic: return "heic"
+        case .tiff: return "tiff"
         }
     }
 }
@@ -62,7 +68,7 @@ final class VideoEngine {
         let isPortrait = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
         let width = Int(isPortrait ? naturalSize.height : naturalSize.width)
         let height = Int(isPortrait ? naturalSize.width : naturalSize.height)
-        let totalFrames = Int64(durationSec * fps)
+        let totalFrames = Int64(round(durationSec * fps))
 
         // Auto-detect exact video codec FourCC
         var videoCodec = "H.264 (AVC)"
@@ -95,16 +101,75 @@ final class VideoEngine {
         )
     }
 
-    func extractFrame(from url: URL, at timeMs: Int64) async throws -> UIImage {
+    /// Frame-accurate image extraction with zero tolerance and rational 60,000 timescale
+    func extractFrame(from url: URL, at cmTime: CMTime) async throws -> UIImage {
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
 
-        let cmTime = CMTime(value: CMTimeValue(timeMs), timescale: 1000)
-        let cgImage = try generator.copyCGImage(at: cmTime, actualTime: nil)
+        var actualTime = CMTime.zero
+        let cgImage = try generator.copyCGImage(at: cmTime, actualTime: &actualTime)
         return UIImage(cgImage: cgImage)
+    }
+
+    /// Extracts an exact numbered frame with zero rounding jitter
+    func extractExactFrame(from url: URL, at frameIndex: Int64, fps: Double) async throws -> (image: UIImage, actualTime: CMTime) {
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+
+        let safeFps = max(1.0, fps)
+        let targetSec = Double(max(0, frameIndex)) / safeFps
+        let targetCm = CMTime(seconds: targetSec, preferredTimescale: 60000)
+
+        var actualTime = CMTime.zero
+        let cgImage = try generator.copyCGImage(at: targetCm, actualTime: &actualTime)
+        return (UIImage(cgImage: cgImage), actualTime)
+    }
+
+    func extractFrame(from url: URL, at timeMs: Int64) async throws -> UIImage {
+        let targetSec = Double(timeMs) / 1000.0
+        let targetCm = CMTime(seconds: targetSec, preferredTimescale: 60000)
+        return try await extractFrame(from: url, at: targetCm)
+    }
+
+    /// High-fidelity encoding supporting PNG, 100% Studio JPG, DCI-P3 HEIC, and Master TIFF
+    func encodeImage(_ image: UIImage, format: FrameFormat) -> Data? {
+        switch format {
+        case .png:
+            return image.pngData()
+        case .jpg:
+            return image.jpegData(compressionQuality: 1.0)
+        case .heic:
+            guard let cgImage = image.cgImage else { return image.pngData() }
+            let data = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, AVFileType.heic as CFString, 1, nil) else {
+                return image.pngData()
+            }
+            let options: [CFString: Any] = [
+                kCGImageDestinationLossless: true
+            ]
+            CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+            if CGImageDestinationFinalize(destination) {
+                return data as Data
+            }
+            return image.pngData()
+        case .tiff:
+            guard let cgImage = image.cgImage else { return image.pngData() }
+            let data = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, "public.tiff" as CFString, 1, nil) else {
+                return image.pngData()
+            }
+            CGImageDestinationAddImage(destination, cgImage, nil)
+            if CGImageDestinationFinalize(destination) {
+                return data as Data
+            }
+            return image.pngData()
+        }
     }
 
     func saveFrameToTempFile(image: UIImage, format: FrameFormat) throws -> URL {
@@ -112,16 +177,8 @@ final class VideoEngine {
         let timestamp = Int(Date().timeIntervalSince1970 * 1000)
         let fileUrl = tempDir.appendingPathComponent("CFX_Frame_\(timestamp).\(format.fileExtension)")
 
-        let data: Data?
-        switch format {
-        case .png:
-            data = image.pngData()
-        case .jpg:
-            data = image.jpegData(compressionQuality: 0.95)
-        }
-
-        guard let imageData = data else {
-            throw NSError(domain: "CFXFrameStudio", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image"])
+        guard let imageData = encodeImage(image, format: format) else {
+            throw NSError(domain: "CFXFrameStudio", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image as \(format.rawValue)"])
         }
 
         try imageData.write(to: fileUrl)
@@ -134,16 +191,8 @@ final class VideoEngine {
             throw NSError(domain: "CFXFrameStudio", code: -2, userInfo: [NSLocalizedDescriptionKey: "Photo library access denied"])
         }
 
-        let data: Data?
-        switch format {
-        case .png:
-            data = image.pngData()
-        case .jpg:
-            data = image.jpegData(compressionQuality: 0.95)
-        }
-
-        guard let imageData = data else {
-            throw NSError(domain: "CFXFrameStudio", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image"])
+        guard let imageData = encodeImage(image, format: format) else {
+            throw NSError(domain: "CFXFrameStudio", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image as \(format.rawValue)"])
         }
 
         var assetId: String?

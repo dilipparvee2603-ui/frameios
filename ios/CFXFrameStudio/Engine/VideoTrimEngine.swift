@@ -2,6 +2,13 @@ import Foundation
 import AVFoundation
 import Photos
 
+enum TrimPrecisionMode: String, CaseIterable, Identifiable {
+    case frameAccurate = "Frame-Accurate (Micro Cut)"
+    case fastPassthrough = "Fast Passthrough (Stream Copy)"
+
+    var id: String { rawValue }
+}
+
 struct TrimResult {
     let success: Bool
     let outputUrl: URL?
@@ -18,6 +25,7 @@ final class VideoTrimEngine {
         startMs: Int64,
         endMs: Int64,
         includeAudio: Bool,
+        mode: TrimPrecisionMode = .frameAccurate,
         onProgress: @escaping (Float) -> Void
     ) async -> TrimResult {
         let tempDir = FileManager.default.temporaryDirectory
@@ -32,9 +40,22 @@ final class VideoTrimEngine {
             let clampedStart = max(0, startMs)
             let clampedEnd = min(maxMs, max(clampedStart + 100, endMs))
 
-            let startTime = CMTime(value: CMTimeValue(clampedStart), timescale: 1000)
-            let endTime = CMTime(value: CMTimeValue(clampedEnd), timescale: 1000)
+            let startSec = Double(clampedStart) / 1000.0
+            let endSec = Double(clampedEnd) / 1000.0
+            let startTime = CMTime(seconds: startSec, preferredTimescale: 60000)
+            let endTime = CMTime(seconds: endSec, preferredTimescale: 60000)
             let timeRange = CMTimeRange(start: startTime, end: endTime)
+
+            var isSourceHEVC = false
+            if let videoTracks = try? await asset.loadTracks(withMediaType: .video), let vTrack = videoTracks.first {
+                if let descs = try? await vTrack.load(.formatDescriptions), let first = descs.first {
+                    let subType = CMFormatDescriptionGetMediaSubType(first)
+                    let fourCC = fourCharCodeToString(subType).lowercased()
+                    if fourCC.contains("hvc") || fourCC.contains("hev") {
+                        isSourceHEVC = true
+                    }
+                }
+            }
 
             let exportAsset: AVAsset
             if includeAudio {
@@ -54,10 +75,19 @@ final class VideoTrimEngine {
                 exportAsset = composition
             }
 
-            // Attempt fast passthrough stream copy first
-            var exportSession = AVAssetExportSession(asset: exportAsset, presetName: AVAssetExportPresetPassthrough)
+            let highestQualityPreset = isSourceHEVC ? AVAssetExportPresetHEVCHighestQuality : AVAssetExportPresetHighestQuality
+
+            let chosenPreset: String
+            if mode == .fastPassthrough && includeAudio {
+                chosenPreset = AVAssetExportPresetPassthrough
+            } else {
+                chosenPreset = highestQualityPreset
+            }
+
+            // Attempt export session
+            var exportSession = AVAssetExportSession(asset: exportAsset, presetName: chosenPreset)
             if exportSession == nil || !exportSession!.supportedFileTypes.contains(.mp4) {
-                exportSession = AVAssetExportSession(asset: exportAsset, presetName: AVAssetExportPresetHighestQuality)
+                exportSession = AVAssetExportSession(asset: exportAsset, presetName: highestQualityPreset)
             }
 
             guard let session = exportSession else {

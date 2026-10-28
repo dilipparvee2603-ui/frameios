@@ -16,6 +16,9 @@ struct VideoTrimmerView: View {
     @State private var inPointMs: Int64 = 0
     @State private var outPointMs: Int64 = 0
 
+    @State private var selectedPrecisionMode: TrimPrecisionMode = .frameAccurate
+    @State private var timelineZoom: Double = 1.0 // 1.0 (Overview), 5.0 (Fine), 20.0 (Micro)
+
     @State private var includeAudioInExport: Bool = true
     @State private var isExporting: Bool = false
     @State private var exportProgress: Float = 0.0
@@ -193,11 +196,11 @@ struct VideoTrimmerView: View {
                                     // Timecode & Duration Header
                                     HStack {
                                         Button(action: { activeTimecodeTarget = .playhead }) {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "clock")
+                                            HStack(spacing: 5) {
+                                                Image(systemName: "clock.badge.checkmark")
                                                     .font(.system(size: 11))
                                                     .foregroundColor(.brandAccent)
-                                                Text(formatMsToTimecode(playerModel.currentPositionMs))
+                                                Text(playerModel.smpteTimecode(fps: info.fps))
                                                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                                                     .foregroundColor(.textPrimary)
                                             }
@@ -209,13 +212,27 @@ struct VideoTrimmerView: View {
 
                                         Spacer()
 
-                                        let trimSec = Double(max(0, outPointMs - inPointMs)) / 1000.0
-                                        Text(String(format: "Cut Duration: %.2fs", trimSec))
-                                            .font(.system(size: 11, weight: .semibold))
+                                        let cutSec = Double(max(0, outPointMs - inPointMs)) / 1000.0
+                                        let cutFrames = Int64(round(cutSec * info.fps))
+                                        Text(String(format: "Cut: %.2fs (%lld frames)", cutSec, cutFrames))
+                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
                                             .foregroundColor(.emeraldAccent)
                                     }
 
-                                    // Interactive Playhead & Trim Scrubber
+                                    // Timeline Micro-Zoom Controls (1x Overview, 5x Fine, 20x Micro)
+                                    HStack(spacing: 6) {
+                                        Text("Zoom:")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.textMuted)
+
+                                        zoomPill("1x Overview", zoom: 1.0)
+                                        zoomPill("5x Fine", zoom: 5.0)
+                                        zoomPill("20x Micro", zoom: 20.0)
+
+                                        Spacer()
+                                    }
+
+                                    // Interactive Master Playhead & Trim Scrubber
                                     VStack(spacing: 6) {
                                         GeometryReader { geo in
                                             let width = geo.size.width
@@ -254,53 +271,110 @@ struct VideoTrimmerView: View {
                                             )
                                         }
                                         .frame(height: 18)
+
+                                        // Magnified Micro-Scrubber when zoomed
+                                        if timelineZoom > 1.0 {
+                                            GeometryReader { geo in
+                                                let width = geo.size.width
+                                                let windowMs = max(500, Int64(Double(info.durationMs) / timelineZoom))
+                                                let halfWin = windowMs / 2
+                                                let winStart = max(0, min(info.durationMs - windowMs, playerModel.currentPositionMs - halfWin))
+                                                let winEnd = winStart + windowMs
+                                                let winDuration = max(1, Double(winEnd - winStart))
+
+                                                let playheadRel = CGFloat(Double(playerModel.currentPositionMs - winStart) / winDuration)
+
+                                                ZStack(alignment: .leading) {
+                                                    RoundedRectangle(cornerRadius: 4)
+                                                        .fill(Color.surfaceCard)
+                                                        .frame(height: 14)
+                                                        .overlay(
+                                                            RoundedRectangle(cornerRadius: 4)
+                                                                .stroke(Color.skyAccent.opacity(0.3), lineWidth: 1)
+                                                        )
+
+                                                    // Center playhead bar
+                                                    Rectangle()
+                                                        .fill(Color.skyAccent)
+                                                        .frame(width: 3, height: 14)
+                                                        .offset(x: max(0, min(width - 3, playheadRel * width)))
+                                                }
+                                                .contentShape(Rectangle())
+                                                .gesture(
+                                                    DragGesture(minimumDistance: 0)
+                                                        .onChanged { value in
+                                                            let fraction = max(0, min(1, value.location.x / width))
+                                                            let targetMs = winStart + Int64(fraction * winDuration)
+                                                            playerModel.seek(to: targetMs)
+                                                        }
+                                                )
+                                            }
+                                            .frame(height: 14)
+                                        }
                                     }
 
-                                    // In-Point & Out-Point Selection Controls
-                                    HStack(spacing: 8) {
-                                        // Set IN
-                                        Button(action: { inPointMs = min(playerModel.currentPositionMs, outPointMs - 100) }) {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "arrow.right.to.line")
-                                                    .font(.system(size: 11))
-                                                Text("Set IN")
-                                                    .font(.system(size: 12, weight: .bold))
+                                    // In-Point & Out-Point Selection Controls with Frame Nudging
+                                    VStack(spacing: 8) {
+                                        HStack(spacing: 6) {
+                                            // Set IN
+                                            Button(action: { inPointMs = min(playerModel.currentPositionMs, outPointMs - 100) }) {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: "arrow.right.to.line")
+                                                        .font(.system(size: 11))
+                                                    Text("Set IN")
+                                                        .font(.system(size: 12, weight: .bold))
+                                                }
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 8)
+                                                .background(Color.elevatedSurface)
+                                                .cornerRadius(8)
+                                                .foregroundColor(.skyAccent)
                                             }
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 8)
-                                            .background(Color.elevatedSurface)
-                                            .cornerRadius(8)
-                                            .foregroundColor(.skyAccent)
-                                        }
 
-                                        Button(action: { activeTimecodeTarget = .inPoint }) {
-                                            Text(formatMsToTimecode(inPointMs))
-                                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                                .foregroundColor(.textMuted)
-                                        }
+                                            // IN Nudge -1f / +1f
+                                            nudgeButton("-1f") { nudgeIn(byFrames: -1, fps: info.fps) }
+                                            nudgeButton("+1f") { nudgeIn(byFrames: 1, fps: info.fps) }
 
-                                        Text("→")
-                                            .foregroundColor(.textTertiary)
-
-                                        Button(action: { activeTimecodeTarget = .outPoint }) {
-                                            Text(formatMsToTimecode(outPointMs))
-                                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                                .foregroundColor(.textMuted)
-                                        }
-
-                                        // Set OUT
-                                        Button(action: { outPointMs = max(playerModel.currentPositionMs, inPointMs + 100) }) {
-                                            HStack(spacing: 4) {
-                                                Text("Set OUT")
-                                                    .font(.system(size: 12, weight: .bold))
-                                                Image(systemName: "arrow.left.to.line")
-                                                    .font(.system(size: 11))
+                                            Button(action: { activeTimecodeTarget = .inPoint }) {
+                                                Text(formatMsToSMPTETimecode(inPointMs, fps: info.fps))
+                                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                                    .foregroundColor(.skyAccent)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 4)
+                                                    .background(Color.elevatedSurface)
+                                                    .cornerRadius(6)
                                             }
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 8)
-                                            .background(Color.elevatedSurface)
-                                            .cornerRadius(8)
-                                            .foregroundColor(.gradientStart)
+                                        }
+
+                                        HStack(spacing: 6) {
+                                            // Set OUT
+                                            Button(action: { outPointMs = max(playerModel.currentPositionMs, inPointMs + 100) }) {
+                                                HStack(spacing: 4) {
+                                                    Text("Set OUT")
+                                                        .font(.system(size: 12, weight: .bold))
+                                                    Image(systemName: "arrow.left.to.line")
+                                                        .font(.system(size: 11))
+                                                }
+                                                .frame(maxWidth: .infinity)
+                                                .padding(.vertical, 8)
+                                                .background(Color.elevatedSurface)
+                                                .cornerRadius(8)
+                                                .foregroundColor(.gradientStart)
+                                            }
+
+                                            // OUT Nudge -1f / +1f
+                                            nudgeButton("-1f") { nudgeOut(byFrames: -1, fps: info.fps, durationMs: info.durationMs) }
+                                            nudgeButton("+1f") { nudgeOut(byFrames: 1, fps: info.fps, durationMs: info.durationMs) }
+
+                                            Button(action: { activeTimecodeTarget = .outPoint }) {
+                                                Text(formatMsToSMPTETimecode(outPointMs, fps: info.fps))
+                                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                                    .foregroundColor(.gradientStart)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 4)
+                                                    .background(Color.elevatedSurface)
+                                                    .cornerRadius(6)
+                                            }
                                         }
                                     }
 
@@ -366,6 +440,41 @@ struct VideoTrimmerView: View {
                                     Toggle("", isOn: $includeAudioInExport)
                                         .labelsHidden()
                                         .tint(.emeraldAccent)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+
+                            // Precision Cut Engine Selector
+                            GlassCard(cornerRadius: 14, padding: 12) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("Precision Cut Engine")
+                                            .font(.system(size: 13, weight: .bold))
+                                            .foregroundColor(.textPrimary)
+
+                                        Spacer()
+
+                                        Text(selectedPrecisionMode == .frameAccurate ? "1-Frame Accurate" : "Fast Stream Copy")
+                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                            .foregroundColor(.emeraldAccent)
+                                    }
+
+                                    HStack(spacing: 6) {
+                                        ForEach(TrimPrecisionMode.allCases) { mode in
+                                            Button(action: {
+                                                selectedPrecisionMode = mode
+                                                playerModel.triggerHaptic()
+                                            }) {
+                                                Text(mode.rawValue)
+                                                    .font(.system(size: 11, weight: .bold))
+                                                    .foregroundColor(selectedPrecisionMode == mode ? .white : .textMuted)
+                                                    .padding(.horizontal, 10)
+                                                    .padding(.vertical, 6)
+                                                    .background(selectedPrecisionMode == mode ? Color.brandAccent : Color.elevatedSurface)
+                                                    .cornerRadius(6)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -650,6 +759,49 @@ struct VideoTrimmerView: View {
         }
     }
 
+    private func zoomPill(_ title: String, zoom: Double) -> some View {
+        Button(action: {
+            timelineZoom = zoom
+            playerModel.triggerHaptic()
+        }) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(timelineZoom == zoom ? .white : .textMuted)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(timelineZoom == zoom ? Color.skyAccent : Color.elevatedSurface)
+                .cornerRadius(4)
+        }
+    }
+
+    private func nudgeButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(.textPrimary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 7)
+                .background(Color.elevatedSurface)
+                .cornerRadius(6)
+        }
+    }
+
+    private func nudgeIn(byFrames delta: Int64, fps: Double) {
+        playerModel.triggerHaptic()
+        let frameMs = Int64(round(1000.0 / max(1.0, fps)))
+        let target = inPointMs + (delta * frameMs)
+        inPointMs = max(0, min(target, outPointMs - 100))
+        playerModel.seek(to: inPointMs)
+    }
+
+    private func nudgeOut(byFrames delta: Int64, fps: Double, durationMs: Int64) {
+        playerModel.triggerHaptic()
+        let frameMs = Int64(round(1000.0 / max(1.0, fps)))
+        let target = outPointMs + (delta * frameMs)
+        outPointMs = min(durationMs, max(target, inPointMs + 100))
+        playerModel.seek(to: outPointMs)
+    }
+
     private func exportTrimmedVideo() {
         guard let url = videoUrl, !isExporting else { return }
         isExporting = true
@@ -661,6 +813,7 @@ struct VideoTrimmerView: View {
                 startMs: inPointMs,
                 endMs: outPointMs,
                 includeAudio: includeAudioInExport,
+                mode: selectedPrecisionMode,
                 onProgress: { p in
                     self.exportProgress = p
                 }

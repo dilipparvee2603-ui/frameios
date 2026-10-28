@@ -115,14 +115,43 @@ func formatMsToTimecode(_ ms: Int64) -> String {
     return String(format: "%02d:%02d:%02d.%03d", hours, minutes, seconds, millis)
 }
 
-func parseTimecodeToMs(_ input: String) -> Int64? {
+func formatToSMPTETimecode(seconds: Double, fps: Double) -> String {
+    let safeFps = max(1.0, fps)
+    guard seconds.isFinite && !seconds.isNaN && seconds >= 0 else {
+        return "00:00:00:00"
+    }
+    let totalFrames = Int64(round(seconds * safeFps))
+    let fpsInt = Int64(round(safeFps))
+    let frames = totalFrames % max(1, fpsInt)
+    let totalSecInt = Int64(seconds)
+    let hours = totalSecInt / 3600
+    let minutes = (totalSecInt % 3600) / 60
+    let secondsInt = totalSecInt % 60
+    return String(format: "%02d:%02d:%02d:%02d", hours, minutes, secondsInt, frames)
+}
+
+func formatMsToSMPTETimecode(_ ms: Int64, fps: Double) -> String {
+    let sec = Double(ms) / 1000.0
+    return formatToSMPTETimecode(seconds: sec, fps: fps)
+}
+
+func parseTimecodeToMs(_ input: String, fps: Double = 30.0) -> Int64? {
     let raw = input.trimmingCharacters(in: .whitespacesAndNewlines)
     if let sec = Double(raw) {
         return Int64(sec * 1000.0)
     }
 
     let parts = raw.split(separator: ":").map { String($0) }
-    if parts.count == 3 {
+    if parts.count == 4 {
+        // SMPTE standard: HH:MM:SS:FF
+        guard let h = Double(parts[0]),
+              let m = Double(parts[1]),
+              let s = Double(parts[2]),
+              let f = Double(parts[3]) else { return nil }
+        let safeFps = max(1.0, fps)
+        let totalSec = h * 3600.0 + m * 60.0 + s + (f / safeFps)
+        return Int64(totalSec * 1000.0)
+    } else if parts.count == 3 {
         // HH:MM:SS[.mmm]
         guard let h = Double(parts[0]), let m = Double(parts[1]), let s = Double(parts[2]) else { return nil }
         return Int64((h * 3600.0 + m * 60.0 + s) * 1000.0)

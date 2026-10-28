@@ -64,7 +64,9 @@ final class MKVRemuxEngine {
             "-y",
             "-i", sourceUrl.path,
             "-map", "0:v:0",
-            "-c:v", encoder
+            "-map_metadata", "0",
+            "-c:v", encoder,
+            "-pix_fmt", "yuv420p"
         ]
 
         if encoder == "h264_videotoolbox" {
@@ -89,10 +91,19 @@ final class MKVRemuxEngine {
                 "-b:v", targetBitrate,
                 "-maxrate", maxBitrate,
                 "-profile:v", "high",
-                "-allow_sw", "1"
+                "-allow_sw", "1",
+                "-colorspace", "1",
+                "-color_primaries", "1",
+                "-color_trc", "1"
             ]
         } else if encoder == "libx264" {
-            args += ["-preset", "veryfast", "-crf", "17"]
+            args += [
+                "-preset", "veryfast",
+                "-crf", "17",
+                "-colorspace", "1",
+                "-color_primaries", "1",
+                "-color_trc", "1"
+            ]
         } else if encoder == "mpeg4" {
             // Quality scale 1 is pristine maximum quality for native MPEG-4
             args += ["-q:v", "1"]
