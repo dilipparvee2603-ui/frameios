@@ -297,61 +297,55 @@ struct ImageCropperView: View {
         }
     }
 
-    @ViewBuilder
-    private func cropOverlayView(containerSize: CGSize, imageSize: CGSize) -> some View {
+    private func calculateOverlayBoxSize(containerSize: CGSize, imageSize: CGSize) -> CGSize? {
+        guard selectedRatio != .free else { return nil }
+
         let isRotated90 = (rotationDegrees / 90) % 2 != 0
         let effectiveW = isRotated90 ? imageSize.height : imageSize.width
         let effectiveH = isRotated90 ? imageSize.width : imageSize.height
 
-        if effectiveW > 0, effectiveH > 0 {
-            let imgAspect = effectiveW / effectiveH
-            let containerAspect = containerSize.width / containerSize.height
+        guard effectiveW > 0, effectiveH > 0 else { return nil }
 
-            // Calculate actual rendered rect of the fitted image inside container
-            let fitW: CGFloat
-            let fitH: CGFloat
-            if imgAspect > containerAspect {
-                fitW = containerSize.width
-                fitH = containerSize.width / imgAspect
-            } else {
-                fitH = containerSize.height
-                fitW = containerSize.height * imgAspect
-            }
+        let imgAspect = effectiveW / effectiveH
+        let containerAspect = containerSize.width / containerSize.height
 
-            // Calculate crop box rect inside the fitted image
-            let cropRect = ImageCropEngine.computeCropRect(imageSize: CGSize(width: effectiveW, height: effectiveH), ratio: selectedRatio)
-            let scaleX = fitW / effectiveW
-            let scaleY = fitH / effectiveH
+        let fitW: CGFloat = imgAspect > containerAspect ? containerSize.width : containerSize.height * imgAspect
+        let fitH: CGFloat = imgAspect > containerAspect ? containerSize.width / imgAspect : containerSize.height
 
-            let boxW = cropRect.width * scaleX
-            let boxH = cropRect.height * scaleY
+        let cropRect = ImageCropEngine.computeCropRect(imageSize: CGSize(width: effectiveW, height: effectiveH), ratio: selectedRatio)
+        let scaleX = fitW / effectiveW
+        let scaleY = fitH / effectiveH
 
-            if selectedRatio != .free {
-                ZStack {
-                    // Outer border of crop region
-                    Rectangle()
-                        .stroke(Color.amberAccent, lineWidth: 1.5)
-                        .frame(width: boxW, height: boxH)
+        return CGSize(width: cropRect.width * scaleX, height: cropRect.height * scaleY)
+    }
 
-                    // Subtle Rule-of-Thirds Grid
-                    VStack {
-                        Spacer()
-                        Divider().background(Color.white.opacity(0.2))
-                        Spacer()
-                        Divider().background(Color.white.opacity(0.2))
-                        Spacer()
-                    }
-                    .frame(width: boxW, height: boxH)
+    @ViewBuilder
+    private func cropOverlayView(containerSize: CGSize, imageSize: CGSize) -> some View {
+        if let box = calculateOverlayBoxSize(containerSize: containerSize, imageSize: imageSize) {
+            ZStack {
+                // Outer border of crop region
+                Rectangle()
+                    .stroke(Color.amberAccent, lineWidth: 1.5)
+                    .frame(width: box.width, height: box.height)
 
-                    HStack {
-                        Spacer()
-                        Divider().background(Color.white.opacity(0.2))
-                        Spacer()
-                        Divider().background(Color.white.opacity(0.2))
-                        Spacer()
-                    }
-                    .frame(width: boxW, height: boxH)
+                // Subtle Rule-of-Thirds Grid
+                VStack {
+                    Spacer()
+                    Divider().background(Color.white.opacity(0.2))
+                    Spacer()
+                    Divider().background(Color.white.opacity(0.2))
+                    Spacer()
                 }
+                .frame(width: box.width, height: box.height)
+
+                HStack {
+                    Spacer()
+                    Divider().background(Color.white.opacity(0.2))
+                    Spacer()
+                    Divider().background(Color.white.opacity(0.2))
+                    Spacer()
+                }
+                .frame(width: box.width, height: box.height)
             }
         }
     }
