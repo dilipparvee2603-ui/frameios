@@ -90,6 +90,20 @@ struct LauncherView: View {
                                 )
                             }
 
+                            NavigationLink(destination: VideoEnhancerView()) {
+                                toolCard(
+                                    title: "Studio Video Enhancer",
+                                    subtitle: "Topaz-grade multi-pass reconstruction, 4K upscale & de-noise",
+                                    icon: "wand.and.stars",
+                                    accentColor: .brandAccent,
+                                    gradient: LinearGradient(
+                                        colors: [Color(hex: "00B4DB"), Color(hex: "0083B0"), Color(hex: "8A2387")],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                            }
+
                             NavigationLink(destination: ImageCropperView()) {
                                 toolCard(
                                     title: "Lossless Image Cropper",
