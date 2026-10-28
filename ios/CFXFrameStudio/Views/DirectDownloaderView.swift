@@ -29,8 +29,9 @@ struct DirectDownloaderView: View {
                         ytFetchingCard
                     }
 
-                    if let ytInfo = ytEngine.videoInfo {
+                    if let ytInfo = ytEngine.videoInfo, !engine.isDownloading, engine.downloadedFileUrl == nil {
                         ytQualitiesCard(info: ytInfo)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
 
                     if engine.isDownloading {
@@ -169,6 +170,7 @@ struct DirectDownloaderView: View {
 
                     if isYouTubeLink {
                         Button(action: {
+                            engine.reset()
                             Task {
                                 await ytEngine.fetchQualities(for: inputUrl)
                             }
@@ -361,7 +363,9 @@ struct DirectDownloaderView: View {
 
                 // Download Button for Selected Quality
                 Button(action: {
-                    engine.startYouTubeDownload(option: currentOption, videoTitle: info.title)
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        engine.startYouTubeDownload(option: currentOption, videoTitle: info.title)
+                    }
                 }) {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.down.circle.fill")
@@ -535,6 +539,22 @@ struct DirectDownloaderView: View {
                                 toolPipelineButton(icon: "crop", label: "Open Cropper")
                             }
                         }
+                    }
+
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            engine.reset()
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Download Another Video / Format")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(.skyAccent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 4)
                     }
                 }
             }
