@@ -116,309 +116,13 @@ struct VideoConverterView: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 40)
                     } else {
-                        // Selected Source Video Card
+                        // Selected Video Settings & Actions
                         if let info = videoInfo {
-                            GlassCard(cornerRadius: 16, padding: 16) {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    HStack {
-                                        Text("SOURCE VIDEO")
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundColor(.textTertiary)
-                                            .tracking(1.0)
-
-                                        Spacer()
-
-                                        Button("Change") {
-                                            self.videoUrl = nil
-                                            self.videoInfo = nil
-                                            self.convertedFileUrl = nil
-                                        }
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(.brandAccent)
-                                    }
-
-                                    HStack(spacing: 12) {
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .fill(Color.elevatedSurface)
-                                                .frame(width: 44, height: 44)
-                                            Image(systemName: "film.fill")
-                                                .font(.system(size: 20))
-                                                .foregroundColor(.gradientStart)
-                                        }
-
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(videoUrl?.lastPathComponent ?? "Video")
-                                                .font(.system(size: 14, weight: .bold))
-                                                .foregroundColor(.textPrimary)
-                                                .lineLimit(1)
-
-                                            HStack(spacing: 6) {
-                                                Text("\(info.width) × \(info.height)")
-                                                    .foregroundColor(.emeraldAccent)
-                                                Text("•")
-                                                    .foregroundColor(.textTertiary)
-                                                Text(String(format: "%.0f FPS", info.fps))
-                                                    .foregroundColor(.textMuted)
-                                                Text("•")
-                                                    .foregroundColor(.textTertiary)
-                                                Text(info.formattedDuration)
-                                                    .foregroundColor(.textMuted)
-                                            }
-                                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-
-                                            HStack(spacing: 6) {
-                                                HStack(spacing: 4) {
-                                                    Image(systemName: "video.fill")
-                                                        .font(.system(size: 9))
-                                                    Text(info.videoCodec)
-                                                        .font(.system(size: 11, weight: .bold))
-                                                }
-                                                .foregroundColor(.skyAccent)
-                                                .padding(.horizontal, 7)
-                                                .padding(.vertical, 3)
-                                                .background(Color.skyAccent.opacity(0.12))
-                                                .cornerRadius(6)
-
-                                                if info.audioCodec != "None" {
-                                                    HStack(spacing: 4) {
-                                                        Image(systemName: "waveform")
-                                                            .font(.system(size: 9))
-                                                        Text(info.audioCodec)
-                                                            .font(.system(size: 11, weight: .bold))
-                                                    }
-                                                    .foregroundColor(.emeraldAccent)
-                                                    .padding(.horizontal, 7)
-                                                    .padding(.vertical, 3)
-                                                    .background(Color.emeraldAccent.opacity(0.12))
-                                                    .cornerRadius(6)
-                                                }
-
-                                                Text((videoUrl?.pathExtension.uppercased() ?? "MP4"))
-                                                    .font(.system(size: 11, weight: .bold))
-                                                    .foregroundColor(.textMuted)
-                                                    .padding(.horizontal, 7)
-                                                    .padding(.vertical, 3)
-                                                    .background(Color.elevatedSurface)
-                                                    .cornerRadius(6)
-                                            }
-                                            .padding(.top, 4)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 16)
-
-                            // Target Container Selection
-                            GlassCard(cornerRadius: 14, padding: 14) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("OUTPUT CONTAINER")
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundColor(.textTertiary)
-                                            .tracking(1.0)
-                                        Text("File container format")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.textMuted)
-                                    }
-
-                                    Spacer()
-
-                                    HStack(spacing: 8) {
-                                        ForEach(ExportContainer.allCases) { container in
-                                            Button(action: { targetContainer = container }) {
-                                                HStack(spacing: 4) {
-                                                    if targetContainer == container {
-                                                        Image(systemName: "checkmark")
-                                                            .font(.system(size: 10, weight: .bold))
-                                                    }
-                                                    Text(container.rawValue)
-                                                        .font(.system(size: 12, weight: .bold))
-                                                }
-                                                .padding(.horizontal, 14)
-                                                .padding(.vertical, 8)
-                                                .background(targetContainer == container ? Color.brandAccent : Color.elevatedSurface)
-                                                .foregroundColor(targetContainer == container ? .white : .textMuted)
-                                                .cornerRadius(8)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 16)
-
-                            // Video Codec Dropdown Menu
-                            GlassCard(cornerRadius: 14, padding: 14) {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    HStack {
-                                        Text("VIDEO CODEC")
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundColor(.textTertiary)
-                                            .tracking(1.0)
-
-                                        Spacer()
-
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "sparkles")
-                                                .font(.system(size: 9))
-                                            Text("100% Original Resolution")
-                                                .font(.system(size: 10, weight: .semibold))
-                                        }
-                                        .foregroundColor(.emeraldAccent)
-                                    }
-
-                                    Menu {
-                                        ForEach(ExportCodec.allCases) { codec in
-                                            Button(action: { targetCodec = codec }) {
-                                                if targetCodec == codec {
-                                                    Label(codec.rawValue, systemImage: "checkmark")
-                                                } else {
-                                                    Text(codec.rawValue)
-                                                }
-                                            }
-                                        }
-                                    } label: {
-                                        HStack(spacing: 12) {
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                HStack(spacing: 6) {
-                                                    Text(targetCodec.rawValue)
-                                                        .font(.system(size: 14, weight: .bold))
-                                                        .foregroundColor(.textPrimary)
-                                                    if targetCodec == .auto {
-                                                        Text("DIRECT STREAM")
-                                                            .font(.system(size: 9, weight: .black))
-                                                            .padding(.horizontal, 5)
-                                                            .padding(.vertical, 2)
-                                                            .background(Color.emeraldAccent.opacity(0.15))
-                                                            .foregroundColor(.emeraldAccent)
-                                                            .cornerRadius(4)
-                                                    }
-                                                }
-                                                Text(codecDescription(targetCodec, sourceCodec: info.videoCodec))
-                                                    .font(.system(size: 11))
-                                                    .foregroundColor(.textMuted)
-                                                    .lineLimit(1)
-                                            }
-
-                                            Spacer()
-
-                                            HStack(spacing: 4) {
-                                                Text("Select")
-                                                    .font(.system(size: 11, weight: .semibold))
-                                                    .foregroundColor(.brandAccent)
-                                                Image(systemName: "chevron.up.chevron.down")
-                                                    .font(.system(size: 11, weight: .bold))
-                                                    .foregroundColor(.brandAccent)
-                                            }
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 6)
-                                            .background(Color.brandAccent.opacity(0.12))
-                                            .cornerRadius(6)
-                                        }
-                                        .padding(10)
-                                        .background(Color.elevatedSurface)
-                                        .cornerRadius(10)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .stroke(Color.cardBorder, lineWidth: 1)
-                                        )
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 16)
-
-                            // Audio Setting Card
-                            GlassCard(cornerRadius: 14, padding: 12) {
-                                HStack(spacing: 12) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(includeAudio ? Color.emeraldAccent.opacity(0.15) : Color(hex: "FF5252").opacity(0.15))
-                                            .frame(width: 36, height: 36)
-                                        Image(systemName: includeAudio ? "music.note" : "speaker.slash")
-                                            .font(.system(size: 16, weight: .bold))
-                                            .foregroundColor(includeAudio ? .emeraldAccent : Color(hex: "FF5252"))
-                                    }
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(includeAudio ? "Include Audio Track" : "Mute Audio on Conversion")
-                                            .font(.system(size: 13, weight: .bold))
-                                            .foregroundColor(.textPrimary)
-                                        Text(includeAudio ? "Preserve original audio track" : "Produce 100% silent video")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.textMuted)
-                                    }
-
-                                    Spacer()
-
-                                    Toggle("", isOn: $includeAudio)
-                                        .labelsHidden()
-                                        .tint(.emeraldAccent)
-                                }
-                            }
-                            .padding(.horizontal, 16)
-
-                            // Resolution Guarantee Badge
-                            HStack(spacing: 8) {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .foregroundColor(.emeraldAccent)
-                                    .font(.system(size: 14))
-                                Text("Guaranteed: Resolution preserved at \(info.width) × \(info.height)")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.textPrimary)
-                            }
-                            .padding(.horizontal, 16)
-
-                            // Conversion Progress
-                            if isConverting {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ProgressView(value: convertProgress, total: 1.0)
-                                        .progressViewStyle(LinearProgressViewStyle(tint: .brandAccent))
-                                    Text(String(format: "Converting video: %.0f%%", convertProgress * 100.0))
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.textMuted)
-                                }
-                                .padding(.horizontal, 16)
-                            }
-
-                            // Convert Action Button
-                            Button(action: startConversion) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 16, weight: .bold))
-                                    Text(isConverting ? "Converting..." : "Convert to \(targetContainer.rawValue) (\(info.width)×\(info.height))")
-                                        .font(.system(size: 14, weight: .bold))
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(LinearGradient.brandGradient)
-                                .foregroundColor(.white)
-                                .cornerRadius(12)
-                            }
-                            .disabled(isConverting)
-                            .padding(.horizontal, 16)
-
-                            // Share / Save to Files Button if finished
-                            if let outUrl = convertedFileUrl {
-                                Button(action: { showShareSheet = true }) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "square.and.arrow.up")
-                                            .font(.system(size: 15, weight: .bold))
-                                        Text("Share / Save Converted File")
-                                            .font(.system(size: 13, weight: .bold))
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 44)
-                                    .background(Color.elevatedSurface)
-                                    .foregroundColor(.skyAccent)
-                                    .cornerRadius(12)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color.skyAccent.opacity(0.4), lineWidth: 1)
-                                    )
-                                }
-                                .padding(.horizontal, 16)
-                            }
-
+                            sourceVideoCard(info: info)
+                            containerCard
+                            codecDropdownCard(info: info)
+                            audioSettingCard
+                            convertActionSection(info: info)
                             Spacer(minLength: 24)
                         }
                     }
@@ -468,6 +172,329 @@ struct VideoConverterView: View {
             return "50% smaller size at original resolution with HDR10/Dolby Vision"
         case .prores:
             return "Apple ProRes 422 master format for professional editing in Final Cut"
+        }
+    }
+
+    // MARK: - Subviews
+
+    @ViewBuilder
+    private func sourceVideoCard(info: VideoInfo) -> some View {
+        GlassCard(cornerRadius: 16, padding: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("SOURCE VIDEO")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.textTertiary)
+                        .tracking(1.0)
+
+                    Spacer()
+
+                    Button("Change") {
+                        self.videoUrl = nil
+                        self.videoInfo = nil
+                        self.convertedFileUrl = nil
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.brandAccent)
+                }
+
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.elevatedSurface)
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "film.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.gradientStart)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(videoUrl?.lastPathComponent ?? "Video")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .lineLimit(1)
+
+                        HStack(spacing: 6) {
+                            Text("\(info.width) × \(info.height)")
+                                .foregroundColor(.emeraldAccent)
+                            Text("•")
+                                .foregroundColor(.textTertiary)
+                            Text(String(format: "%.0f FPS", info.fps))
+                                .foregroundColor(.textMuted)
+                            Text("•")
+                                .foregroundColor(.textTertiary)
+                            Text(info.formattedDuration)
+                                .foregroundColor(.textMuted)
+                        }
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+
+                        HStack(spacing: 6) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "video.fill")
+                                    .font(.system(size: 9))
+                                Text(info.videoCodec)
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            .foregroundColor(.skyAccent)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.skyAccent.opacity(0.12))
+                            .cornerRadius(6)
+
+                            if info.audioCodec != "None" {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "waveform")
+                                        .font(.system(size: 9))
+                                    Text(info.audioCodec)
+                                        .font(.system(size: 11, weight: .bold))
+                                }
+                                .foregroundColor(.emeraldAccent)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.emeraldAccent.opacity(0.12))
+                                .cornerRadius(6)
+                            }
+
+                            Text((videoUrl?.pathExtension.uppercased() ?? "MP4"))
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.textMuted)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.elevatedSurface)
+                                .cornerRadius(6)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private var containerCard: some View {
+        GlassCard(cornerRadius: 14, padding: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("OUTPUT CONTAINER")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.textTertiary)
+                        .tracking(1.0)
+                    Text("File container format")
+                        .font(.system(size: 11))
+                        .foregroundColor(.textMuted)
+                }
+
+                Spacer()
+
+                HStack(spacing: 8) {
+                    ForEach(ExportContainer.allCases) { container in
+                        Button(action: { targetContainer = container }) {
+                            HStack(spacing: 4) {
+                                if targetContainer == container {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                }
+                                Text(container.rawValue)
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(targetContainer == container ? Color.brandAccent : Color.elevatedSurface)
+                            .foregroundColor(targetContainer == container ? .white : .textMuted)
+                            .cornerRadius(8)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private func codecDropdownCard(info: VideoInfo) -> some View {
+        GlassCard(cornerRadius: 14, padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("VIDEO CODEC")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.textTertiary)
+                        .tracking(1.0)
+
+                    Spacer()
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 9))
+                        Text("100% Original Resolution")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.emeraldAccent)
+                }
+
+                Menu {
+                    ForEach(ExportCodec.allCases) { codec in
+                        Button(action: { targetCodec = codec }) {
+                            if targetCodec == codec {
+                                Label(codec.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(codec.rawValue)
+                            }
+                        }
+                    }
+                } label: {
+                    codecMenuLabel(info: info)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private func codecMenuLabel(info: VideoInfo) -> some View {
+        let desc = codecDescription(targetCodec, sourceCodec: info.videoCodec)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(targetCodec.rawValue)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.textPrimary)
+                    if targetCodec == .auto {
+                        Text("DIRECT STREAM")
+                            .font(.system(size: 9, weight: .black))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.emeraldAccent.opacity(0.15))
+                            .foregroundColor(.emeraldAccent)
+                            .cornerRadius(4)
+                    }
+                }
+                Text(desc)
+                    .font(.system(size: 11))
+                    .foregroundColor(.textMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            HStack(spacing: 4) {
+                Text("Select")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.brandAccent)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.brandAccent)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.brandAccent.opacity(0.12))
+            .cornerRadius(6)
+        }
+        .padding(10)
+        .background(Color.elevatedSurface)
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.cardBorder, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var audioSettingCard: some View {
+        GlassCard(cornerRadius: 14, padding: 12) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(includeAudio ? Color.emeraldAccent.opacity(0.15) : Color(hex: "FF5252").opacity(0.15))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: includeAudio ? "music.note" : "speaker.slash")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(includeAudio ? .emeraldAccent : Color(hex: "FF5252"))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(includeAudio ? "Include Audio Track" : "Mute Audio on Conversion")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.textPrimary)
+                    Text(includeAudio ? "Preserve original audio track" : "Produce 100% silent video")
+                        .font(.system(size: 11))
+                        .foregroundColor(.textMuted)
+                }
+
+                Spacer()
+
+                Toggle("", isOn: $includeAudio)
+                    .labelsHidden()
+                    .tint(.emeraldAccent)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    @ViewBuilder
+    private func convertActionSection(info: VideoInfo) -> some View {
+        VStack(spacing: 12) {
+            // Resolution Guarantee Badge
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.seal.fill")
+                    .foregroundColor(.emeraldAccent)
+                    .font(.system(size: 14))
+                Text("Guaranteed: Resolution preserved at \(info.width) × \(info.height)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.textPrimary)
+            }
+            .padding(.horizontal, 16)
+
+            // Conversion Progress
+            if isConverting {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: convertProgress, total: 1.0)
+                        .progressViewStyle(LinearProgressViewStyle(tint: .brandAccent))
+                    Text(String(format: "Converting video: %.0f%%", convertProgress * 100.0))
+                        .font(.system(size: 11))
+                        .foregroundColor(.textMuted)
+                }
+                .padding(.horizontal, 16)
+            }
+
+            // Convert Action Button
+            Button(action: startConversion) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 16, weight: .bold))
+                    Text(isConverting ? "Converting..." : "Convert to \(targetContainer.rawValue) (\(info.width)×\(info.height))")
+                        .font(.system(size: 14, weight: .bold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(LinearGradient.brandGradient)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+            }
+            .disabled(isConverting)
+            .padding(.horizontal, 16)
+
+            // Share / Save to Files Button if finished
+            if let outUrl = convertedFileUrl {
+                Button(action: { showShareSheet = true }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                        Text("Share / Save Converted File")
+                            .font(.system(size: 13, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color.elevatedSurface)
+                    .foregroundColor(.skyAccent)
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.skyAccent.opacity(0.4), lineWidth: 1)
+                    )
+                }
+                .padding(.horizontal, 16)
+            }
         }
     }
 
