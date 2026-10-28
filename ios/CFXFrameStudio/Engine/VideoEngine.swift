@@ -151,7 +151,7 @@ final class VideoEngine {
                 return image.pngData()
             }
             let options: [CFString: Any] = [
-                kCGImageDestinationLossless: true
+                ("kCGImageDestinationLosslessQuality" as CFString): true
             ]
             CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
             if CGImageDestinationFinalize(destination) {
