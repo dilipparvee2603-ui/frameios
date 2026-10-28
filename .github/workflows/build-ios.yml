@@ -21,6 +21,14 @@ jobs:
       - name: Select Latest Xcode
         run: sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
 
+      - name: Bump App Version & Build Number
+        run: |
+          VERSION="1.0.${{ github.run_number }}"
+          BUILD="${{ github.run_number }}"
+          echo "Setting app version to $VERSION (Build $BUILD)"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" ios/CFXFrameStudio/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" ios/CFXFrameStudio/Info.plist
+
       - name: Build iOS App Bundle (Unsigned)
         run: |
           cd ios
@@ -53,18 +61,23 @@ jobs:
           path: ios/CFXFrameStudio.ipa
           retention-days: 14
 
-      - name: Publish Direct 1-Click .IPA to GitHub Releases
+      - name: Publish Versioned GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: "v1.0-latest"
-          name: "CFX FrameStudio iOS — Direct 1-Click IPA"
+          tag_name: "v1.0.${{ github.run_number }}"
+          name: "CFX FrameStudio iOS v1.0.${{ github.run_number }}"
           body: |
-            ### ⚡ Direct 1-Click IPA Sideload
+            ### ⚡ CFX FrameStudio iOS v1.0.${{ github.run_number }}
             
+            **Direct 1-Click Sideload Install:**
             Download **`CFXFrameStudio.ipa`** directly to your iPhone below (no unzipping needed!).
             
-            #### 📱 Direct iPhone Install:
+            - **App Version**: `1.0.${{ github.run_number }}`
+            - **Build**: `${{ github.run_number }}`
+            - **Commit**: `${{ github.sha }}`
+            
+            #### 📱 How to Install on iPhone:
             1. Tap **`CFXFrameStudio.ipa`** below to download directly in Safari.
             2. When downloaded, open Safari Downloads > tap Share.
             3. Choose **AltStore**, **Sideloadly**, or **TrollStore** to install.
