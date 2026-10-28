@@ -15,6 +15,8 @@ struct FrameExporterView: View {
 
     @State private var selectedFormat: FrameFormat = .png
     @State private var isExporting: Bool = false
+    @State private var exportedFileUrl: URL? = nil
+    @State private var showShareSheet: Bool = false
 
     @State private var showTimecodeModal: Bool = false
     @State private var alertMessage: String? = nil
@@ -306,7 +308,30 @@ struct FrameExporterView: View {
                             }
                             .disabled(isExporting)
                             .padding(.horizontal, 16)
-                            .padding(.bottom, 24)
+
+                            // Share / Save Frame to Files Button
+                            if let _ = exportedFileUrl {
+                                Button(action: { showShareSheet = true }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .font(.system(size: 15, weight: .bold))
+                                        Text("Share / Save Frame to Files")
+                                            .font(.system(size: 13, weight: .bold))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 44)
+                                    .background(Color.elevatedSurface)
+                                    .foregroundColor(.skyAccent)
+                                    .cornerRadius(12)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.skyAccent.opacity(0.4), lineWidth: 1)
+                                    )
+                                }
+                                .padding(.horizontal, 16)
+                            }
+
+                            Spacer(minLength: 24)
                         }
                     }
                 }
@@ -346,6 +371,11 @@ struct FrameExporterView: View {
             case .failure(let error):
                 alertMessage = "File import error: \(error.localizedDescription)"
                 showAlert = true
+            }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let outUrl = exportedFileUrl {
+                ShareActivityView(activityItems: [outUrl])
             }
         }
         .alert(alertMessage ?? "", isPresented: $showAlert) {
@@ -449,13 +479,23 @@ struct FrameExporterView: View {
         Task {
             do {
                 let frame = try await VideoEngine.shared.extractFrame(from: url, at: playerModel.currentPositionMs)
-                let saved = try await VideoEngine.shared.saveFrameToPhotos(image: frame, format: selectedFormat)
+                let tempFile = try VideoEngine.shared.saveFrameToTempFile(image: frame, format: selectedFormat)
+
+                var savedToPhotos = false
+                do {
+                    savedToPhotos = try await VideoEngine.shared.saveFrameToPhotos(image: frame, format: selectedFormat)
+                } catch {
+                    // Photos rejected format or permission issue (e.g. PHPhotosErrorDomain)
+                    savedToPhotos = false
+                }
+
                 await MainActor.run {
                     self.isExporting = false
-                    if saved {
+                    self.exportedFileUrl = tempFile
+                    if savedToPhotos {
                         self.alertMessage = "✓ Frame exported and saved to Camera Roll!"
                     } else {
-                        self.alertMessage = "Failed to save image to Photos"
+                        self.alertMessage = "✓ Frame extracted! Photos rejected format — tap 'Save to Files' below."
                     }
                     self.showAlert = true
                 }

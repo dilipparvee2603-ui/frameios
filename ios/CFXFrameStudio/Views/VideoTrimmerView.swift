@@ -20,6 +20,9 @@ struct VideoTrimmerView: View {
     @State private var isExporting: Bool = false
     @State private var exportProgress: Float = 0.0
 
+    @State private var trimmedFileUrl: URL? = nil
+    @State private var showShareSheet: Bool = false
+
     @State private var activeTimecodeTarget: TimecodeTarget? = nil
     @State private var alertMessage: String? = nil
     @State private var showAlert: Bool = false
@@ -391,7 +394,30 @@ struct VideoTrimmerView: View {
                             }
                             .disabled(isExporting)
                             .padding(.horizontal, 16)
-                            .padding(.bottom, 24)
+
+                            // Share / Save to Files Button
+                            if let _ = trimmedFileUrl {
+                                Button(action: { showShareSheet = true }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "square.and.arrow.up")
+                                            .font(.system(size: 15, weight: .bold))
+                                        Text("Share / Save Trimmed Video to Files")
+                                            .font(.system(size: 13, weight: .bold))
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 44)
+                                    .background(Color.elevatedSurface)
+                                    .foregroundColor(.skyAccent)
+                                    .cornerRadius(12)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.skyAccent.opacity(0.4), lineWidth: 1)
+                                    )
+                                }
+                                .padding(.horizontal, 16)
+                            }
+
+                            Spacer(minLength: 24)
                         }
                     }
                 }
@@ -439,6 +465,11 @@ struct VideoTrimmerView: View {
             case .failure(let error):
                 alertMessage = "File import error: \(error.localizedDescription)"
                 showAlert = true
+            }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let outUrl = trimmedFileUrl {
+                ShareActivityView(activityItems: [outUrl])
             }
         }
         .alert(alertMessage ?? "", isPresented: $showAlert) {
@@ -524,8 +555,13 @@ struct VideoTrimmerView: View {
 
             await MainActor.run {
                 self.isExporting = false
-                if result.success {
-                    self.alertMessage = includeAudioInExport ? "✓ Trimmed video saved to Camera Roll!" : "✓ Trimmed silent video saved to Camera Roll!"
+                if result.success, let outUrl = result.outputUrl {
+                    self.trimmedFileUrl = outUrl
+                    if let msg = result.errorMessage {
+                        self.alertMessage = msg
+                    } else {
+                        self.alertMessage = includeAudioInExport ? "✓ Trimmed video saved to Camera Roll!" : "✓ Trimmed silent video saved to Camera Roll!"
+                    }
                 } else {
                     self.alertMessage = "Export Error: \(result.errorMessage ?? "Unknown error")"
                 }

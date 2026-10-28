@@ -29,6 +29,13 @@ enum FrameFormat: String, CaseIterable, Identifiable {
     case png = "PNG"
     case jpg = "JPG"
     var id: String { rawValue }
+
+    var fileExtension: String {
+        switch self {
+        case .png: return "png"
+        case .jpg: return "jpg"
+        }
+    }
 }
 
 final class VideoEngine {
@@ -98,6 +105,27 @@ final class VideoEngine {
         let cmTime = CMTime(value: CMTimeValue(timeMs), timescale: 1000)
         let cgImage = try generator.copyCGImage(at: cmTime, actualTime: nil)
         return UIImage(cgImage: cgImage)
+    }
+
+    func saveFrameToTempFile(image: UIImage, format: FrameFormat) throws -> URL {
+        let tempDir = FileManager.default.temporaryDirectory
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let fileUrl = tempDir.appendingPathComponent("CFX_Frame_\(timestamp).\(format.fileExtension)")
+
+        let data: Data?
+        switch format {
+        case .png:
+            data = image.pngData()
+        case .jpg:
+            data = image.jpegData(compressionQuality: 0.95)
+        }
+
+        guard let imageData = data else {
+            throw NSError(domain: "CFXFrameStudio", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to encode image"])
+        }
+
+        try imageData.write(to: fileUrl)
+        return fileUrl
     }
 
     func saveFrameToPhotos(image: UIImage, format: FrameFormat) async throws -> Bool {

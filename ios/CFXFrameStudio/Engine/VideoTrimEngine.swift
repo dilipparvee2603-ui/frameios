@@ -97,15 +97,20 @@ final class VideoTrimEngine {
             progressTask.cancel()
 
             if session.status == .completed {
-                // Save to iOS Photos Library
-                let saved = try await saveVideoToPhotos(fileUrl: tempOutUrl)
-                try? FileManager.default.removeItem(at: tempOutUrl)
-
-                if saved {
-                    return TrimResult(success: true, outputUrl: tempOutUrl, errorMessage: nil)
-                } else {
-                    return TrimResult(success: false, outputUrl: nil, errorMessage: "Failed to save trimmed video to Camera Roll")
+                // Attempt to save to iOS Photos Library if supported
+                var savedToPhotos = false
+                do {
+                    savedToPhotos = try await saveVideoToPhotos(fileUrl: tempOutUrl)
+                } catch {
+                    // Photos rejected the container/codec (e.g. PHPhotosErrorDomain from non-standard streams)
+                    savedToPhotos = false
                 }
+
+                return TrimResult(
+                    success: true,
+                    outputUrl: tempOutUrl,
+                    errorMessage: savedToPhotos ? nil : "Video trimmed! Photos rejected codec — tap 'Save to Files' below."
+                )
             } else {
                 let err = session.error?.localizedDescription ?? "Export failed"
                 try? FileManager.default.removeItem(at: tempOutUrl)
