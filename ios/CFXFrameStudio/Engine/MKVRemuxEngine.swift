@@ -18,11 +18,75 @@ private struct ProbedMediaInfo {
 /// Performance & Compatibility Features:
 /// 1. Direct stream-copy for video with automatic `-tag:v hvc1` tagging for HEVC (prevents Apple AVPlayer black screen).
 /// 2. Stream-copies compatible audio (AAC/AC3/MP3) with automatic Tier-2 AAC fallback for exotic audio (DTS/Opus/FLAC).
-/// 3. Applies `-movflags +faststart` to place MOOV atom at file beginning for instant frame rendering and scrubbing in AVPlayer.
-/// 4. Multithreaded execution (`-threads 0`) utilizing all Apple Silicon high-performance cores.
+/// 3. Resilient WebM transcode using Apple hardware `h264_videotoolbox` with automatic `mpeg4` fallback (zero missing encoder failures).
+/// 4. Applies `-movflags +faststart` to place MOOV atom at file beginning for instant frame rendering and scrubbing in AVPlayer.
+/// 5. Multithreaded execution (`-threads 0`) utilizing all Apple Silicon high-performance cores.
 final class MKVRemuxEngine {
     static let shared = MKVRemuxEngine()
     private init() {}
+
+    private static var cachedSupportedVideoEncoder: String? = nil
+
+    /// Detects the highest-performing video encoder supported by the runtime FFmpeg build
+    private static func getBestVideoEncoder() -> String {
+        if let cached = cachedSupportedVideoEncoder {
+            return cached
+        }
+        if let session = FFmpegKit.execute("-encoders"),
+           let output = session.getAllLogsAsString() ?? session.getOutput() {
+            if output.contains("h264_videotoolbox") {
+                cachedSupportedVideoEncoder = "h264_videotoolbox"
+                return "h264_videotoolbox"
+            }
+            if output.contains("libx264") {
+                cachedSupportedVideoEncoder = "libx264"
+                return "libx264"
+            }
+        }
+        // Native MPEG-4 Part 2 is built into every libavcodec binary and natively decoded by iOS AVPlayer
+        cachedSupportedVideoEncoder = "mpeg4"
+        return "mpeg4"
+    }
+
+    /// Constructs transcode arguments for WebM and unsupported codecs
+    private static func buildTranscodeArgs(
+        sourceUrl: URL,
+        outputUrl: URL,
+        encoder: String,
+        hasAudio: Bool
+    ) -> [String] {
+        var args = [
+            "-threads", "0",
+            "-y",
+            "-i", sourceUrl.path,
+            "-map", "0:v:0",
+            "-c:v", encoder
+        ]
+
+        if encoder == "h264_videotoolbox" {
+            args += ["-b:v", "4M", "-profile:v", "high"]
+        } else if encoder == "libx264" {
+            args += ["-preset", "ultrafast", "-crf", "22"]
+        } else if encoder == "mpeg4" {
+            args += ["-q:v", "4"]
+        }
+
+        if hasAudio {
+            args += [
+                "-map", "0:a:0?",
+                "-c:a", "aac",
+                "-b:a", "192k"
+            ]
+        } else {
+            args += ["-an"]
+        }
+
+        args += [
+            "-movflags", "+faststart",
+            outputUrl.path
+        ]
+        return args
+    }
 
     /// Checks if a given file URL points to a Matroska or WebM container
     func isMatroska(url: URL) -> Bool {
@@ -151,23 +215,18 @@ final class MKVRemuxEngine {
             let requiresTranscode = probedInfo.isVP || probedInfo.isAV1 || (isWebM && !probedInfo.isHEVC && !probedInfo.isH264)
 
             if requiresTranscode {
-                let transcodeArguments = [
-                    "-threads", "0",
-                    "-y",
-                    "-i", sourceUrl.path,
-                    "-map", "0:v:0",
-                    "-map", "0:a:0?",
-                    "-c:v", "libx264",
-                    "-preset", "ultrafast",
-                    "-crf", "20",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-movflags", "+faststart",
-                    outputUrl.path
-                ]
+                onProgress?(0.05, "Converting WebM...")
+                let primaryEncoder = MKVRemuxEngine.getBestVideoEncoder()
+                let primaryArgs = MKVRemuxEngine.buildTranscodeArgs(
+                    sourceUrl: sourceUrl,
+                    outputUrl: outputUrl,
+                    encoder: primaryEncoder,
+                    hasAudio: !probedInfo.audioCodec.isEmpty
+                )
 
-                let session = FFmpegKit.execute(withArguments: transcodeArguments)
+                let session = FFmpegKit.execute(withArguments: primaryArgs)
                 let code = session?.getReturnCode()
+
                 if ReturnCode.isSuccess(code),
                    FileManager.default.fileExists(atPath: outputUrl.path),
                    let attrs = try? FileManager.default.attributesOfItem(atPath: outputUrl.path),
@@ -175,6 +234,34 @@ final class MKVRemuxEngine {
                     onProgress?(1.0, "Complete")
                     return outputUrl
                 }
+
+                // If primary encoder failed, try mpeg4 as safe fallback (present in every libavcodec)
+                if primaryEncoder != "mpeg4" {
+                    try? FileManager.default.removeItem(at: outputUrl)
+                    let fallbackArgs = MKVRemuxEngine.buildTranscodeArgs(
+                        sourceUrl: sourceUrl,
+                        outputUrl: outputUrl,
+                        encoder: "mpeg4",
+                        hasAudio: !probedInfo.audioCodec.isEmpty
+                    )
+                    let fbSession = FFmpegKit.execute(withArguments: fallbackArgs)
+                    let fbCode = fbSession?.getReturnCode()
+                    if ReturnCode.isSuccess(fbCode),
+                       FileManager.default.fileExists(atPath: outputUrl.path),
+                       let attrs = try? FileManager.default.attributesOfItem(atPath: outputUrl.path),
+                       (attrs[.size] as? Int64 ?? 0) > 1024 {
+                        onProgress?(1.0, "Complete")
+                        return outputUrl
+                    }
+                }
+
+                let logs = session?.getAllLogsAsString() ?? session?.getFailStackTrace() ?? "WebM conversion failed"
+                let lastLines = logs.split(separator: "\n").suffix(6).joined(separator: "\n")
+                throw NSError(
+                    domain: "MKVRemuxEngine",
+                    code: Int(code?.getValue() ?? -1),
+                    userInfo: [NSLocalizedDescriptionKey: "WebM conversion error:\n\(lastLines)"]
+                )
             }
 
             // Tier 1: Pure Stream Copy (Both video and audio stream copied bit-for-bit).
