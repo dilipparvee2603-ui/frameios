@@ -2,6 +2,10 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
+private enum CornerType {
+    case topLeft, topRight, bottomLeft, bottomRight
+}
+
 struct ImageCropperView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -15,6 +19,12 @@ struct ImageCropperView: View {
     @State private var rotationDegrees: Int = 0
     @State private var isFlipped: Bool = false
     @State private var selectedFormat: CropFormat = .png
+
+    // Interactive Crop Box & Zoom state
+    @State private var cropUnitRect: CGRect = CGRect(x: 0, y: 0, width: 1.0, height: 1.0)
+    @State private var dragStartUnitRect: CGRect? = nil
+    @State private var zoomScale: CGFloat = 1.0
+    @State private var baseZoomScale: CGFloat = 1.0
 
     // Export state
     @State private var isCropping: Bool = false
@@ -33,8 +43,8 @@ struct ImageCropperView: View {
 
                     if let img = sourceImage {
                         imageCanvasSection(for: img)
-                        ratioSelectorSection
-                        transformControlsSection
+                        ratioSelectorSection(for: img)
+                        transformControlsSection(for: img)
                         formatSelectorSection
                         cropActionButton(for: img)
 
@@ -207,10 +217,11 @@ struct ImageCropperView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        featureRow(icon: "crop", title: "Lossless Pixel Cropping", desc: "No quality loss, preserves original native resolution")
+                        featureRow(icon: "crop", title: "Adjustable Crop Frame", desc: "Drag frame to reposition & drag corner handles to resize")
+                        featureRow(icon: "magnifyingglass", title: "Pinch & Slider Zoom", desc: "Zoom up to 4.0x for precision cropping of fine details")
                         featureRow(icon: "aspectratio", title: "Social Aspect Ratios", desc: "1:1 Square, 4:5 Portrait, 16:9 YouTube, 9:16 Reels/TikTok")
                         featureRow(icon: "rotate.right", title: "Transform & Orient", desc: "90° lossless rotation and horizontal mirroring")
-                        featureRow(icon: "arrow.down.doc", title: "Dual Export Engine", desc: "PNG lossless & JPG with auto-save to Camera Roll & Files")
+                        featureRow(icon: "arrow.down.doc", title: "Dual Export Engine", desc: "Lossless PNG & 100% JPG with direct save & Files sheet")
                     }
                 }
             }
@@ -240,27 +251,15 @@ struct ImageCropperView: View {
 
     @ViewBuilder
     private func imageCanvasSection(for img: UIImage) -> some View {
-        let (cropW, cropH) = activeOutputDimensions(for: img)
+        let eff = effectiveDimensions(for: img)
+        let nativeW = max(1, Int(cropUnitRect.width * eff.width))
+        let nativeH = max(1, Int(cropUnitRect.height * eff.height))
 
         VStack(spacing: 8) {
             ZStack(alignment: .topTrailing) {
-                // Image Display Canvas with aspect fit
                 GeometryReader { geo in
-                    let canvasSize = geo.size
-                    ZStack {
-                        Color.black
-
-                        Image(uiImage: img)
-                            .resizable()
-                            .scaledToFit()
-                            .rotationEffect(.degrees(Double(rotationDegrees)))
-                            .scaleEffect(x: isFlipped ? -1 : 1, y: 1)
-                            .frame(maxWidth: canvasSize.width, maxHeight: canvasSize.height)
-
-                        // Crop overlay bounding box
-                        cropOverlayView(containerSize: canvasSize, imageSize: img.size)
-                    }
-                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    let containerSize = geo.size
+                    canvasContent(containerSize: containerSize, image: img, effectiveSize: eff)
                 }
                 .frame(maxWidth: .infinity)
                 .aspectRatio(1.0, contentMode: .fit)
@@ -270,88 +269,259 @@ struct ImageCropperView: View {
                         .stroke(Color.borderHairline, lineWidth: 1)
                 )
 
-                // Top Resolution Badge
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.emeraldAccent)
-                        .frame(width: 6, height: 6)
-
-                    Text("\(cropW) × \(cropH) px")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.emeraldAccent)
-
-                    Text("• \(selectedRatio.rawValue)")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.textMuted)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.surfaceCard.opacity(0.92))
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(Color.borderHairline, lineWidth: 1)
-                )
-                .padding(10)
+                resolutionBadge(nativeW: nativeW, nativeH: nativeH)
+                    .padding(10)
             }
+
+            zoomControlsBar
         }
     }
 
-    private func calculateOverlayBoxSize(containerSize: CGSize, imageSize: CGSize) -> CGSize? {
-        guard selectedRatio != .free else { return nil }
-
-        let isRotated90 = (rotationDegrees / 90) % 2 != 0
-        let effectiveW = isRotated90 ? imageSize.height : imageSize.width
-        let effectiveH = isRotated90 ? imageSize.width : imageSize.height
-
-        guard effectiveW > 0, effectiveH > 0 else { return nil }
-
-        let imgAspect = effectiveW / effectiveH
-        let containerAspect = containerSize.width / containerSize.height
-
-        let fitW: CGFloat = imgAspect > containerAspect ? containerSize.width : containerSize.height * imgAspect
-        let fitH: CGFloat = imgAspect > containerAspect ? containerSize.width / imgAspect : containerSize.height
-
-        let cropRect = ImageCropEngine.computeCropRect(imageSize: CGSize(width: effectiveW, height: effectiveH), ratio: selectedRatio)
-        let scaleX = fitW / effectiveW
-        let scaleY = fitH / effectiveH
-
-        return CGSize(width: cropRect.width * scaleX, height: cropRect.height * scaleY)
-    }
-
     @ViewBuilder
-    private func cropOverlayView(containerSize: CGSize, imageSize: CGSize) -> some View {
-        if let box = calculateOverlayBoxSize(containerSize: containerSize, imageSize: imageSize) {
+    private func canvasContent(containerSize: CGSize, image: UIImage, effectiveSize: CGSize) -> some View {
+        let effW = effectiveSize.width
+        let effH = effectiveSize.height
+
+        if effW > 0, effH > 0 {
+            let imgAspect = effW / effH
+            let containerAspect = containerSize.width / containerSize.height
+
+            let fitW: CGFloat = imgAspect > containerAspect ? containerSize.width : containerSize.height * imgAspect
+            let fitH: CGFloat = imgAspect > containerAspect ? containerSize.width / imgAspect : containerSize.height
+
+            let originX = (containerSize.width - fitW) / 2.0
+            let originY = (containerSize.height - fitH) / 2.0
+
+            let boxX = originX + cropUnitRect.origin.x * fitW
+            let boxY = originY + cropUnitRect.origin.y * fitH
+            let boxW = max(10, cropUnitRect.size.width * fitW)
+            let boxH = max(10, cropUnitRect.size.height * fitH)
+
             ZStack {
-                // Outer border of crop region
-                Rectangle()
-                    .stroke(Color.amberAccent, lineWidth: 1.5)
-                    .frame(width: box.width, height: box.height)
+                Color.black
 
-                // Subtle Rule-of-Thirds Grid
-                VStack {
-                    Spacer()
-                    Divider().background(Color.white.opacity(0.2))
-                    Spacer()
-                    Divider().background(Color.white.opacity(0.2))
-                    Spacer()
-                }
-                .frame(width: box.width, height: box.height)
+                // Fitted Image with rotation, flip and zoom
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .rotationEffect(.degrees(Double(rotationDegrees)))
+                    .scaleEffect(x: (isFlipped ? -1 : 1) * zoomScale, y: zoomScale)
+                    .frame(width: fitW, height: fitH)
+                    .position(x: containerSize.width / 2.0, y: containerSize.height / 2.0)
 
-                HStack {
-                    Spacer()
-                    Divider().background(Color.white.opacity(0.2))
-                    Spacer()
-                    Divider().background(Color.white.opacity(0.2))
-                    Spacer()
+                // 4 Surrounding Dark Scrims (dimming outside crop box)
+                scrimView(containerSize: containerSize, boxX: boxX, boxY: boxY, boxW: boxW, boxH: boxH)
+
+                // Center Box with grid, move icon and drag gesture
+                centerBoxView(boxX: boxX, boxY: boxY, boxW: boxW, boxH: boxH, fitW: fitW, fitH: fitH)
+
+                // 4 Corner Handles with 44x44 touch targets
+                cornerHandlesLayer(boxX: boxX, boxY: boxY, boxW: boxW, boxH: boxH, fitW: fitW, fitH: fitH, effW: effW, effH: effH)
+            }
+            .gesture(
+                MagnificationGesture()
+                    .onChanged { val in
+                        zoomScale = clampVal(baseZoomScale * val, 1.0, 4.0)
+                    }
+                    .onEnded { _ in
+                        baseZoomScale = zoomScale
+                    }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func scrimView(containerSize: CGSize, boxX: CGFloat, boxY: CGFloat, boxW: CGFloat, boxH: CGFloat) -> some View {
+        let scrimColor = Color.black.opacity(0.55)
+        ZStack {
+            // Top scrim
+            if boxY > 0 {
+                scrimColor
+                    .frame(width: containerSize.width, height: boxY)
+                    .position(x: containerSize.width / 2.0, y: boxY / 2.0)
+            }
+            // Bottom scrim
+            let bottomH = max(0, containerSize.height - (boxY + boxH))
+            if bottomH > 0 {
+                scrimColor
+                    .frame(width: containerSize.width, height: bottomH)
+                    .position(x: containerSize.width / 2.0, y: (boxY + boxH) + bottomH / 2.0)
+            }
+            // Left scrim
+            if boxX > 0 {
+                scrimColor
+                    .frame(width: boxX, height: boxH)
+                    .position(x: boxX / 2.0, y: boxY + boxH / 2.0)
+            }
+            // Right scrim
+            let rightW = max(0, containerSize.width - (boxX + boxW))
+            if rightW > 0 {
+                scrimColor
+                    .frame(width: rightW, height: boxH)
+                    .position(x: (boxX + boxW) + rightW / 2.0, y: boxY + boxH / 2.0)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func centerBoxView(boxX: CGFloat, boxY: CGFloat, boxW: CGFloat, boxH: CGFloat, fitW: CGFloat, fitH: CGFloat) -> some View {
+        ZStack {
+            // Transparent touch target for dragging the entire box
+            Color.white.opacity(0.001)
+                .frame(width: boxW, height: boxH)
+
+            // Amber border
+            Rectangle()
+                .stroke(Color.amberAccent, lineWidth: 1.5)
+                .frame(width: boxW, height: boxH)
+
+            // Subtle Rule-of-Thirds Grid
+            VStack {
+                Spacer()
+                Divider().background(Color.white.opacity(0.25))
+                Spacer()
+                Divider().background(Color.white.opacity(0.25))
+                Spacer()
+            }
+            .frame(width: boxW, height: boxH)
+
+            HStack {
+                Spacer()
+                Divider().background(Color.white.opacity(0.25))
+                Spacer()
+                Divider().background(Color.white.opacity(0.25))
+                Spacer()
+            }
+            .frame(width: boxW, height: boxH)
+
+            // Move glyph in center
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white.opacity(0.45))
+        }
+        .position(x: boxX + boxW / 2.0, y: boxY + boxH / 2.0)
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { val in
+                    if dragStartUnitRect == nil {
+                        dragStartUnitRect = cropUnitRect
+                    }
+                    guard let start = dragStartUnitRect else { return }
+                    let deltaX = val.translation.width / fitW
+                    let deltaY = val.translation.height / fitH
+                    let newX = clampVal(start.origin.x + deltaX, 0, 1.0 - start.width)
+                    let newY = clampVal(start.origin.y + deltaY, 0, 1.0 - start.height)
+                    cropUnitRect = CGRect(x: newX, y: newY, width: start.width, height: start.height)
                 }
-                .frame(width: box.width, height: box.height)
+                .onEnded { _ in
+                    dragStartUnitRect = nil
+                }
+        )
+    }
+
+    @ViewBuilder
+    private func cornerHandlesLayer(boxX: CGFloat, boxY: CGFloat, boxW: CGFloat, boxH: CGFloat, fitW: CGFloat, fitH: CGFloat, effW: CGFloat, effH: CGFloat) -> some View {
+        ZStack {
+            cornerHandleView(type: .topLeft, x: boxX, y: boxY, fitW: fitW, fitH: fitH, effW: effW, effH: effH)
+            cornerHandleView(type: .topRight, x: boxX + boxW, y: boxY, fitW: fitW, fitH: fitH, effW: effW, effH: effH)
+            cornerHandleView(type: .bottomLeft, x: boxX, y: boxY + boxH, fitW: fitW, fitH: fitH, effW: effW, effH: effH)
+            cornerHandleView(type: .bottomRight, x: boxX + boxW, y: boxY + boxH, fitW: fitW, fitH: fitH, effW: effW, effH: effH)
+        }
+    }
+
+    @ViewBuilder
+    private func cornerHandleView(type: CornerType, x: CGFloat, y: CGFloat, fitW: CGFloat, fitH: CGFloat, effW: CGFloat, effH: CGFloat) -> some View {
+        ZStack {
+            Circle()
+                .fill(Color.white)
+                .frame(width: 14, height: 14)
+                .overlay(Circle().stroke(Color.amberAccent, lineWidth: 2.5))
+                .shadow(color: Color.black.opacity(0.6), radius: 3, x: 0, y: 1)
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+        .position(x: x, y: y)
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { val in
+                    handleCornerDrag(corner: type, translation: val.translation, fitW: fitW, fitH: fitH, effectiveW: effW, effectiveH: effH)
+                }
+                .onEnded { _ in
+                    dragStartUnitRect = nil
+                }
+        )
+    }
+
+    @ViewBuilder
+    private func resolutionBadge(nativeW: Int, nativeH: Int) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.emeraldAccent)
+                .frame(width: 6, height: 6)
+
+            Text("\(nativeW) × \(nativeH) px")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(.emeraldAccent)
+
+            Text("• \(selectedRatio.rawValue)")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.textMuted)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.surfaceCard.opacity(0.92))
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.borderHairline, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var zoomControlsBar: some View {
+        GlassCard(cornerRadius: 12, padding: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.amberAccent)
+                    .font(.system(size: 11, weight: .bold))
+
+                Text(String(format: "%.1fx", zoomScale))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(.textPrimary)
+                    .frame(width: 32, alignment: .leading)
+
+                Slider(value: $zoomScale, in: 1.0...4.0, step: 0.1)
+                    .accentColor(.amberAccent)
+
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        zoomScale = 1.0
+                        baseZoomScale = 1.0
+                        if let img = sourceImage {
+                            let eff = effectiveDimensions(for: img)
+                            cropUnitRect = ImageCropEngine.computeDefaultUnitRect(imageSize: eff, ratio: selectedRatio)
+                        }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Reset")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(.textMuted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.elevatedSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
             }
         }
     }
 
     @ViewBuilder
-    private var ratioSelectorSection: some View {
+    private func ratioSelectorSection(for img: UIImage) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("ASPECT RATIO")
                 .font(.system(size: 11, weight: .bold))
@@ -364,6 +534,8 @@ struct ImageCropperView: View {
                         Button(action: {
                             withAnimation(.easeInOut(duration: 0.15)) {
                                 selectedRatio = ratio
+                                let eff = effectiveDimensions(for: img)
+                                cropUnitRect = ImageCropEngine.computeDefaultUnitRect(imageSize: eff, ratio: ratio)
                             }
                         }) {
                             VStack(spacing: 3) {
@@ -391,12 +563,14 @@ struct ImageCropperView: View {
     }
 
     @ViewBuilder
-    private var transformControlsSection: some View {
+    private func transformControlsSection(for img: UIImage) -> some View {
         HStack(spacing: 12) {
             // Rotate 90°
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     rotationDegrees = (rotationDegrees + 90) % 360
+                    let eff = effectiveDimensions(for: img)
+                    cropUnitRect = ImageCropEngine.computeDefaultUnitRect(imageSize: eff, ratio: selectedRatio)
                 }
             }) {
                 HStack(spacing: 6) {
@@ -444,7 +618,11 @@ struct ImageCropperView: View {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     rotationDegrees = 0
                     isFlipped = false
+                    zoomScale = 1.0
+                    baseZoomScale = 1.0
                     selectedRatio = .free
+                    let eff = effectiveDimensions(for: img)
+                    cropUnitRect = ImageCropEngine.computeDefaultUnitRect(imageSize: eff, ratio: .free)
                 }
             }) {
                 HStack(spacing: 6) {
@@ -546,14 +724,104 @@ struct ImageCropperView: View {
         }
     }
 
-    // MARK: - Logic Helpers
+    // MARK: - Logic & Gestures
 
-    private func activeOutputDimensions(for img: UIImage) -> (Int, Int) {
+    private func clampVal(_ value: CGFloat, _ minVal: CGFloat, _ maxVal: CGFloat) -> CGFloat {
+        return min(max(value, minVal), maxVal)
+    }
+
+    private func effectiveDimensions(for img: UIImage) -> CGSize {
         let isRotated90 = (rotationDegrees / 90) % 2 != 0
         let w = isRotated90 ? img.size.height : img.size.width
         let h = isRotated90 ? img.size.width : img.size.height
-        let rect = ImageCropEngine.computeCropRect(imageSize: CGSize(width: w, height: h), ratio: selectedRatio)
-        return (Int(rect.width), Int(rect.height))
+        return CGSize(width: max(1, w), height: max(1, h))
+    }
+
+    private func handleCornerDrag(corner: CornerType, translation: CGSize, fitW: CGFloat, fitH: CGFloat, effectiveW: CGFloat, effectiveH: CGFloat) {
+        if dragStartUnitRect == nil {
+            dragStartUnitRect = cropUnitRect
+        }
+        guard let start = dragStartUnitRect else { return }
+
+        let deltaX = translation.width / fitW
+        let deltaY = translation.height / fitH
+
+        let targetAspect: CGFloat? = selectedRatio.dimensions.map { $0.0 / $0.1 }
+        let k: CGFloat = targetAspect != nil ? ((effectiveW / effectiveH) / targetAspect!) : 1.0
+
+        switch corner {
+        case .bottomRight:
+            if targetAspect == nil {
+                let newW = clampVal(start.width + deltaX, 0.12, 1.0 - start.origin.x)
+                let newH = clampVal(start.height + deltaY, 0.12, 1.0 - start.origin.y)
+                cropUnitRect = CGRect(x: start.origin.x, y: start.origin.y, width: newW, height: newH)
+            } else {
+                var newW = clampVal(start.width + deltaX, 0.12, 1.0 - start.origin.x)
+                var newH = newW * k
+                if start.origin.y + newH > 1.0 {
+                    newH = 1.0 - start.origin.y
+                    newW = newH / k
+                }
+                if newW >= 0.12 && newH >= 0.12 {
+                    cropUnitRect = CGRect(x: start.origin.x, y: start.origin.y, width: newW, height: newH)
+                }
+            }
+
+        case .topLeft:
+            if targetAspect == nil {
+                let newX = clampVal(start.origin.x + deltaX, 0, start.maxX - 0.12)
+                let newY = clampVal(start.origin.y + deltaY, 0, start.maxY - 0.12)
+                cropUnitRect = CGRect(x: newX, y: newY, width: start.maxX - newX, height: start.maxY - newY)
+            } else {
+                var newW = clampVal(start.width - deltaX, 0.12, start.maxX)
+                var newH = newW * k
+                if newH > start.maxY {
+                    newH = start.maxY
+                    newW = newH / k
+                }
+                let newX = start.maxX - newW
+                let newY = start.maxY - newH
+                if newX >= 0 && newY >= 0 && newW >= 0.12 && newH >= 0.12 {
+                    cropUnitRect = CGRect(x: newX, y: newY, width: newW, height: newH)
+                }
+            }
+
+        case .topRight:
+            if targetAspect == nil {
+                let newW = clampVal(start.width + deltaX, 0.12, 1.0 - start.origin.x)
+                let newY = clampVal(start.origin.y + deltaY, 0, start.maxY - 0.12)
+                cropUnitRect = CGRect(x: start.origin.x, y: newY, width: newW, height: start.maxY - newY)
+            } else {
+                var newW = clampVal(start.width + deltaX, 0.12, 1.0 - start.origin.x)
+                var newH = newW * k
+                if newH > start.maxY {
+                    newH = start.maxY
+                    newW = newH / k
+                }
+                let newY = start.maxY - newH
+                if newY >= 0 && newW >= 0.12 && newH >= 0.12 {
+                    cropUnitRect = CGRect(x: start.origin.x, y: newY, width: newW, height: newH)
+                }
+            }
+
+        case .bottomLeft:
+            if targetAspect == nil {
+                let newX = clampVal(start.origin.x + deltaX, 0, start.maxX - 0.12)
+                let newH = clampVal(start.height + deltaY, 0.12, 1.0 - start.origin.y)
+                cropUnitRect = CGRect(x: newX, y: start.origin.y, width: start.maxX - newX, height: newH)
+            } else {
+                var newW = clampVal(start.width - deltaX, 0.12, start.maxX)
+                var newH = newW * k
+                if start.origin.y + newH > 1.0 {
+                    newH = 1.0 - start.origin.y
+                    newW = newH / k
+                }
+                let newX = start.maxX - newW
+                if newX >= 0 && newW >= 0.12 && newH >= 0.12 {
+                    cropUnitRect = CGRect(x: newX, y: start.origin.y, width: newW, height: newH)
+                }
+            }
+        }
     }
 
     private func loadFromPhotos(item: PhotosPickerItem) async {
@@ -564,7 +832,11 @@ struct ImageCropperView: View {
                     self.sourceImage = loaded
                     self.rotationDegrees = 0
                     self.isFlipped = false
+                    self.zoomScale = 1.0
+                    self.baseZoomScale = 1.0
                     self.exportedFileUrl = nil
+                    let eff = self.effectiveDimensions(for: loaded)
+                    self.cropUnitRect = ImageCropEngine.computeDefaultUnitRect(imageSize: eff, ratio: self.selectedRatio)
                 }
             }
         } catch {
@@ -587,7 +859,11 @@ struct ImageCropperView: View {
                 self.sourceImage = loaded
                 self.rotationDegrees = 0
                 self.isFlipped = false
+                self.zoomScale = 1.0
+                self.baseZoomScale = 1.0
                 self.exportedFileUrl = nil
+                let eff = self.effectiveDimensions(for: loaded)
+                self.cropUnitRect = ImageCropEngine.computeDefaultUnitRect(imageSize: eff, ratio: self.selectedRatio)
             } else {
                 self.alertMessage = "Unable to decode image from selected file."
                 self.showAlert = true
@@ -604,19 +880,17 @@ struct ImageCropperView: View {
 
         Task {
             do {
-                // If rotated or flipped, first transform the image before computing crop rect
-                let isRotated90 = (rotationDegrees / 90) % 2 != 0
-                let effectiveW = isRotated90 ? image.size.height : image.size.width
-                let effectiveH = isRotated90 ? image.size.width : image.size.height
+                let eff = effectiveDimensions(for: image)
+                let pixelX = clampVal(cropUnitRect.origin.x * eff.width, 0, eff.width - 1)
+                let pixelY = clampVal(cropUnitRect.origin.y * eff.height, 0, eff.height - 1)
+                let pixelW = clampVal(cropUnitRect.size.width * eff.width, 1, eff.width - pixelX)
+                let pixelH = clampVal(cropUnitRect.size.height * eff.height, 1, eff.height - pixelY)
 
-                let cropRect = ImageCropEngine.computeCropRect(
-                    imageSize: CGSize(width: effectiveW, height: effectiveH),
-                    ratio: selectedRatio
-                )
+                let finalCropRect = CGRect(x: pixelX, y: pixelY, width: pixelW, height: pixelH).integral
 
                 guard let cropped = ImageCropEngine.cropImage(
                     image,
-                    to: cropRect,
+                    to: finalCropRect,
                     rotationDegrees: rotationDegrees,
                     isFlipped: isFlipped
                 ) else {
@@ -632,7 +906,6 @@ struct ImageCropperView: View {
                     _ = try await ImageCropEngine.saveToPhotos(image: cropped, format: selectedFormat)
                     savedToPhotos = true
                 } catch {
-                    // Photos rejected or permission issue: fallback to Share Sheet / Files
                     savedToPhotos = false
                 }
 
@@ -641,7 +914,7 @@ struct ImageCropperView: View {
                     self.exportedFileUrl = tempUrl
 
                     if savedToPhotos {
-                        self.alertMessage = "✓ Cropped image (\(Int(cropRect.width)) × \(Int(cropRect.height)) px) saved to Camera Roll!"
+                        self.alertMessage = "✓ Cropped image (\(Int(finalCropRect.width)) × \(Int(finalCropRect.height)) px) saved to Camera Roll!"
                         self.showAlert = true
                     } else {
                         // Automatically open Save to Files / Share Sheet!

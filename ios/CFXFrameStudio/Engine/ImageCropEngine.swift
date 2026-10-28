@@ -96,6 +96,19 @@ struct ImageCropEngine {
         }
     }
 
+    static func computeDefaultUnitRect(imageSize: CGSize, ratio: CropRatio) -> CGRect {
+        let rect = computeCropRect(imageSize: imageSize, ratio: ratio)
+        guard imageSize.width > 0, imageSize.height > 0 else {
+            return CGRect(x: 0, y: 0, width: 1.0, height: 1.0)
+        }
+        return CGRect(
+            x: rect.origin.x / imageSize.width,
+            y: rect.origin.y / imageSize.height,
+            width: rect.size.width / imageSize.width,
+            height: rect.size.height / imageSize.height
+        )
+    }
+
     static func cropImage(
         _ image: UIImage,
         to rect: CGRect,
