@@ -210,29 +210,36 @@ struct VideoConverterView: View {
                             .padding(.horizontal, 16)
 
                             // Target Container Selection
-                            GlassCard(cornerRadius: 16, padding: 16) {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("OUTPUT FORMAT (CONTAINER)")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(.textTertiary)
-                                        .tracking(1.0)
+                            GlassCard(cornerRadius: 14, padding: 14) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("OUTPUT CONTAINER")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(.textTertiary)
+                                            .tracking(1.0)
+                                        Text("File container format")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.textMuted)
+                                    }
 
-                                    HStack(spacing: 10) {
+                                    Spacer()
+
+                                    HStack(spacing: 8) {
                                         ForEach(ExportContainer.allCases) { container in
                                             Button(action: { targetContainer = container }) {
-                                                HStack {
-                                                    Text(container.rawValue)
-                                                        .font(.system(size: 13, weight: .bold))
+                                                HStack(spacing: 4) {
                                                     if targetContainer == container {
-                                                        Image(systemName: "checkmark.circle.fill")
-                                                            .font(.system(size: 12))
+                                                        Image(systemName: "checkmark")
+                                                            .font(.system(size: 10, weight: .bold))
                                                     }
+                                                    Text(container.rawValue)
+                                                        .font(.system(size: 12, weight: .bold))
                                                 }
-                                                .frame(maxWidth: .infinity)
-                                                .padding(.vertical, 12)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 8)
                                                 .background(targetContainer == container ? Color.brandAccent : Color.elevatedSurface)
                                                 .foregroundColor(targetContainer == container ? .white : .textMuted)
-                                                .cornerRadius(10)
+                                                .cornerRadius(8)
                                             }
                                         }
                                     }
@@ -240,9 +247,9 @@ struct VideoConverterView: View {
                             }
                             .padding(.horizontal, 16)
 
-                            // Video Codec Selection
-                            GlassCard(cornerRadius: 16, padding: 16) {
-                                VStack(alignment: .leading, spacing: 12) {
+                            // Video Codec Dropdown Menu
+                            GlassCard(cornerRadius: 14, padding: 14) {
+                                VStack(alignment: .leading, spacing: 10) {
                                     HStack {
                                         Text("VIDEO CODEC")
                                             .font(.system(size: 11, weight: .bold))
@@ -251,35 +258,70 @@ struct VideoConverterView: View {
 
                                         Spacer()
 
-                                        Text("100% Original Resolution")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundColor(.emeraldAccent)
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "sparkles")
+                                                .font(.system(size: 9))
+                                            Text("100% Original Resolution")
+                                                .font(.system(size: 10, weight: .semibold))
+                                        }
+                                        .foregroundColor(.emeraldAccent)
                                     }
 
-                                    VStack(spacing: 8) {
+                                    Menu {
                                         ForEach(ExportCodec.allCases) { codec in
                                             Button(action: { targetCodec = codec }) {
-                                                HStack {
-                                                    VStack(alignment: .leading, spacing: 2) {
-                                                        Text(codec.rawValue)
-                                                            .font(.system(size: 13, weight: .bold))
-                                                            .foregroundColor(targetCodec == codec ? .white : .textPrimary)
-                                                        Text(codecDescription(codec, sourceCodec: info.videoCodec))
-                                                            .font(.system(size: 11))
-                                                            .foregroundColor(targetCodec == codec ? .white.opacity(0.8) : .textMuted)
-                                                    }
-                                                    Spacer()
-                                                    if targetCodec == codec {
-                                                        Image(systemName: "checkmark")
-                                                            .font(.system(size: 13, weight: .bold))
-                                                            .foregroundColor(.white)
-                                                    }
+                                                if targetCodec == codec {
+                                                    Label(codec.rawValue, systemImage: "checkmark")
+                                                } else {
+                                                    Text(codec.rawValue)
                                                 }
-                                                .padding(12)
-                                                .background(targetCodec == codec ? Color.brandAccent : Color.elevatedSurface)
-                                                .cornerRadius(10)
                                             }
                                         }
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                HStack(spacing: 6) {
+                                                    Text(targetCodec.rawValue)
+                                                        .font(.system(size: 14, weight: .bold))
+                                                        .foregroundColor(.textPrimary)
+                                                    if targetCodec == .auto {
+                                                        Text("DIRECT STREAM")
+                                                            .font(.system(size: 9, weight: .black))
+                                                            .padding(.horizontal, 5)
+                                                            .padding(.vertical, 2)
+                                                            .background(Color.emeraldAccent.opacity(0.15))
+                                                            .foregroundColor(.emeraldAccent)
+                                                            .cornerRadius(4)
+                                                    }
+                                                }
+                                                Text(codecDescription(targetCodec, sourceCodec: info.videoCodec))
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(.textMuted)
+                                                    .lineLimit(1)
+                                            }
+
+                                            Spacer()
+
+                                            HStack(spacing: 4) {
+                                                Text("Select")
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                    .foregroundColor(.brandAccent)
+                                                Image(systemName: "chevron.up.chevron.down")
+                                                    .font(.system(size: 11, weight: .bold))
+                                                    .foregroundColor(.brandAccent)
+                                            }
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 6)
+                                            .background(Color.brandAccent.opacity(0.12))
+                                            .cornerRadius(6)
+                                        }
+                                        .padding(10)
+                                        .background(Color.elevatedSurface)
+                                        .cornerRadius(10)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(Color.cardBorder, lineWidth: 1)
+                                        )
                                     }
                                 }
                             }
