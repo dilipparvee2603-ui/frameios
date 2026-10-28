@@ -159,7 +159,8 @@ struct DirectDownloaderView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(inputUrl.isEmpty ? LinearGradient.brandGradient.opacity(0.4) : LinearGradient.brandGradient)
+                        .background(LinearGradient.brandGradient)
+                        .opacity(inputUrl.isEmpty ? 0.4 : 1.0)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                     .disabled(inputUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || engine.isDownloading)
