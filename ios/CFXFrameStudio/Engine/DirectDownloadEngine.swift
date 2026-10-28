@@ -32,6 +32,8 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
     private var downloadTask: URLSessionDownloadTask?
     private var activeDownloadTask: Task<Void, Never>?
     private var urlSession: URLSession?
+    private var chunkSession: URLSession!
+    private var bgTaskId: UIBackgroundTaskIdentifier = .invalid
     private var lastSpeedCheckTime: Date = Date()
     private var lastSpeedBytes: Int64 = 0
 
@@ -46,7 +48,34 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60.0
         config.timeoutIntervalForResource = 3600.0
+        config.waitsForConnectivity = true
+        config.allowsCellularAccess = true
+        config.allowsConstrainedNetworkAccess = true
+        config.allowsExpensiveNetworkAccess = true
         self.urlSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+
+        let chunkConfig = URLSessionConfiguration.default
+        chunkConfig.timeoutIntervalForRequest = 45.0
+        chunkConfig.timeoutIntervalForResource = 1800.0
+        chunkConfig.waitsForConnectivity = true
+        chunkConfig.allowsCellularAccess = true
+        chunkConfig.allowsConstrainedNetworkAccess = true
+        chunkConfig.allowsExpensiveNetworkAccess = true
+        self.chunkSession = URLSession(configuration: chunkConfig)
+    }
+
+    private func beginBackgroundTask() {
+        endBackgroundTask()
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "CFX_MediaDownload") { [weak self] in
+            self?.endBackgroundTask()
+        }
+    }
+
+    private func endBackgroundTask() {
+        if bgTaskId != .invalid {
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+            bgTaskId = .invalid
+        }
     }
 
     func startDownload(urlString: String, customFilename: String? = nil) {
@@ -57,6 +86,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         }
 
         reset()
+        beginBackgroundTask()
         self.isDownloading = true
         self.statusMessage = "Downloading Media..."
         self.customTargetFilename = customFilename
@@ -70,6 +100,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
 
     func startYouTubeDownload(option: YouTubeQualityOption, videoTitle: String) {
         reset()
+        beginBackgroundTask()
         self.isDownloading = true
         self.statusMessage = "Starting high-speed stream..."
         self.lastSpeedCheckTime = Date()
@@ -134,16 +165,19 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                     } else {
                         self.errorMessage = "Invalid stream URL."
                         self.isDownloading = false
+                        self.endBackgroundTask()
                     }
                 }
             } catch {
                 if Task.isCancelled {
                     self.isDownloading = false
+                    self.endBackgroundTask()
                     return
                 }
                 self.isDownloading = false
                 self.errorMessage = "Download Error: \(error.localizedDescription)"
                 self.cleanupTempFiles()
+                self.endBackgroundTask()
             }
         }
     }
@@ -157,6 +191,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         isDownloading = false
         progress = 0.0
         statusMessage = ""
+        endBackgroundTask()
     }
 
     func reset() {
@@ -174,30 +209,39 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         pendingAudioUrl = nil
         tempVideoFileUrl = nil
         customTargetFilename = nil
+        endBackgroundTask()
     }
 
     // MARK: - High-Speed Chunked Streaming (Bypasses YouTube Throttling)
 
     private func downloadChunked(from url: URL, to destinationUrl: URL, baseProgress: Double, weight: Double) async throws {
-        // Probe size with Range: bytes=0-0
+        // Probe size with Range: bytes=0-0 (with retry)
         var probeReq = URLRequest(url: url)
         probeReq.setValue("bytes=0-0", forHTTPHeaderField: "Range")
         probeReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-        probeReq.timeoutInterval = 12.0
+        probeReq.timeoutInterval = 15.0
 
-        let (zeroData, probeResp) = try await URLSession.shared.data(for: probeReq)
+        var zeroData: Data = Data()
         var totalBytes: Int64 = -1
 
-        if let http = probeResp as? HTTPURLResponse,
-           let contentRange = http.value(forHTTPHeaderField: "Content-Range") {
-            if let totalStr = contentRange.components(separatedBy: "/").last,
-               let parsed = Int64(totalStr) {
-                totalBytes = parsed
+        for _ in 1...3 {
+            do {
+                let (data, probeResp) = try await self.chunkSession.data(for: probeReq)
+                zeroData = data
+                if let http = probeResp as? HTTPURLResponse,
+                   let contentRange = http.value(forHTTPHeaderField: "Content-Range") {
+                    if let totalStr = contentRange.components(separatedBy: "/").last,
+                       let parsed = Int64(totalStr) {
+                        totalBytes = parsed
+                    }
+                }
+                if totalBytes <= 0 {
+                    totalBytes = probeResp.expectedContentLength
+                }
+                break
+            } catch {
+                try? await Task.sleep(nanoseconds: 500_000_000)
             }
-        }
-
-        if totalBytes <= 0 {
-            totalBytes = probeResp.expectedContentLength
         }
 
         if FileManager.default.fileExists(atPath: destinationUrl.path) {
@@ -213,7 +257,8 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         guard totalBytes > 0 else {
             var directReq = URLRequest(url: url)
             directReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-            let (data, _) = try await URLSession.shared.data(for: directReq)
+            directReq.timeoutInterval = 60.0
+            let (data, _) = try await self.chunkSession.data(for: directReq)
             try fileHandle.write(contentsOf: data)
             self.bytesWritten = Int64(data.count)
             self.totalBytes = Int64(data.count)
@@ -238,11 +283,31 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
             var chunkReq = URLRequest(url: url)
             chunkReq.setValue("bytes=\(startOffset)-\(endOffset)", forHTTPHeaderField: "Range")
             chunkReq.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
-            chunkReq.timeoutInterval = 30.0
+            chunkReq.timeoutInterval = 35.0
 
-            let (chunkData, _) = try await URLSession.shared.data(for: chunkReq)
-            try fileHandle.write(contentsOf: chunkData)
-            downloadedBytes += Int64(chunkData.count)
+            // Robust retry loop: if user switches apps, retry chunk instead of failing with network error
+            var chunkData: Data? = nil
+            var lastErr: Error? = nil
+            for attempt in 1...4 {
+                do {
+                    try Task.checkCancellation()
+                    let (data, _) = try await self.chunkSession.data(for: chunkReq)
+                    chunkData = data
+                    break
+                } catch {
+                    if Task.isCancelled { throw error }
+                    lastErr = error
+                    // Pause briefly before retrying
+                    try? await Task.sleep(nanoseconds: 600_000_000)
+                }
+            }
+
+            guard let data = chunkData else {
+                throw lastErr ?? URLError(.networkConnectionLost)
+            }
+
+            try fileHandle.write(contentsOf: data)
+            downloadedBytes += Int64(data.count)
             startOffset = endOffset + 1
 
             let currentBytes = downloadedBytes
@@ -437,6 +502,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                 try? FileManager.default.removeItem(at: securedTempUrl)
                 self.isDownloading = false
                 self.errorMessage = "Failed to store downloaded file: \(error.localizedDescription)"
+                self.endBackgroundTask()
             }
         }
     }
@@ -447,6 +513,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         didCompleteWithError error: Error?
     ) {
         Task { @MainActor in
+            self.endBackgroundTask()
             if let err = error as? URLError, err.code == .cancelled {
                 self.isDownloading = false
                 return
@@ -524,6 +591,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         self.isDownloading = false
         self.progress = 1.0
         self.statusMessage = "Download Complete"
+        self.endBackgroundTask()
 
         // Inspect Codecs and Container
         let inspection = await inspectMedia(url: destinationUrl)
