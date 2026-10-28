@@ -189,8 +189,33 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
+        // SYNCHRONOUS MOVE: Move the file out of CFNetwork's staging directory before this delegate method returns!
+        // iOS automatically deletes the file at `location` as soon as this method returns.
+        let securedTempUrl = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cfx_staged_\(UUID().uuidString).tmp")
+
+        do {
+            if FileManager.default.fileExists(atPath: securedTempUrl.path) {
+                try FileManager.default.removeItem(at: securedTempUrl)
+            }
+            try FileManager.default.moveItem(at: location, to: securedTempUrl)
+        } catch {
+            Task { @MainActor in
+                self.isDownloading = false
+                self.errorMessage = "Failed to secure downloaded file: \(error.localizedDescription)"
+            }
+            return
+        }
+
+        let suggestedName = downloadTask.response?.suggestedFilename
+        let fallbackName = downloadTask.originalRequest?.url?.lastPathComponent
+        let responseMimeType = downloadTask.response?.mimeType
+
         Task { @MainActor in
             do {
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true, attributes: nil)
+
                 if self.isMuxWorkflow {
                     if self.tempVideoFileUrl == nil {
                         // Stage 1 Complete: Video track downloaded
@@ -199,7 +224,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                         if FileManager.default.fileExists(atPath: tempVideo.path) {
                             try? FileManager.default.removeItem(at: tempVideo)
                         }
-                        try FileManager.default.moveItem(at: location, to: tempVideo)
+                        try FileManager.default.moveItem(at: securedTempUrl, to: tempVideo)
                         self.tempVideoFileUrl = tempVideo
 
                         // Stage 2: Start downloading audio track
@@ -219,12 +244,11 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                         if FileManager.default.fileExists(atPath: tempAudio.path) {
                             try? FileManager.default.removeItem(at: tempAudio)
                         }
-                        try FileManager.default.moveItem(at: location, to: tempAudio)
+                        try FileManager.default.moveItem(at: securedTempUrl, to: tempAudio)
 
                         self.statusMessage = "Losslessly Merging Video & Audio..."
                         self.progress = 0.96
 
-                        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
                         let filename = self.customTargetFilename ?? "CFX_YouTube_\(Int(Date().timeIntervalSince1970)).mp4"
                         let destinationUrl = docs.appendingPathComponent(self.sanitizeFilename(filename))
 
@@ -256,21 +280,36 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
 
                 // Standard direct single-file download
                 let originalName = self.customTargetFilename
-                    ?? downloadTask.response?.suggestedFilename
-                    ?? downloadTask.originalRequest?.url?.lastPathComponent
+                    ?? suggestedName
+                    ?? fallbackName
                     ?? "CFX_Download_\(Int(Date().timeIntervalSince1970))"
 
-                let safeFilename = self.sanitizeFilename(originalName)
-                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                var safeFilename = self.sanitizeFilename(originalName)
+                if !safeFilename.contains(".") {
+                    if let mime = responseMimeType?.lowercased() {
+                        if mime.contains("mp4") { safeFilename += ".mp4" }
+                        else if mime.contains("quicktime") || mime.contains("mov") { safeFilename += ".mov" }
+                        else if mime.contains("webm") { safeFilename += ".webm" }
+                        else if mime.contains("jpeg") || mime.contains("jpg") { safeFilename += ".jpg" }
+                        else if mime.contains("png") { safeFilename += ".png" }
+                        else if mime.contains("heic") { safeFilename += ".heic" }
+                        else if mime.contains("m4a") || mime.contains("audio/mp4") { safeFilename += ".m4a" }
+                        else if mime.contains("audio/mpeg") || mime.contains("mp3") { safeFilename += ".mp3" }
+                    } else {
+                        safeFilename += ".mp4"
+                    }
+                }
+
                 let destinationUrl = docs.appendingPathComponent(safeFilename)
 
                 if FileManager.default.fileExists(atPath: destinationUrl.path) {
                     try? FileManager.default.removeItem(at: destinationUrl)
                 }
 
-                try FileManager.default.moveItem(at: location, to: destinationUrl)
+                try FileManager.default.moveItem(at: securedTempUrl, to: destinationUrl)
                 await self.finalizeDownload(destinationUrl: destinationUrl)
             } catch {
+                try? FileManager.default.removeItem(at: securedTempUrl)
                 self.isDownloading = false
                 self.errorMessage = "Failed to store downloaded file: \(error.localizedDescription)"
             }
