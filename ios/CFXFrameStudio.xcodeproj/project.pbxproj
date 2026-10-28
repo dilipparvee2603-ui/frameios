@@ -29,6 +29,8 @@
 		E20000012900000100000013 /* MKVRemuxEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000015 /* MKVRemuxEngine.swift */; };
 		E20000012900000100000014 /* StorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000016 /* StorageManager.swift */; };
 		E20000012900000100000015 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000017 /* SettingsView.swift */; };
+		E20000012900000100000016 /* SlowMoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000018 /* SlowMoEngine.swift */; };
+		E20000012900000100000017 /* SlowMoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000019 /* SlowMoView.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -58,6 +60,8 @@
 		E10000012900000100000015 /* MKVRemuxEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MKVRemuxEngine.swift; sourceTree = "<group>"; };
 		E10000012900000100000016 /* StorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageManager.swift; sourceTree = "<group>"; };
 		E10000012900000100000017 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		E10000012900000100000018 /* SlowMoEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlowMoEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000019 /* SlowMoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlowMoView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -128,6 +132,7 @@
 				E10000012900000100000014 /* YouTubeDownloadEngine.swift */,
 				E10000012900000100000015 /* MKVRemuxEngine.swift */,
 				E10000012900000100000016 /* StorageManager.swift */,
+				E10000012900000100000018 /* SlowMoEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -142,6 +147,7 @@
 				E10000012900000100000011 /* ImageCropperView.swift */,
 				E10000012900000100000013 /* DirectDownloaderView.swift */,
 				E10000012900000100000017 /* SettingsView.swift */,
+				E10000012900000100000019 /* SlowMoView.swift */,
 				E40000012900000100000006 /* Components */,
 			);
 			path = Views;
@@ -261,6 +267,8 @@
 				E20000012900000100000013 /* MKVRemuxEngine.swift in Sources */,
 				E20000012900000100000014 /* StorageManager.swift in Sources */,
 				E20000012900000100000015 /* SettingsView.swift in Sources */,
+				E20000012900000100000016 /* SlowMoEngine.swift in Sources */,
+				E20000012900000100000017 /* SlowMoView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

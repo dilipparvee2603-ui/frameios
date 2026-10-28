@@ -76,6 +76,20 @@ struct LauncherView: View {
                                 )
                             }
 
+                            NavigationLink(destination: SlowMoView()) {
+                                toolCard(
+                                    title: "Smooth Slow-Mo Studio",
+                                    subtitle: "Optical flow motion synthesis & percentage retiming",
+                                    icon: "gauge.with.dots.needle.bottom.0percent",
+                                    accentColor: .brandAccent,
+                                    gradient: LinearGradient(
+                                        colors: [Color(hex: "8A2387"), Color(hex: "E94057"), Color(hex: "F27121")],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                            }
+
                             NavigationLink(destination: ImageCropperView()) {
                                 toolCard(
                                     title: "Lossless Image Cropper",
