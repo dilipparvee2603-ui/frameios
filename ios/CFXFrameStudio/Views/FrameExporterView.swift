@@ -494,10 +494,11 @@ struct FrameExporterView: View {
                     self.exportedFileUrl = tempFile
                     if savedToPhotos {
                         self.alertMessage = "✓ Frame exported and saved to Camera Roll!"
+                        self.showAlert = true
                     } else {
-                        self.alertMessage = "✓ Frame extracted! Photos rejected format — tap 'Save to Files' below."
+                        // Automatically open Save to Files / Share Sheet!
+                        self.showShareSheet = true
                     }
-                    self.showAlert = true
                 }
             } catch {
                 await MainActor.run {

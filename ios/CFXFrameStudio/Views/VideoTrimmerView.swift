@@ -557,15 +557,17 @@ struct VideoTrimmerView: View {
                 self.isExporting = false
                 if result.success, let outUrl = result.outputUrl {
                     self.trimmedFileUrl = outUrl
-                    if let msg = result.errorMessage {
-                        self.alertMessage = msg
+                    if result.errorMessage != nil {
+                        // Automatically open Save to Files / Share Sheet!
+                        self.showShareSheet = true
                     } else {
                         self.alertMessage = includeAudioInExport ? "✓ Trimmed video saved to Camera Roll!" : "✓ Trimmed silent video saved to Camera Roll!"
+                        self.showAlert = true
                     }
                 } else {
                     self.alertMessage = "Export Error: \(result.errorMessage ?? "Unknown error")"
+                    self.showAlert = true
                 }
-                self.showAlert = true
             }
         }
     }

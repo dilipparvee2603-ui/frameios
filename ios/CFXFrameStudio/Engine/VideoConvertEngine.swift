@@ -172,7 +172,7 @@ final class VideoConvertEngine {
                 return ConvertResult(
                     success: true,
                     outputUrl: tempOutUrl,
-                    errorMessage: savedToPhotos ? nil : "Video converted! Available in Files/Share."
+                    errorMessage: savedToPhotos ? nil : "NEEDS_SHARE_SHEET"
                 )
             } else {
                 let err = exportError?.localizedDescription ?? "Conversion failed"

@@ -109,7 +109,7 @@ final class VideoTrimEngine {
                 return TrimResult(
                     success: true,
                     outputUrl: tempOutUrl,
-                    errorMessage: savedToPhotos ? nil : "Video trimmed! Photos rejected codec — tap 'Save to Files' below."
+                    errorMessage: savedToPhotos ? nil : "NEEDS_SHARE_SHEET"
                 )
             } else {
                 let err = session.error?.localizedDescription ?? "Export failed"

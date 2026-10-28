@@ -568,11 +568,17 @@ struct VideoConverterView: View {
                 self.isConverting = false
                 if result.success, let outUrl = result.outputUrl {
                     self.convertedFileUrl = outUrl
-                    self.alertMessage = "✓ Video converted successfully to \(targetContainer.rawValue) at original resolution!"
+                    if result.errorMessage != nil {
+                        // Automatically open Save to Files / Share Sheet!
+                        self.showShareSheet = true
+                    } else {
+                        self.alertMessage = "✓ Video converted successfully to \(targetContainer.rawValue) at original resolution!"
+                        self.showAlert = true
+                    }
                 } else {
                     self.alertMessage = "Conversion Error: \(result.errorMessage ?? "Unknown error")"
+                    self.showAlert = true
                 }
-                self.showAlert = true
             }
         }
     }
