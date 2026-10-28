@@ -4,6 +4,8 @@ import ffmpegkit
 /// Probed media metadata extracted before remuxing
 private struct ProbedMediaInfo {
     var durationSec: Double = 0.0
+    var width: Int = 0
+    var height: Int = 0
     var isHEVC: Bool = false
     var isH264: Bool = false
     var isVP: Bool = false
@@ -48,11 +50,13 @@ final class MKVRemuxEngine {
         return "mpeg4"
     }
 
-    /// Constructs transcode arguments for WebM and unsupported codecs
+    /// Constructs studio-grade transcode arguments with adaptive high bitrate for pristine, visual-lossless quality
     private static func buildTranscodeArgs(
         sourceUrl: URL,
         outputUrl: URL,
         encoder: String,
+        width: Int,
+        height: Int,
         hasAudio: Bool
     ) -> [String] {
         var args = [
@@ -64,18 +68,41 @@ final class MKVRemuxEngine {
         ]
 
         if encoder == "h264_videotoolbox" {
-            args += ["-b:v", "4M", "-profile:v", "high"]
+            // Adaptive ultra-high bitrate matching Apple ProRes/AVFoundation master profiles
+            let targetBitrate: String
+            let maxBitrate: String
+            if width >= 3840 || height >= 2160 {
+                targetBitrate = "45M"
+                maxBitrate = "65M"
+            } else if width >= 1920 || height >= 1080 {
+                targetBitrate = "24M"
+                maxBitrate = "32M"
+            } else if width >= 1280 || height >= 720 {
+                targetBitrate = "14M"
+                maxBitrate = "20M"
+            } else {
+                targetBitrate = "10M"
+                maxBitrate = "15M"
+            }
+
+            args += [
+                "-b:v", targetBitrate,
+                "-maxrate", maxBitrate,
+                "-profile:v", "high",
+                "-allow_sw", "1"
+            ]
         } else if encoder == "libx264" {
-            args += ["-preset", "ultrafast", "-crf", "22"]
+            args += ["-preset", "veryfast", "-crf", "17"]
         } else if encoder == "mpeg4" {
-            args += ["-q:v", "4"]
+            // Quality scale 1 is pristine maximum quality for native MPEG-4
+            args += ["-q:v", "1"]
         }
 
         if hasAudio {
             args += [
                 "-map", "0:a:0?",
                 "-c:a", "aac",
-                "-b:a", "192k"
+                "-b:a", "320k"
             ]
         } else {
             args += ["-an"]
@@ -129,6 +156,12 @@ final class MKVRemuxEngine {
                     let codec = stream.getCodec()?.lowercased() ?? ""
                     if type == "video" && info.videoCodec.isEmpty {
                         info.videoCodec = codec
+                        if let w = (stream.getWidth() as? NSNumber)?.intValue, w > 0 {
+                            info.width = w
+                        }
+                        if let h = (stream.getHeight() as? NSNumber)?.intValue, h > 0 {
+                            info.height = h
+                        }
                         if codec.contains("hevc") || codec.contains("h265") || codec.contains("hev") || codec.contains("hvc") {
                             info.isHEVC = true
                         } else if codec.contains("264") || codec.contains("avc") {
@@ -215,12 +248,14 @@ final class MKVRemuxEngine {
             let requiresTranscode = probedInfo.isVP || probedInfo.isAV1 || (isWebM && !probedInfo.isHEVC && !probedInfo.isH264)
 
             if requiresTranscode {
-                onProgress?(0.05, "Converting WebM...")
+                onProgress?(0.05, "Converting WebM with Master Quality...")
                 let primaryEncoder = MKVRemuxEngine.getBestVideoEncoder()
                 let primaryArgs = MKVRemuxEngine.buildTranscodeArgs(
                     sourceUrl: sourceUrl,
                     outputUrl: outputUrl,
                     encoder: primaryEncoder,
+                    width: probedInfo.width,
+                    height: probedInfo.height,
                     hasAudio: !probedInfo.audioCodec.isEmpty
                 )
 
@@ -242,6 +277,8 @@ final class MKVRemuxEngine {
                         sourceUrl: sourceUrl,
                         outputUrl: outputUrl,
                         encoder: "mpeg4",
+                        width: probedInfo.width,
+                        height: probedInfo.height,
                         hasAudio: !probedInfo.audioCodec.isEmpty
                     )
                     let fbSession = FFmpegKit.execute(withArguments: fallbackArgs)
