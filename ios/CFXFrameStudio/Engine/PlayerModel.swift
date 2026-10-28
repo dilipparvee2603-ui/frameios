@@ -16,6 +16,9 @@ final class PlayerModel: ObservableObject {
         player.isMuted = isMuted
         player.actionAtItemEnd = .pause
 
+        // Prime decoder to display frame 0 immediately upon loading
+        player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+
         let interval = CMTime(value: 1, timescale: 30) // ~30 FPS UI sync
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self else { return }

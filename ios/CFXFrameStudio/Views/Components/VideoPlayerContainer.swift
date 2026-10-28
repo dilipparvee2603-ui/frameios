@@ -13,7 +13,9 @@ struct VideoPlayerView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PlayerUIView, context: Context) {
-        uiView.playerLayer.player = player
+        if uiView.playerLayer.player !== player {
+            uiView.playerLayer.player = player
+        }
     }
 }
 
