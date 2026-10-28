@@ -126,7 +126,7 @@ struct VideoTrimmerView: View {
                                             Text("Import from Files App")
                                                 .font(.system(size: 15, weight: .bold))
                                                 .foregroundColor(.textPrimary)
-                                            Text("Trim MP4, MOV, MKV from Downloads & iCloud")
+                                            Text("Trim MP4, MOV, M4V from Downloads & iCloud")
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.textMuted)
                                         }
@@ -503,6 +503,13 @@ struct VideoTrimmerView: View {
     }
 
     private func loadFromFiles(url: URL) {
+        let ext = url.pathExtension.lowercased()
+        if ext == "mkv" || ext == "webm" {
+            alertMessage = "Matroska (.MKV) is a container format not natively supported by Apple iOS (AVFoundation). While third-party players like VLC bundle their own custom decoders to play it, native iOS video editors require QuickTime-compatible containers (MP4 or MOV). Please convert or remux the movie to MP4 to edit it."
+            showAlert = true
+            return
+        }
+
         guard url.startAccessingSecurityScopedResource() else {
             alertMessage = "Permission denied to read file"
             showAlert = true

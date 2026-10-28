@@ -100,7 +100,7 @@ struct VideoConverterView: View {
                                             Text("Import from Files App")
                                                 .font(.system(size: 15, weight: .bold))
                                                 .foregroundColor(.textPrimary)
-                                            Text("Convert MKV, WebM, AVI, iCloud files")
+                                            Text("Convert MOV, MP4, M4V, ProRes files")
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.textMuted)
                                         }
@@ -518,6 +518,13 @@ struct VideoConverterView: View {
     }
 
     private func loadFromFiles(url: URL) {
+        let ext = url.pathExtension.lowercased()
+        if ext == "mkv" || ext == "webm" {
+            alertMessage = "Matroska (.MKV) is a container format not natively supported by Apple iOS (AVFoundation). While VLC bundles private decoders to play it, native iOS video processing requires MP4 or MOV containers. Please convert or remux the movie to MP4."
+            showAlert = true
+            return
+        }
+
         guard url.startAccessingSecurityScopedResource() else {
             alertMessage = "Permission denied to read file"
             showAlert = true
