@@ -166,6 +166,43 @@ struct VideoConverterView: View {
                                                     .foregroundColor(.textMuted)
                                             }
                                             .font(.system(size: 11, weight: .medium, design: .monospaced))
+
+                                            HStack(spacing: 6) {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: "video.fill")
+                                                        .font(.system(size: 9))
+                                                    Text(info.videoCodec)
+                                                        .font(.system(size: 11, weight: .bold))
+                                                }
+                                                .foregroundColor(.skyAccent)
+                                                .padding(.horizontal, 7)
+                                                .padding(.vertical, 3)
+                                                .background(Color.skyAccent.opacity(0.12))
+                                                .cornerRadius(6)
+
+                                                if info.audioCodec != "None" {
+                                                    HStack(spacing: 4) {
+                                                        Image(systemName: "waveform")
+                                                            .font(.system(size: 9))
+                                                        Text(info.audioCodec)
+                                                            .font(.system(size: 11, weight: .bold))
+                                                    }
+                                                    .foregroundColor(.emeraldAccent)
+                                                    .padding(.horizontal, 7)
+                                                    .padding(.vertical, 3)
+                                                    .background(Color.emeraldAccent.opacity(0.12))
+                                                    .cornerRadius(6)
+                                                }
+
+                                                Text((videoUrl?.pathExtension.uppercased() ?? "MP4"))
+                                                    .font(.system(size: 11, weight: .bold))
+                                                    .foregroundColor(.textMuted)
+                                                    .padding(.horizontal, 7)
+                                                    .padding(.vertical, 3)
+                                                    .background(Color.elevatedSurface)
+                                                    .cornerRadius(6)
+                                            }
+                                            .padding(.top, 4)
                                         }
                                     }
                                 }
@@ -227,7 +264,7 @@ struct VideoConverterView: View {
                                                         Text(codec.rawValue)
                                                             .font(.system(size: 13, weight: .bold))
                                                             .foregroundColor(targetCodec == codec ? .white : .textPrimary)
-                                                        Text(codecDescription(codec))
+                                                        Text(codecDescription(codec, sourceCodec: info.videoCodec))
                                                             .font(.system(size: 11))
                                                             .foregroundColor(targetCodec == codec ? .white.opacity(0.8) : .textMuted)
                                                     }
@@ -379,10 +416,10 @@ struct VideoConverterView: View {
         }
     }
 
-    private func codecDescription(_ codec: ExportCodec) -> String {
+    private func codecDescription(_ codec: ExportCodec, sourceCodec: String) -> String {
         switch codec {
         case .auto:
-            return "Fastest — copies streams directly without re-encoding (0% quality loss)"
+            return "Lossless stream-copy — keeps \(sourceCodec) without re-encoding (0% loss)"
         case .h264:
             return "Universal compatibility with all devices and web players"
         case .hevc:

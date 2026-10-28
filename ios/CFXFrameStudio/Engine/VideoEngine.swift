@@ -12,6 +12,8 @@ struct VideoInfo: Identifiable {
     let height: Int
     let fps: Double
     let totalFrames: Int64
+    let videoCodec: String
+    let audioCodec: String
 
     var formattedDuration: String {
         let totalSeconds = Int(durationSec)
@@ -55,6 +57,24 @@ final class VideoEngine {
         let height = Int(isPortrait ? naturalSize.width : naturalSize.height)
         let totalFrames = Int64(durationSec * fps)
 
+        // Auto-detect exact video codec FourCC
+        var videoCodec = "H.264 (AVC)"
+        if let descs = try? await videoTrack.load(.formatDescriptions), let first = descs.first {
+            let subType = CMFormatDescriptionGetMediaSubType(first)
+            let fourCC = fourCharCodeToString(subType)
+            videoCodec = friendlyVideoCodecName(fourCC)
+        }
+
+        // Auto-detect exact audio codec FourCC
+        var audioCodec = "None"
+        if let audioTracks = try? await asset.loadTracks(withMediaType: .audio), let audioTrack = audioTracks.first {
+            if let descs = try? await audioTrack.load(.formatDescriptions), let first = descs.first {
+                let subType = CMFormatDescriptionGetMediaSubType(first)
+                let fourCC = fourCharCodeToString(subType)
+                audioCodec = friendlyAudioCodecName(fourCC)
+            }
+        }
+
         return VideoInfo(
             url: url,
             durationMs: durationMs,
@@ -62,7 +82,9 @@ final class VideoEngine {
             width: width,
             height: height,
             fps: fps,
-            totalFrames: totalFrames
+            totalFrames: totalFrames,
+            videoCodec: videoCodec,
+            audioCodec: audioCodec
         )
     }
 
@@ -110,4 +132,39 @@ final class VideoEngine {
             }
         }
     }
+}
+
+// Helpers for converting FourCharCode to readable codec strings
+func fourCharCodeToString(_ code: FourCharCode) -> String {
+    let bytes: [CChar] = [
+        CChar((code >> 24) & 0xFF),
+        CChar((code >> 16) & 0xFF),
+        CChar((code >> 8) & 0xFF),
+        CChar(code & 0xFF),
+        0
+    ]
+    return String(cString: bytes).trimmingCharacters(in: .whitespaces)
+}
+
+func friendlyVideoCodecName(_ fourCC: String) -> String {
+    let lower = fourCC.lowercased()
+    if lower.contains("avc") { return "H.264 (AVC)" }
+    if lower.contains("hvc") || lower.contains("hev") { return "HEVC (H.265)" }
+    if lower.starts(with: "ap") { return "Apple ProRes" }
+    if lower.contains("mp4v") { return "MPEG-4" }
+    if lower.contains("av01") { return "AV1" }
+    if lower.contains("vp09") || lower.contains("vp9") { return "VP9" }
+    if lower.contains("jpeg") || lower.contains("mjpg") { return "Motion JPEG" }
+    return fourCC.uppercased()
+}
+
+func friendlyAudioCodecName(_ fourCC: String) -> String {
+    let lower = fourCC.lowercased()
+    if lower.contains("aac") || lower.contains("mp4a") { return "AAC" }
+    if lower.contains("opus") { return "Opus" }
+    if lower.contains("lpcm") || lower.contains("raw") { return "Linear PCM" }
+    if lower.contains("ac-3") || lower.contains("ec-3") { return "Dolby Digital" }
+    if lower.contains("alac") { return "Apple Lossless (ALAC)" }
+    if lower.contains("mp3") { return "MP3" }
+    return fourCC.uppercased()
 }
