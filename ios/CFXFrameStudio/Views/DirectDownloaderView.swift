@@ -4,10 +4,16 @@ import AVFoundation
 struct DirectDownloaderView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var engine = DirectDownloadEngine()
+    @StateObject private var ytEngine = YouTubeDownloadEngine()
 
     @State private var inputUrl: String = ""
     @State private var showShareSheet: Bool = false
     @State private var recentDownloads: [URL] = []
+    @State private var showSettingsModal: Bool = false
+
+    private var isYouTubeLink: Bool {
+        YouTubeDownloadEngine.isYouTubeUrl(inputUrl)
+    }
 
     var body: some View {
         ZStack {
@@ -18,6 +24,14 @@ struct DirectDownloaderView: View {
                     headerBar
                     inputCard
 
+                    if ytEngine.isFetching {
+                        ytFetchingCard
+                    }
+
+                    if let ytInfo = ytEngine.videoInfo {
+                        ytQualitiesCard(info: ytInfo)
+                    }
+
                     if engine.isDownloading {
                         downloadProgressCard
                     }
@@ -26,7 +40,7 @@ struct DirectDownloaderView: View {
                         downloadResultCard(fileUrl: fileUrl, inspection: inspection)
                     }
 
-                    if let error = engine.errorMessage {
+                    if let error = engine.errorMessage ?? ytEngine.errorMessage {
                         errorBanner(error: error)
                     }
 
@@ -47,7 +61,6 @@ struct DirectDownloaderView: View {
         .onChange(of: engine.downloadedFileUrl) { newUrl in
             if newUrl != nil {
                 refreshRecentDownloads()
-                // If Photos rejected or non-standard, automatically trigger share sheet
                 if !engine.savedToPhotos {
                     showShareSheet = true
                 }
@@ -74,8 +87,8 @@ struct DirectDownloaderView: View {
                     .clipShape(Circle())
             }
 
-            Text("DIRECT LINK DOWNLOADER")
-                .font(.system(size: 15, weight: .bold))
+            Text("DIRECT & YOUTUBE DOWNLOADER")
+                .font(.system(size: 14, weight: .bold))
                 .foregroundColor(.textPrimary)
 
             Spacer()
@@ -96,18 +109,20 @@ struct DirectDownloaderView: View {
         GlassCard(cornerRadius: 18, padding: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
-                    Image(systemName: "link.badge.plus")
-                        .foregroundColor(.skyAccent)
+                    Image(systemName: isYouTubeLink ? "play.rectangle.fill" : "link.badge.plus")
+                        .foregroundColor(isYouTubeLink ? .brandAccent : .skyAccent)
                         .font(.system(size: 14, weight: .bold))
-                    Text("DIRECT MEDIA LINK")
+
+                    Text(isYouTubeLink ? "YOUTUBE LINK DETECTED" : "DIRECT MEDIA OR YOUTUBE LINK")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.textMuted)
+                        .foregroundColor(isYouTubeLink ? .gradientStart : .textMuted)
                         .tracking(1.0)
+
                     Spacer()
                 }
 
                 HStack(spacing: 8) {
-                    TextField("https://... (Cloudflare, S3, CDN, raw video/image)", text: $inputUrl)
+                    TextField("https://... (Cloudflare, S3, CDN, YouTube)", text: $inputUrl)
                         .font(.system(size: 13, design: .monospaced))
                         .foregroundColor(.textPrimary)
                         .textInputAutocapitalization(.never)
@@ -118,11 +133,15 @@ struct DirectDownloaderView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.borderHairline, lineWidth: 1)
+                                .stroke(isYouTubeLink ? Color.brandAccent.opacity(0.4) : Color.borderHairline, lineWidth: 1)
                         )
 
                     if !inputUrl.isEmpty {
-                        Button(action: { inputUrl = "" }) {
+                        Button(action: {
+                            inputUrl = ""
+                            ytEngine.videoInfo = nil
+                            ytEngine.errorMessage = nil
+                        }) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 16))
                                 .foregroundColor(.textTertiary)
@@ -147,26 +166,184 @@ struct DirectDownloaderView: View {
 
                     Spacer()
 
-                    Button(action: {
-                        engine.startDownload(urlString: inputUrl)
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.system(size: 14, weight: .bold))
-                            Text("Start Download")
-                                .font(.system(size: 13, weight: .bold))
+                    if isYouTubeLink {
+                        Button(action: {
+                            Task {
+                                await ytEngine.fetchQualities(for: inputUrl)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "list.bullet.circle.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Fetch Qualities")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(LinearGradient.brandGradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(LinearGradient.brandGradient)
-                        .opacity(inputUrl.isEmpty ? 0.4 : 1.0)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .disabled(ytEngine.isFetching)
+                    } else {
+                        Button(action: {
+                            engine.startDownload(urlString: inputUrl)
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Start Download")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(LinearGradient.brandGradient)
+                            .opacity(inputUrl.isEmpty ? 0.4 : 1.0)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .disabled(inputUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || engine.isDownloading)
                     }
-                    .disabled(inputUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || engine.isDownloading)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var ytFetchingCard: some View {
+        GlassCard(cornerRadius: 16, padding: 16) {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .brandAccent))
+                Text("Analyzing YouTube stream resolutions & codecs...")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.textPrimary)
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func ytQualitiesCard(info: YouTubeVideoInfo) -> some View {
+        GlassCard(cornerRadius: 18, padding: 16) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Video Header
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(.brandAccent)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(info.title)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .lineLimit(2)
+
+                        HStack(spacing: 8) {
+                            Text(info.author)
+                                .font(.system(size: 11))
+                                .foregroundColor(.textMuted)
+
+                            if info.durationSec > 0 {
+                                Text("• \(info.durationSec / 60):\(String(format: "%02d", info.durationSec % 60))")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.textTertiary)
+                            }
+                        }
+                    }
+                }
+
+                Divider().background(Color.borderHairline)
+
+                Text("AVAILABLE STREAM QUALITIES")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.textMuted)
+                    .tracking(1.0)
+
+                VStack(spacing: 8) {
+                    ForEach(info.qualities) { option in
+                        ytQualityRow(option: option)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func ytQualityRow(option: YouTubeQualityOption) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(option.label)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.textPrimary)
+
+                    if option.isCameraRollCompatible {
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 9))
+                            Text("Camera Roll")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .foregroundColor(.emeraldAccent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.emeraldAccent.opacity(0.12))
+                        .clipShape(Capsule())
+                    } else {
+                        HStack(spacing: 3) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 9))
+                            Text("CFX Files")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .foregroundColor(.amberAccent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.amberAccent.opacity(0.12))
+                        .clipShape(Capsule())
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Text("\(option.format) • \(option.videoCodec)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.textTertiary)
+
+                    if !option.displaySize.isEmpty {
+                        Text("• \(option.displaySize)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.textMuted)
+                    }
+                }
+            }
+
+            Spacer()
+
+            Button(action: {
+                engine.startDownload(urlString: option.downloadUrl)
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 12, weight: .bold))
+                    Text("Download")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(option.isCameraRollCompatible ? Color.emeraldAccent : Color.brandAccent)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .disabled(engine.isDownloading)
+        }
+        .padding(10)
+        .background(Color.elevatedSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.borderHairline, lineWidth: 1)
+        )
     }
 
     @ViewBuilder
@@ -190,7 +367,6 @@ struct DirectDownloaderView: View {
                         .foregroundColor(.skyAccent)
                 }
 
-                // Progress Bar
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 4)
@@ -233,7 +409,6 @@ struct DirectDownloaderView: View {
     private func downloadResultCard(fileUrl: URL, inspection: MediaInspection) -> some View {
         GlassCard(cornerRadius: 18, padding: 16) {
             VStack(alignment: .leading, spacing: 14) {
-                // Header Status
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.emeraldAccent)
@@ -254,7 +429,6 @@ struct DirectDownloaderView: View {
                     Spacer()
                 }
 
-                // Incompatibility explanation note if not saved to Photos
                 if !engine.savedToPhotos, let reason = inspection.incompatibilityReason {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle.fill")
@@ -271,7 +445,6 @@ struct DirectDownloaderView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
-                // Codec & Media Metadata Chips
                 VStack(alignment: .leading, spacing: 6) {
                     Text("MEDIA CODECS & CONTAINER")
                         .font(.system(size: 10, weight: .bold))
@@ -291,7 +464,6 @@ struct DirectDownloaderView: View {
 
                 Divider().background(Color.borderHairline)
 
-                // Actions: Share & Send to Tools
                 VStack(spacing: 8) {
                     Button(action: { showShareSheet = true }) {
                         HStack(spacing: 8) {

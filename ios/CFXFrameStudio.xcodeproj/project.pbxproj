@@ -24,6 +24,7 @@
 		E2000001290000010000000F /* ImageCropperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000011 /* ImageCropperView.swift */; };
 		E20000012900000100000010 /* DirectDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000012 /* DirectDownloadEngine.swift */; };
 		E20000012900000100000011 /* DirectDownloaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000013 /* DirectDownloaderView.swift */; };
+		E20000012900000100000012 /* YouTubeDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000014 /* YouTubeDownloadEngine.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,6 +47,7 @@
 		E10000012900000100000011 /* ImageCropperView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCropperView.swift; sourceTree = "<group>"; };
 		E10000012900000100000012 /* DirectDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectDownloadEngine.swift; sourceTree = "<group>"; };
 		E10000012900000100000013 /* DirectDownloaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectDownloaderView.swift; sourceTree = "<group>"; };
+		E10000012900000100000014 /* YouTubeDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeDownloadEngine.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +99,7 @@
 				E1000001290000010000000E /* VideoConvertEngine.swift */,
 				E10000012900000100000010 /* ImageCropEngine.swift */,
 				E10000012900000100000012 /* DirectDownloadEngine.swift */,
+				E10000012900000100000014 /* YouTubeDownloadEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -217,6 +220,7 @@
 				E2000001290000010000000F /* ImageCropperView.swift in Sources */,
 				E20000012900000100000010 /* DirectDownloadEngine.swift in Sources */,
 				E20000012900000100000011 /* DirectDownloaderView.swift in Sources */,
+				E20000012900000100000012 /* YouTubeDownloadEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
