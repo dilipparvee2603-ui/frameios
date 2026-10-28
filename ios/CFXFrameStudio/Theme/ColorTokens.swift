@@ -31,6 +31,7 @@ extension Color {
     static let elevatedSurface = Color(hex: "1A1A22")
     static let borderHairline = Color.white.opacity(0.08)
     static let borderHairlineBright = Color.white.opacity(0.16)
+    static let cardBorder = Color.white.opacity(0.08)
 
     // Brand Crimson Accents
     static let brandAccent = Color(hex: "C0000A")
