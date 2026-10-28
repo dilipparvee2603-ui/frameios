@@ -591,60 +591,69 @@ struct VideoConverterView: View {
     }
 
     private func loadFromFiles(url: URL) {
-        guard url.startAccessingSecurityScopedResource() else {
-            alertMessage = "Permission denied to read file"
-            showAlert = true
-            return
-        }
+        let isSecurityScoped = url.startAccessingSecurityScopedResource()
+        Task {
+            defer {
+                if isSecurityScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
 
-        defer { url.stopAccessingSecurityScopedResource() }
+            var workingUrl: URL
 
-        // Copy file to temp directory for processing
-        let tempDir = FileManager.default.temporaryDirectory
-        let destUrl = tempDir.appendingPathComponent(url.lastPathComponent)
-        try? FileManager.default.removeItem(at: destUrl)
-
-        do {
-            try FileManager.default.copyItem(at: url, to: destUrl)
-            Task {
-                var workingUrl = destUrl
-
-                if MKVRemuxEngine.shared.isMatroska(url: destUrl) {
-                    await MainActor.run {
-                        self.isRemuxing = true
-                        self.remuxProgress = 0.0
-                        self.remuxSpeedText = ""
-                    }
-                    do {
-                        workingUrl = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: destUrl) { progress, speed in
-                            Task { @MainActor in
-                                self.remuxProgress = progress
-                                self.remuxSpeedText = speed
-                            }
+            if MKVRemuxEngine.shared.isMatroska(url: url) {
+                await MainActor.run {
+                    self.isRemuxing = true
+                    self.remuxProgress = 0.0
+                    self.remuxSpeedText = "Direct Stream Copy..."
+                }
+                do {
+                    workingUrl = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { progress, speed in
+                        Task { @MainActor in
+                            self.remuxProgress = progress
+                            self.remuxSpeedText = speed
                         }
-                    } catch {
-                        await MainActor.run {
-                            self.isRemuxing = false
-                            self.alertMessage = "Failed to remux Matroska movie: \(error.localizedDescription)"
-                            self.showAlert = true
-                        }
-                        return
                     }
+                } catch {
                     await MainActor.run {
                         self.isRemuxing = false
+                        self.alertMessage = "Failed to remux Matroska movie: \(error.localizedDescription)"
+                        self.showAlert = true
                     }
+                    return
                 }
+                await MainActor.run {
+                    self.isRemuxing = false
+                }
+            } else {
+                let tempDir = FileManager.default.temporaryDirectory
+                let destUrl = tempDir.appendingPathComponent(url.lastPathComponent)
+                try? FileManager.default.removeItem(at: destUrl)
+                do {
+                    try FileManager.default.copyItem(at: url, to: destUrl)
+                    workingUrl = destUrl
+                } catch {
+                    await MainActor.run {
+                        self.alertMessage = "Failed to access file: \(error.localizedDescription)"
+                        self.showAlert = true
+                    }
+                    return
+                }
+            }
 
+            do {
                 let info = try await VideoEngine.shared.extractVideoInfo(from: workingUrl)
                 await MainActor.run {
                     self.videoUrl = workingUrl
                     self.videoInfo = info
                     self.convertedFileUrl = nil
                 }
+            } catch {
+                await MainActor.run {
+                    self.alertMessage = "Failed to load video: \(error.localizedDescription)"
+                    self.showAlert = true
+                }
             }
-        } catch {
-            alertMessage = "Failed to access file: \(error.localizedDescription)"
-            showAlert = true
         }
     }
 
