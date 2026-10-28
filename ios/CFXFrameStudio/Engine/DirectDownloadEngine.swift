@@ -27,11 +27,18 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
     @Published var mediaInspection: MediaInspection? = nil
     @Published var savedToPhotos: Bool = false
     @Published var errorMessage: String? = nil
+    @Published var statusMessage: String = ""
 
     private var downloadTask: URLSessionDownloadTask?
     private var urlSession: URLSession?
     private var lastSpeedCheckTime: Date = Date()
     private var lastSpeedBytes: Int64 = 0
+
+    // Multi-stage / Muxing state
+    private var isMuxWorkflow: Bool = false
+    private var pendingAudioUrl: URL? = nil
+    private var tempVideoFileUrl: URL? = nil
+    private var customTargetFilename: String? = nil
 
     override init() {
         super.init()
@@ -41,7 +48,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         self.urlSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }
 
-    func startDownload(urlString: String) {
+    func startDownload(urlString: String, customFilename: String? = nil) {
         guard let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme == "http" || url.scheme == "https" else {
             self.errorMessage = "Please enter a valid HTTP or HTTPS direct link."
@@ -50,6 +57,8 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
 
         reset()
         self.isDownloading = true
+        self.statusMessage = "Downloading Media..."
+        self.customTargetFilename = customFilename
         self.lastSpeedCheckTime = Date()
         self.lastSpeedBytes = 0
 
@@ -58,11 +67,57 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         task?.resume()
     }
 
+    func startYouTubeDownload(option: YouTubeQualityOption, videoTitle: String) {
+        reset()
+        self.isDownloading = true
+        self.lastSpeedCheckTime = Date()
+        self.lastSpeedBytes = 0
+
+        let safeTitle = sanitizeFilename(videoTitle)
+
+        // Check if adaptive video + audio mux is required (MP4 with audio)
+        if let audioUrlStr = option.audioUrl,
+           let audioUrl = URL(string: audioUrlStr),
+           option.format == "MP4",
+           let videoUrl = URL(string: option.downloadUrl) {
+
+            self.isMuxWorkflow = true
+            self.pendingAudioUrl = audioUrl
+            self.tempVideoFileUrl = nil
+            self.customTargetFilename = "\(safeTitle) - \(option.resolution)p.mp4"
+            self.statusMessage = "Downloading Video (\(option.resolution)p)..."
+
+            let task = urlSession?.downloadTask(with: videoUrl)
+            self.downloadTask = task
+            task?.resume()
+        } else {
+            // Single stream (audio-only, progressive combined, or WebM)
+            self.isMuxWorkflow = false
+            let ext = option.format.lowercased()
+            let cleanLabel = option.label
+                .replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: "•", with: "-")
+            self.customTargetFilename = "\(safeTitle) - \(cleanLabel).\(ext)"
+            self.statusMessage = "Downloading \(option.label)..."
+
+            if let url = URL(string: option.downloadUrl) {
+                let task = urlSession?.downloadTask(with: url)
+                self.downloadTask = task
+                task?.resume()
+            } else {
+                self.errorMessage = "Invalid stream URL."
+                self.isDownloading = false
+            }
+        }
+    }
+
     func cancelDownload() {
         downloadTask?.cancel()
         downloadTask = nil
+        cleanupTempFiles()
         isDownloading = false
         progress = 0.0
+        statusMessage = ""
     }
 
     func reset() {
@@ -75,6 +130,18 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         bytesWritten = 0
         totalBytes = 0
         downloadSpeedMBs = 0.0
+        statusMessage = ""
+        isMuxWorkflow = false
+        pendingAudioUrl = nil
+        tempVideoFileUrl = nil
+        customTargetFilename = nil
+    }
+
+    private func cleanupTempFiles() {
+        if let tempVideo = tempVideoFileUrl {
+            try? FileManager.default.removeItem(at: tempVideo)
+            tempVideoFileUrl = nil
+        }
     }
 
     // MARK: - URLSessionDownloadDelegate
@@ -91,7 +158,18 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
             self.totalBytes = totalBytesExpectedToWrite
 
             if totalBytesExpectedToWrite > 0 {
-                self.progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+                let currentFraction = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+                if self.isMuxWorkflow {
+                    if self.tempVideoFileUrl == nil {
+                        // Video downloading: 0% -> 85%
+                        self.progress = min(0.85, currentFraction * 0.85)
+                    } else {
+                        // Audio downloading: 85% -> 95%
+                        self.progress = min(0.95, 0.85 + (currentFraction * 0.10))
+                    }
+                } else {
+                    self.progress = currentFraction
+                }
             }
 
             let now = Date()
@@ -113,14 +191,76 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
     ) {
         Task { @MainActor in
             do {
-                // Determine destination filename
-                let originalName = downloadTask.response?.suggestedFilename
+                if self.isMuxWorkflow {
+                    if self.tempVideoFileUrl == nil {
+                        // Stage 1 Complete: Video track downloaded
+                        let tempVideo = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("cfx_vid_\(UUID().uuidString).mp4")
+                        if FileManager.default.fileExists(atPath: tempVideo.path) {
+                            try? FileManager.default.removeItem(at: tempVideo)
+                        }
+                        try FileManager.default.moveItem(at: location, to: tempVideo)
+                        self.tempVideoFileUrl = tempVideo
+
+                        // Stage 2: Start downloading audio track
+                        if let audioUrl = self.pendingAudioUrl {
+                            self.statusMessage = "Downloading Audio Track (AAC)..."
+                            self.lastSpeedCheckTime = Date()
+                            self.lastSpeedBytes = 0
+                            let audioTask = self.urlSession?.downloadTask(with: audioUrl)
+                            self.downloadTask = audioTask
+                            audioTask?.resume()
+                            return
+                        }
+                    } else if let tempVideo = self.tempVideoFileUrl {
+                        // Stage 2 Complete: Audio track downloaded
+                        let tempAudio = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("cfx_aud_\(UUID().uuidString).m4a")
+                        if FileManager.default.fileExists(atPath: tempAudio.path) {
+                            try? FileManager.default.removeItem(at: tempAudio)
+                        }
+                        try FileManager.default.moveItem(at: location, to: tempAudio)
+
+                        self.statusMessage = "Losslessly Merging Video & Audio..."
+                        self.progress = 0.96
+
+                        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                        let filename = self.customTargetFilename ?? "CFX_YouTube_\(Int(Date().timeIntervalSince1970)).mp4"
+                        let destinationUrl = docs.appendingPathComponent(self.sanitizeFilename(filename))
+
+                        // Stage 3: AVMutableComposition Passthrough Mux
+                        do {
+                            try await self.muxVideoAndAudio(videoUrl: tempVideo, audioUrl: tempAudio, outputUrl: destinationUrl)
+                            try? FileManager.default.removeItem(at: tempVideo)
+                            try? FileManager.default.removeItem(at: tempAudio)
+                            self.tempVideoFileUrl = nil
+                            self.pendingAudioUrl = nil
+
+                            await self.finalizeDownload(destinationUrl: destinationUrl)
+                            return
+                        } catch {
+                            // Fallback if muxing fails: keep video track directly
+                            if FileManager.default.fileExists(atPath: destinationUrl.path) {
+                                try? FileManager.default.removeItem(at: destinationUrl)
+                            }
+                            try FileManager.default.moveItem(at: tempVideo, to: destinationUrl)
+                            try? FileManager.default.removeItem(at: tempAudio)
+                            self.tempVideoFileUrl = nil
+                            self.pendingAudioUrl = nil
+
+                            await self.finalizeDownload(destinationUrl: destinationUrl)
+                            return
+                        }
+                    }
+                }
+
+                // Standard direct single-file download
+                let originalName = self.customTargetFilename
+                    ?? downloadTask.response?.suggestedFilename
                     ?? downloadTask.originalRequest?.url?.lastPathComponent
                     ?? "CFX_Download_\(Int(Date().timeIntervalSince1970))"
 
-                let safeFilename = sanitizeFilename(originalName)
-
-                // Save to user-visible Documents folder (On My iPhone > CFX Studio)
+                let safeFilename = self.sanitizeFilename(originalName)
                 let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
                 let destinationUrl = docs.appendingPathComponent(safeFilename)
 
@@ -129,21 +269,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                 }
 
                 try FileManager.default.moveItem(at: location, to: destinationUrl)
-                self.downloadedFileUrl = destinationUrl
-                self.isDownloading = false
-                self.progress = 1.0
-
-                // Inspect Codecs and Container
-                let inspection = await inspectMedia(url: destinationUrl)
-                self.mediaInspection = inspection
-
-                // Smart auto-save to Camera Roll if supported
-                if inspection.isPhotosCompatible {
-                    let photoSuccess = await saveToPhotosLibrary(url: destinationUrl, inspection: inspection)
-                    self.savedToPhotos = photoSuccess
-                } else {
-                    self.savedToPhotos = false
-                }
+                await self.finalizeDownload(destinationUrl: destinationUrl)
             } catch {
                 self.isDownloading = false
                 self.errorMessage = "Failed to store downloaded file: \(error.localizedDescription)"
@@ -164,7 +290,87 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
             if let err = error {
                 self.isDownloading = false
                 self.errorMessage = "Download Error: \(err.localizedDescription)"
+                self.cleanupTempFiles()
             }
+        }
+    }
+
+    // MARK: - Lossless Muxer
+
+    private func muxVideoAndAudio(videoUrl: URL, audioUrl: URL, outputUrl: URL) async throws {
+        let videoAsset = AVURLAsset(url: videoUrl)
+        let audioAsset = AVURLAsset(url: audioUrl)
+
+        let composition = AVMutableComposition()
+
+        // 1. Video track
+        let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
+        guard let videoTrack = videoTracks.first else {
+            throw NSError(domain: "CFXMuxer", code: 1, userInfo: [NSLocalizedDescriptionKey: "No video track found in stream."])
+        }
+
+        guard let compVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw NSError(domain: "CFXMuxer", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create video track in composition."])
+        }
+
+        let videoDuration = try await videoAsset.load(.duration)
+        let videoRange = CMTimeRange(start: .zero, duration: videoDuration)
+        try compVideoTrack.insertTimeRange(videoRange, of: videoTrack, at: .zero)
+
+        if let transform = try? await videoTrack.load(.preferredTransform) {
+            compVideoTrack.preferredTransform = transform
+        }
+
+        // 2. Audio track
+        let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
+        if let audioTrack = audioTracks.first,
+           let compAudioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            let audioDuration = try await audioAsset.load(.duration)
+            let durationSeconds = min(videoDuration.seconds, audioDuration.seconds)
+            let clampedDuration = CMTime(seconds: durationSeconds, preferredTimescale: 600)
+            let audioRange = CMTimeRange(start: .zero, duration: clampedDuration)
+            try? compAudioTrack.insertTimeRange(audioRange, of: audioTrack, at: .zero)
+        }
+
+        // 3. Lossless Passthrough Export Session
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+            throw NSError(domain: "CFXMuxer", code: 3, userInfo: [NSLocalizedDescriptionKey: "Passthrough export session unavailable."])
+        }
+
+        if FileManager.default.fileExists(atPath: outputUrl.path) {
+            try? FileManager.default.removeItem(at: outputUrl)
+        }
+
+        export.outputURL = outputUrl
+        export.outputFileType = .mp4
+        export.shouldOptimizeForNetworkUse = true
+
+        await export.export()
+
+        if let err = export.error {
+            throw err
+        }
+        if export.status != .completed {
+            throw NSError(domain: "CFXMuxer", code: 4, userInfo: [NSLocalizedDescriptionKey: "Export ended with status: \(export.status.rawValue)"])
+        }
+    }
+
+    private func finalizeDownload(destinationUrl: URL) async {
+        self.downloadedFileUrl = destinationUrl
+        self.isDownloading = false
+        self.progress = 1.0
+        self.statusMessage = "Download Complete"
+
+        // Inspect Codecs and Container
+        let inspection = await inspectMedia(url: destinationUrl)
+        self.mediaInspection = inspection
+
+        // Smart auto-save to Camera Roll if supported
+        if inspection.isPhotosCompatible {
+            let photoSuccess = await saveToPhotosLibrary(url: destinationUrl, inspection: inspection)
+            self.savedToPhotos = photoSuccess
+        } else {
+            self.savedToPhotos = false
         }
     }
 
@@ -298,6 +504,11 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
             .replacingOccurrences(of: "\\", with: "_")
             .replacingOccurrences(of: ":", with: "_")
             .replacingOccurrences(of: "?", with: "_")
+            .replacingOccurrences(of: "*", with: "_")
+            .replacingOccurrences(of: "\"", with: "_")
+            .replacingOccurrences(of: "<", with: "_")
+            .replacingOccurrences(of: ">", with: "_")
+            .replacingOccurrences(of: "|", with: "_")
         return cleaned.isEmpty ? "CFX_Download_\(Int(Date().timeIntervalSince1970))" : cleaned
     }
 }

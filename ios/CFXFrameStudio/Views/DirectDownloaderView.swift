@@ -321,7 +321,11 @@ struct DirectDownloaderView: View {
             Spacer()
 
             Button(action: {
-                engine.startDownload(urlString: option.downloadUrl)
+                if let info = ytEngine.videoInfo {
+                    engine.startYouTubeDownload(option: option, videoTitle: info.title)
+                } else {
+                    engine.startDownload(urlString: option.downloadUrl)
+                }
             }) {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.down.circle.fill")
@@ -355,7 +359,7 @@ struct DirectDownloaderView: View {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .skyAccent))
                             .scaleEffect(0.8)
-                        Text("Downloading Media...")
+                        Text(engine.statusMessage.isEmpty ? "Downloading Media..." : engine.statusMessage)
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(.textPrimary)
                     }
