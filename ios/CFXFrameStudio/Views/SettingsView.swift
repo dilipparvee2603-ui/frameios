@@ -78,15 +78,15 @@ struct SettingsView: View {
                 Text("iOS will prompt you to confirm removing the \(storage.breakdown.trackedPhotosCount) video(s) and photo(s) saved to your Photos library by CFX Studio.")
             }
             .alert("Master Wipe: Clear All Storage?", isPresented: $showConfirmWipeAll) {
-                Button("Wipe Everything (Files & Photos)", role: .destructive) {
+                Button("Wipe Everything (Downloads, Files & Photos)", role: .destructive) {
                     Task { _ = await storage.masterWipeStorage(includePhotos: true) }
                 }
-                Button("Wipe Local Files Only", role: .destructive) {
+                Button("Wipe Downloads & Cache Only", role: .destructive) {
                     Task { _ = await storage.masterWipeStorage(includePhotos: false) }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This permanently deletes all temporary buffers, remux caches, downloaded files in Documents, and optionally removes saved media from Photos.")
+                Text("This permanently deletes all downloaded videos, remux caches, temporary files, and optionally removes saved media from Photos. Nothing downloaded will remain on the device.")
             }
             .onAppear {
                 storage.refreshStorage()
@@ -238,17 +238,17 @@ struct SettingsView: View {
 
     private var actionsSection: some View {
         VStack(spacing: 10) {
-            // Action 1: Clear Temp & Buffers
+            // Action 1: Clear All Cache & Downloaded Files
             Button(action: {
-                Task { _ = await storage.clearTempAndCaches() }
+                Task { _ = await storage.clearAllCacheAndDownloads() }
             }) {
                 HStack(spacing: 10) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 14, weight: .bold))
-                    Text("Clear Temporary Cache & Streams")
+                    Text("Clear Cache & Downloaded Files")
                         .font(.system(size: 13, weight: .bold))
                     Spacer()
-                    Text("Free \(storage.formatBytes(storage.breakdown.tempBytes + storage.breakdown.cacheBytes))")
+                    Text("Free \(storage.formatBytes(storage.breakdown.totalBytes))")
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundColor(.skyAccent)
                 }

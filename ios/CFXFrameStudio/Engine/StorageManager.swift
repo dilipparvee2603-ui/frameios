@@ -76,24 +76,30 @@ final class StorageManager: ObservableObject {
 
     // MARK: - Storage Cleanup Operations
 
-    /// Clears temporary staging, MKV remux cache, and URL network caches.
-    /// Does not delete user files in Documents.
-    func clearTempAndCaches() async -> Int64 {
+    /// Clears temporary staging, MKV remux cache, URL network caches, AND all downloaded files in Documents.
+    func clearAllCacheAndDownloads() async -> Int64 {
         await MainActor.run { self.isClearing = true }
         let temp = FileManager.default.temporaryDirectory
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
 
         let t = deleteContents(of: temp)
         let c = deleteContents(of: caches)
+        let d = deleteContents(of: docs)
         URLCache.shared.removeAllCachedResponses()
 
-        let total = t + c
+        let total = t + c + d
         refreshStorage()
         await MainActor.run {
             self.isClearing = false
-            self.lastReclaimedMessage = "Cleared \(self.formatBytes(total)) of temporary cache & buffers!"
+            self.lastReclaimedMessage = "Cleared \(self.formatBytes(total)) — all downloaded files & caches deleted!"
         }
         return total
+    }
+
+    /// Clears temporary staging, MKV remux cache, and downloaded files.
+    func clearTempAndCaches() async -> Int64 {
+        return await clearAllCacheAndDownloads()
     }
 
     /// Clears all files in Documents (On My iPhone > CFX Studio).
@@ -199,35 +205,31 @@ final class StorageManager: ObservableObject {
 
     private func calculateDirectorySize(url: URL) -> (bytes: Int64, count: Int) {
         let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles) else {
+        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey], options: [.skipsHiddenFiles]) else {
             return (0, 0)
         }
         var totalBytes: Int64 = 0
         var count = 0
-        for file in files {
-            if let attrs = try? fm.attributesOfItem(atPath: file.path),
-               let size = attrs[.size] as? Int64 {
-                totalBytes += size
-                count += 1
-            }
+        for case let fileUrl as URL in enumerator {
+            guard let values = try? fileUrl.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let size = values.fileSize else { continue }
+            totalBytes += Int64(size)
+            count += 1
         }
         return (totalBytes, count)
     }
 
     private func deleteContents(of url: URL) -> Int64 {
         let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else {
+        let (bytes, _) = calculateDirectorySize(url: url)
+        guard let items = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: []) else {
             return 0
         }
-        var total: Int64 = 0
-        for file in files {
-            if let attrs = try? fm.attributesOfItem(atPath: file.path),
-               let size = attrs[.size] as? Int64 {
-                total += size
-            }
-            try? fm.removeItem(at: file)
+        for item in items {
+            try? fm.removeItem(at: item)
         }
-        return total
+        return bytes
     }
 
     func formatBytes(_ bytes: Int64) -> String {
