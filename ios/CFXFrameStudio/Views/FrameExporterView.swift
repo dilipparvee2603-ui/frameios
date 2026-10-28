@@ -337,15 +337,16 @@ struct FrameExporterView: View {
 
     private func togglePlayPause() {
         if playerModel.isPlaying {
-            playerModel.togglePlayPause()
+            playerModel.pause()
             updateExactFramePreview()
         } else {
             previewImage = nil
-            playerModel.togglePlayPause()
+            playerModel.play()
         }
     }
 
     private func seek(to ms: Int64) {
+        previewImage = nil
         playerModel.seek(to: ms) {
             if !self.playerModel.isPlaying {
                 self.updateExactFramePreview()
@@ -355,22 +356,21 @@ struct FrameExporterView: View {
 
     private func stepFrames(_ delta: Int64) {
         guard let info = videoInfo else { return }
-        if playerModel.isPlaying {
-            playerModel.player.pause()
-            playerModel.isPlaying = false
+        previewImage = nil
+        playerModel.step(byCount: Int(delta), fps: info.fps) {
+            self.updateExactFramePreview()
         }
-        let frameDurationMs = max(1.0, 1000.0 / info.fps)
-        let targetMs = max(0, min(info.durationMs, playerModel.currentPositionMs + Int64(Double(delta) * frameDurationMs)))
-        seek(to: targetMs)
     }
 
     private func updateExactFramePreview() {
-        guard let url = videoUrl else { return }
+        guard let url = videoUrl, !playerModel.isPlaying else { return }
         let ms = playerModel.currentPositionMs
         Task {
             if let frame = try? await VideoEngine.shared.extractFrame(from: url, at: ms) {
                 await MainActor.run {
-                    self.previewImage = frame
+                    if !self.playerModel.isPlaying && self.playerModel.currentPositionMs == ms {
+                        self.previewImage = frame
+                    }
                 }
             }
         }
