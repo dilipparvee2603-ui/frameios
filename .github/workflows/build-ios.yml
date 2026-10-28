@@ -87,6 +87,7 @@ jobs:
             - 🎞️ **Precise Frame Exporter** (1f & 10f hardware stepping to PNG/JPG)
             - 🔄 **Video Format Converter** (MP4 ↔ MOV with ProRes & HEVC)
             - 📐 **Lossless Image Cropper** (Adjustable frame, 4-corner handles, pinch zoom & social aspect ratios)
+            - ⬇️ **Direct & YouTube Downloader** (Fetch Cloudflare, S3, CDN & YouTube up to 4K/8K with smart Camera Roll & Files routing)
             - 📁 **Files App Integration** (`On My iPhone > CFX Studio`)
           files: ios/CFXFrameStudio.ipa
           make_latest: true
