@@ -144,10 +144,11 @@ final class StorageManager: ObservableObject {
         }
 
         refreshStorage()
+        let count = deletedCount
         await MainActor.run {
             self.isClearing = false
-            if deletedCount > 0 {
-                self.lastReclaimedMessage = "Successfully removed \(deletedCount) items from Camera Roll!"
+            if count > 0 {
+                self.lastReclaimedMessage = "Successfully removed \(count) items from Camera Roll!"
             }
         }
         return deletedCount
@@ -182,10 +183,11 @@ final class StorageManager: ObservableObject {
 
         let totalBytes = t + c + d
         refreshStorage()
+        let count = photosCount
         await MainActor.run {
             self.isClearing = false
-            if photosCount > 0 {
-                self.lastReclaimedMessage = "Storage Wiped: \(self.formatBytes(totalBytes)) reclaimed + \(photosCount) items removed from Photos!"
+            if count > 0 {
+                self.lastReclaimedMessage = "Storage Wiped: \(self.formatBytes(totalBytes)) reclaimed + \(count) items removed from Photos!"
             } else {
                 self.lastReclaimedMessage = "Storage Wiped: \(self.formatBytes(totalBytes)) reclaimed!"
             }

@@ -46,6 +46,7 @@ extension Color {
 
     // Typography
     static let textPrimary = Color(hex: "F4F5F7")
+    static let textSecondary = Color(hex: "CBD5E1")
     static let textMuted = Color(hex: "94A3B8")
     static let textTertiary = Color(hex: "64748B")
 }
