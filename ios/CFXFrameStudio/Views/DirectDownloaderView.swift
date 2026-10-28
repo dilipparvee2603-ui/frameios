@@ -534,7 +534,7 @@ struct DirectDownloaderView: View {
                                 } else {
                                     Image(systemName: "bolt.fill")
                                         .font(.system(size: 13, weight: .bold))
-                                    Text("⚡ Remux MKV to MP4 & Save to Photos")
+                                    Text(fileUrl.pathExtension.lowercased() == "webm" ? "⚡ Convert WebM to MP4 & Save to Photos" : "⚡ Remux MKV to MP4 & Save to Photos")
                                         .font(.system(size: 13, weight: .bold))
                                 }
                             }

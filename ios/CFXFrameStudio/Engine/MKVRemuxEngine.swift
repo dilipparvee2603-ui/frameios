@@ -5,7 +5,9 @@ import ffmpegkit
 private struct ProbedMediaInfo {
     var durationSec: Double = 0.0
     var isHEVC: Bool = false
-    var isVP9: Bool = false
+    var isH264: Bool = false
+    var isVP: Bool = false
+    var isAV1: Bool = false
     var videoCodec: String = ""
     var audioCodec: String = ""
 }
@@ -65,8 +67,12 @@ final class MKVRemuxEngine {
                         info.videoCodec = codec
                         if codec.contains("hevc") || codec.contains("h265") || codec.contains("hev") || codec.contains("hvc") {
                             info.isHEVC = true
+                        } else if codec.contains("264") || codec.contains("avc") {
+                            info.isH264 = true
                         } else if codec.contains("vp9") || codec.contains("vp8") {
-                            info.isVP9 = true
+                            info.isVP = true
+                        } else if codec.contains("av1") || codec.contains("av01") {
+                            info.isAV1 = true
                         }
                     } else if type == "audio" && info.audioCodec.isEmpty {
                         info.audioCodec = codec
@@ -81,8 +87,12 @@ final class MKVRemuxEngine {
                     info.videoCodec = output
                     if output.contains("hevc") || output.contains("h265") || output.contains("hev") || output.contains("hvc") {
                         info.isHEVC = true
+                    } else if output.contains("264") || output.contains("avc") {
+                        info.isH264 = true
                     } else if output.contains("vp9") || output.contains("vp8") {
-                        info.isVP9 = true
+                        info.isVP = true
+                    } else if output.contains("av1") || output.contains("av01") {
+                        info.isAV1 = true
                     }
                 }
             }
@@ -134,10 +144,14 @@ final class MKVRemuxEngine {
         }
 
         return try await Task.detached(priority: .userInitiated) {
-            // If the container has VP9/VP8 video (common in YouTube WebM), iOS AVPlayer cannot decode it natively.
-            // Transcode video to standard H.264 so AVPlayer renders it perfectly.
-            if probedInfo.isVP9 {
-                let vp9Arguments = [
+            // Check if source video codec requires transcoding for Apple AVPlayer compatibility:
+            // - WebM files (which typically use VP8, VP9, or AV1)
+            // - Any container with VP8/VP9/AV1
+            let isWebM = sourceUrl.pathExtension.lowercased() == "webm"
+            let requiresTranscode = probedInfo.isVP || probedInfo.isAV1 || (isWebM && !probedInfo.isHEVC && !probedInfo.isH264)
+
+            if requiresTranscode {
+                let transcodeArguments = [
                     "-threads", "0",
                     "-y",
                     "-i", sourceUrl.path,
@@ -145,14 +159,14 @@ final class MKVRemuxEngine {
                     "-map", "0:a:0?",
                     "-c:v", "libx264",
                     "-preset", "ultrafast",
-                    "-crf", "22",
+                    "-crf", "20",
                     "-c:a", "aac",
                     "-b:a", "192k",
                     "-movflags", "+faststart",
                     outputUrl.path
                 ]
 
-                let session = FFmpegKit.execute(withArguments: vp9Arguments)
+                let session = FFmpegKit.execute(withArguments: transcodeArguments)
                 let code = session?.getReturnCode()
                 if ReturnCode.isSuccess(code),
                    FileManager.default.fileExists(atPath: outputUrl.path),

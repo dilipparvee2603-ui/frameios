@@ -103,7 +103,7 @@ struct VideoConverterView: View {
                                             Text("Import from Files App")
                                                 .font(.system(size: 15, weight: .bold))
                                                 .foregroundColor(.textPrimary)
-                                            Text("Convert MOV, MP4, M4V, ProRes files")
+                                            Text("Convert MOV, MP4, MKV, WebM, ProRes files")
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.textMuted)
                                         }
@@ -208,10 +208,11 @@ struct VideoConverterView: View {
                 .video,
                 .quickTimeMovie,
                 .mpeg4Movie,
-                UTType("org.matroska.mkv") ?? .movie,
                 UTType("org.webmproject.webm") ?? .movie,
+                UTType("org.matroska.mkv") ?? .movie,
+                UTType(filenameExtension: "webm") ?? .movie,
                 UTType(filenameExtension: "mkv") ?? .movie,
-                UTType(filenameExtension: "webm") ?? .movie
+                .item
             ],
             allowsMultipleSelection: false
         ) { result in

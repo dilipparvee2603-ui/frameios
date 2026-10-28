@@ -130,7 +130,7 @@ struct VideoTrimmerView: View {
                                             Text("Import from Files App")
                                                 .font(.system(size: 15, weight: .bold))
                                                 .foregroundColor(.textPrimary)
-                                            Text("Trim MP4, MOV, M4V from Downloads & iCloud")
+                                            Text("Trim MP4, MOV, MKV, WebM from Downloads & iCloud")
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.textMuted)
                                         }
@@ -524,10 +524,11 @@ struct VideoTrimmerView: View {
                 .video,
                 .quickTimeMovie,
                 .mpeg4Movie,
-                UTType("org.matroska.mkv") ?? .movie,
                 UTType("org.webmproject.webm") ?? .movie,
+                UTType("org.matroska.mkv") ?? .movie,
+                UTType(filenameExtension: "webm") ?? .movie,
                 UTType(filenameExtension: "mkv") ?? .movie,
-                UTType(filenameExtension: "webm") ?? .movie
+                .item
             ],
             allowsMultipleSelection: false
         ) { result in
