@@ -5,14 +5,11 @@ import PhotosUI
 struct VideoTrimmerView: View {
     @Environment(\.dismiss) private var dismiss
 
+    @StateObject private var playerModel = PlayerModel()
+
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var videoUrl: URL? = nil
     @State private var videoInfo: VideoInfo? = nil
-
-    @State private var player: AVPlayer = AVPlayer()
-    @State private var isPlaying: Bool = false
-    @State private var isMuted: Bool = false
-    @State private var currentPositionMs: Int64 = 0
 
     @State private var inPointMs: Int64 = 0
     @State private var outPointMs: Int64 = 0
@@ -25,8 +22,6 @@ struct VideoTrimmerView: View {
     @State private var alertMessage: String? = nil
     @State private var showAlert: Bool = false
 
-    @State private var timeObserverToken: Any? = nil
-
     var body: some View {
         ZStack {
             Color.voidCanvas.ignoresSafeArea()
@@ -36,7 +31,7 @@ struct VideoTrimmerView: View {
                     // Header Bar
                     HStack {
                         Button(action: {
-                            cleanupPlayer()
+                            playerModel.cleanup()
                             dismiss()
                         }) {
                             Image(systemName: "chevron.left")
@@ -91,7 +86,7 @@ struct VideoTrimmerView: View {
                     } else {
                         // Player Card
                         ZStack(alignment: .topLeading) {
-                            VideoPlayerView(player: player)
+                            VideoPlayerView(player: playerModel.player)
                                 .aspectRatio(16 / 9, contentMode: .fit)
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                 .overlay(
@@ -100,10 +95,10 @@ struct VideoTrimmerView: View {
                                 )
 
                             // Floating Mute Button (Top-Left)
-                            Button(action: toggleMute) {
-                                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            Button(action: { playerModel.toggleMute() }) {
+                                Image(systemName: playerModel.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                                     .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(isMuted ? Color(hex: "FF5252") : .white)
+                                    .foregroundColor(playerModel.isMuted ? Color(hex: "FF5252") : .white)
                                     .frame(width: 34, height: 34)
                                     .background(Color.black.opacity(0.75))
                                     .clipShape(Circle())
@@ -140,7 +135,7 @@ struct VideoTrimmerView: View {
                                                 Image(systemName: "clock")
                                                     .font(.system(size: 11))
                                                     .foregroundColor(.brandAccent)
-                                                Text(formatMsToTimecode(currentPositionMs))
+                                                Text(formatMsToTimecode(playerModel.currentPositionMs))
                                                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                                                     .foregroundColor(.textPrimary)
                                             }
@@ -165,7 +160,7 @@ struct VideoTrimmerView: View {
                                             let duration = max(1, Double(info.durationMs))
                                             let inFraction = CGFloat(Double(inPointMs) / duration)
                                             let outFraction = CGFloat(Double(outPointMs) / duration)
-                                            let playheadFraction = CGFloat(Double(currentPositionMs) / duration)
+                                            let playheadFraction = CGFloat(Double(playerModel.currentPositionMs) / duration)
 
                                             ZStack(alignment: .leading) {
                                                 // Background Track
@@ -192,7 +187,7 @@ struct VideoTrimmerView: View {
                                                     .onChanged { value in
                                                         let fraction = max(0, min(1, value.location.x / width))
                                                         let targetMs = Int64(fraction * duration)
-                                                        seek(to: targetMs)
+                                                        playerModel.seek(to: targetMs)
                                                     }
                                             )
                                         }
@@ -202,7 +197,7 @@ struct VideoTrimmerView: View {
                                     // In-Point & Out-Point Selection Controls
                                     HStack(spacing: 8) {
                                         // Set IN
-                                        Button(action: { inPointMs = min(currentPositionMs, outPointMs - 100) }) {
+                                        Button(action: { inPointMs = min(playerModel.currentPositionMs, outPointMs - 100) }) {
                                             HStack(spacing: 4) {
                                                 Image(systemName: "arrow.right.to.line")
                                                     .font(.system(size: 11))
@@ -232,7 +227,7 @@ struct VideoTrimmerView: View {
                                         }
 
                                         // Set OUT
-                                        Button(action: { outPointMs = max(currentPositionMs, inPointMs + 100) }) {
+                                        Button(action: { outPointMs = max(playerModel.currentPositionMs, inPointMs + 100) }) {
                                             HStack(spacing: 4) {
                                                 Text("Set OUT")
                                                     .font(.system(size: 12, weight: .bold))
@@ -249,33 +244,33 @@ struct VideoTrimmerView: View {
 
                                     // Transport Bar (Jump In, Play/Pause, Jump Out, Mute)
                                     HStack(spacing: 24) {
-                                        Button(action: { seek(to: inPointMs) }) {
+                                        Button(action: { playerModel.seek(to: inPointMs) }) {
                                             Image(systemName: "backward.end.fill")
                                                 .font(.system(size: 16))
                                                 .foregroundColor(.skyAccent)
                                         }
 
-                                        Button(action: togglePlayPause) {
+                                        Button(action: { playerModel.togglePlayPause() }) {
                                             ZStack {
                                                 Circle()
                                                     .fill(LinearGradient.brandGradient)
                                                     .frame(width: 46, height: 46)
-                                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                                Image(systemName: playerModel.isPlaying ? "pause.fill" : "play.fill")
                                                     .font(.system(size: 18, weight: .bold))
                                                     .foregroundColor(.white)
                                             }
                                         }
 
-                                        Button(action: { seek(to: outPointMs) }) {
+                                        Button(action: { playerModel.seek(to: outPointMs) }) {
                                             Image(systemName: "forward.end.fill")
                                                 .font(.system(size: 16))
                                                 .foregroundColor(.gradientStart)
                                         }
 
-                                        Button(action: toggleMute) {
-                                            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                        Button(action: { playerModel.toggleMute() }) {
+                                            Image(systemName: playerModel.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                                                 .font(.system(size: 16))
-                                                .foregroundColor(isMuted ? Color(hex: "FF5252") : .textMuted)
+                                                .foregroundColor(playerModel.isMuted ? Color(hex: "FF5252") : .textMuted)
                                         }
                                     }
                                     .padding(.top, 4)
@@ -349,7 +344,7 @@ struct VideoTrimmerView: View {
 
             // Timecode Jump / Edit Modal
             if let target = activeTimecodeTarget, let info = videoInfo {
-                let initial = (target == .inPoint) ? inPointMs : (target == .outPoint ? outPointMs : currentPositionMs)
+                let initial = (target == .inPoint) ? inPointMs : (target == .outPoint ? outPointMs : playerModel.currentPositionMs)
                 TimecodeEntryModal(
                     target: target,
                     initialMs: initial,
@@ -361,7 +356,7 @@ struct VideoTrimmerView: View {
                         case .outPoint:
                             outPointMs = max(newMs, inPointMs + 100)
                         case .playhead:
-                            seek(to: newMs)
+                            playerModel.seek(to: newMs)
                         }
                     },
                     onDismiss: { activeTimecodeTarget = nil }
@@ -391,8 +386,11 @@ struct VideoTrimmerView: View {
                     self.videoInfo = info
                     self.inPointMs = 0
                     self.outPointMs = info.durationMs
-                    self.currentPositionMs = 0
-                    setupPlayer(with: url)
+                    self.playerModel.setup(with: url) { ms in
+                        if self.outPointMs > 0 && ms >= self.outPointMs && self.playerModel.isPlaying {
+                            self.playerModel.seek(to: self.inPointMs)
+                        }
+                    }
                 }
             }
         } catch {
@@ -401,51 +399,6 @@ struct VideoTrimmerView: View {
                 self.showAlert = true
             }
         }
-    }
-
-    private func setupPlayer(with url: URL) {
-        cleanupPlayer()
-        let playerItem = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: playerItem)
-        player.isMuted = isMuted
-
-        let interval = CMTime(value: 1, timescale: 30) // ~30 FPS UI sync
-        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [self] time in
-            let ms = Int64(CMTimeGetSeconds(time) * 1000)
-            self.currentPositionMs = ms
-            if outPointMs > 0 && ms >= outPointMs && isPlaying {
-                seek(to: inPointMs)
-            }
-        }
-    }
-
-    private func cleanupPlayer() {
-        if let token = timeObserverToken {
-            player.removeTimeObserver(token)
-            timeObserverToken = nil
-        }
-        player.pause()
-    }
-
-    private func togglePlayPause() {
-        if isPlaying {
-            player.pause()
-            isPlaying = false
-        } else {
-            player.play()
-            isPlaying = true
-        }
-    }
-
-    private func toggleMute() {
-        isMuted.toggle()
-        player.isMuted = isMuted
-    }
-
-    private func seek(to ms: Int64) {
-        currentPositionMs = ms
-        let cmTime = CMTime(value: CMTimeValue(ms), timescale: 1000)
-        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     private func exportTrimmedVideo() {

@@ -21,22 +21,25 @@ jobs:
       - name: Build iOS App Bundle (Unsigned)
         run: |
           cd ios
-          xcodebuild clean build \
+          xcodebuild build \
             -project CFXFrameStudio.xcodeproj \
             -scheme CFXFrameStudio \
             -configuration Release \
+            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_ENTITLEMENTS="" \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
       - name: Package .IPA for Sideloading
         run: |
-          mkdir -p ios/Payload
-          cp -r ios/build/Build/Products/Release-iphoneos/CFXFrameStudio.app ios/Payload/
           cd ios
+          APP_PATH=$(find build -name "CFXFrameStudio.app" -type d | head -n 1)
+          echo "Found app at: $APP_PATH"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
           zip -r CFXFrameStudio.ipa Payload
           ls -lh CFXFrameStudio.ipa
 

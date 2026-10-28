@@ -17,6 +17,7 @@
 		E20000012900000100000008 /* FrameExporterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000008 /* FrameExporterView.swift */; };
 		E20000012900000100000009 /* TimecodeEntryModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000009 /* TimecodeEntryModal.swift */; };
 		E2000001290000010000000A /* VideoPlayerContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000000A /* VideoPlayerContainer.swift */; };
+		E2000001290000010000000B /* PlayerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000000D /* PlayerModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 		E1000001290000010000000A /* VideoPlayerContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerContainer.swift; sourceTree = "<group>"; };
 		E1000001290000010000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E1000001290000010000000C /* CFXFrameStudio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CFXFrameStudio.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E1000001290000010000000D /* PlayerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -79,6 +81,7 @@
 			children = (
 				E10000012900000100000004 /* VideoEngine.swift */,
 				E10000012900000100000005 /* VideoTrimEngine.swift */,
+				E1000001290000010000000D /* PlayerModel.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -189,6 +192,7 @@
 				E20000012900000100000008 /* FrameExporterView.swift in Sources */,
 				E20000012900000100000009 /* TimecodeEntryModal.swift in Sources */,
 				E2000001290000010000000A /* VideoPlayerContainer.swift in Sources */,
+				E2000001290000010000000B /* PlayerModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -308,9 +312,10 @@
 		E90000012900000100000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGNING_ALLOWED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
@@ -339,9 +344,10 @@
 		E90000012900000100000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGNING_ALLOWED = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;

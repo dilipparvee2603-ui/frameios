@@ -5,14 +5,11 @@ import PhotosUI
 struct FrameExporterView: View {
     @Environment(\.dismiss) private var dismiss
 
+    @StateObject private var playerModel = PlayerModel()
+
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var videoUrl: URL? = nil
     @State private var videoInfo: VideoInfo? = nil
-
-    @State private var player: AVPlayer = AVPlayer()
-    @State private var isPlaying: Bool = false
-    @State private var isMuted: Bool = false
-    @State private var currentPositionMs: Int64 = 0
 
     @State private var previewImage: UIImage? = nil
     @State private var selectedFormat: FrameFormat = .png
@@ -21,8 +18,6 @@ struct FrameExporterView: View {
     @State private var showTimecodeModal: Bool = false
     @State private var alertMessage: String? = nil
     @State private var showAlert: Bool = false
-
-    @State private var timeObserverToken: Any? = nil
 
     var body: some View {
         ZStack {
@@ -33,7 +28,7 @@ struct FrameExporterView: View {
                     // Header Bar
                     HStack {
                         Button(action: {
-                            cleanupPlayer()
+                            playerModel.cleanup()
                             dismiss()
                         }) {
                             Image(systemName: "chevron.left")
@@ -88,7 +83,7 @@ struct FrameExporterView: View {
                     } else {
                         // Video Player Card with Exact Frame Overlay
                         ZStack(alignment: .topLeading) {
-                            VideoPlayerView(player: player)
+                            VideoPlayerView(player: playerModel.player)
                                 .aspectRatio(16 / 9, contentMode: .fit)
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                 .overlay(
@@ -97,7 +92,7 @@ struct FrameExporterView: View {
                                 )
 
                             // Exact Uncompressed Frame Overlay when paused
-                            if !isPlaying, let img = previewImage {
+                            if !playerModel.isPlaying, let img = previewImage {
                                 Image(uiImage: img)
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
@@ -105,10 +100,10 @@ struct FrameExporterView: View {
                             }
 
                             // Floating Mute Button (Top-Left)
-                            Button(action: toggleMute) {
-                                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            Button(action: { playerModel.toggleMute() }) {
+                                Image(systemName: playerModel.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                                     .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(isMuted ? Color(hex: "FF5252") : .white)
+                                    .foregroundColor(playerModel.isMuted ? Color(hex: "FF5252") : .white)
                                     .frame(width: 34, height: 34)
                                     .background(Color.black.opacity(0.75))
                                     .clipShape(Circle())
@@ -145,7 +140,7 @@ struct FrameExporterView: View {
                                                 Image(systemName: "clock")
                                                     .font(.system(size: 11))
                                                     .foregroundColor(.skyAccent)
-                                                Text(formatMsToTimecode(currentPositionMs))
+                                                Text(formatMsToTimecode(playerModel.currentPositionMs))
                                                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                                                     .foregroundColor(.textPrimary)
                                             }
@@ -157,7 +152,7 @@ struct FrameExporterView: View {
 
                                         Spacer()
 
-                                        let currentFrame = Int64((Double(currentPositionMs) / 1000.0) * info.fps)
+                                        let currentFrame = Int64((Double(playerModel.currentPositionMs) / 1000.0) * info.fps)
                                         Text("Frame \(currentFrame) / \(info.totalFrames)")
                                             .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                             .foregroundColor(.textMuted)
@@ -167,7 +162,7 @@ struct FrameExporterView: View {
                                     GeometryReader { geo in
                                         let width = geo.size.width
                                         let duration = max(1, Double(info.durationMs))
-                                        let playheadFraction = CGFloat(Double(currentPositionMs) / duration)
+                                        let playheadFraction = CGFloat(Double(playerModel.currentPositionMs) / duration)
 
                                         ZStack(alignment: .leading) {
                                             RoundedRectangle(cornerRadius: 3)
@@ -206,7 +201,7 @@ struct FrameExporterView: View {
                                                 Circle()
                                                     .fill(LinearGradient.brandGradient)
                                                     .frame(width: 46, height: 46)
-                                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                                Image(systemName: playerModel.isPlaying ? "pause.fill" : "play.fill")
                                                     .font(.system(size: 18, weight: .bold))
                                                     .foregroundColor(.white)
                                             }
@@ -215,10 +210,10 @@ struct FrameExporterView: View {
                                         stepButton("+1f") { stepFrames(1) }
                                         stepButton("+10f") { stepFrames(10) }
 
-                                        Button(action: toggleMute) {
-                                            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                        Button(action: { playerModel.toggleMute() }) {
+                                            Image(systemName: playerModel.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                                                 .font(.system(size: 16))
-                                                .foregroundColor(isMuted ? Color(hex: "FF5252") : .textMuted)
+                                                .foregroundColor(playerModel.isMuted ? Color(hex: "FF5252") : .textMuted)
                                                 .frame(width: 36, height: 36)
                                                 .background(Color.elevatedSurface)
                                                 .clipShape(Circle())
@@ -275,7 +270,7 @@ struct FrameExporterView: View {
             if showTimecodeModal, let info = videoInfo {
                 TimecodeEntryModal(
                     target: .playhead,
-                    initialMs: currentPositionMs,
+                    initialMs: playerModel.currentPositionMs,
                     durationMs: info.durationMs,
                     onApply: { newMs in
                         seek(to: newMs)
@@ -329,8 +324,7 @@ struct FrameExporterView: View {
                 await MainActor.run {
                     self.videoUrl = url
                     self.videoInfo = info
-                    self.currentPositionMs = 0
-                    setupPlayer(with: url)
+                    self.playerModel.setup(with: url)
                 }
             }
         } catch {
@@ -341,67 +335,38 @@ struct FrameExporterView: View {
         }
     }
 
-    private func setupPlayer(with url: URL) {
-        cleanupPlayer()
-        let playerItem = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: playerItem)
-        player.isMuted = isMuted
-
-        let interval = CMTime(value: 1, timescale: 30)
-        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [self] time in
-            let ms = Int64(CMTimeGetSeconds(time) * 1000)
-            self.currentPositionMs = ms
-        }
-    }
-
-    private func cleanupPlayer() {
-        if let token = timeObserverToken {
-            player.removeTimeObserver(token)
-            timeObserverToken = nil
-        }
-        player.pause()
-    }
-
     private func togglePlayPause() {
-        if isPlaying {
-            player.pause()
-            isPlaying = false
+        if playerModel.isPlaying {
+            playerModel.togglePlayPause()
             updateExactFramePreview()
         } else {
             previewImage = nil
-            player.play()
-            isPlaying = true
+            playerModel.togglePlayPause()
         }
     }
 
-    private func toggleMute() {
-        isMuted.toggle()
-        player.isMuted = isMuted
-    }
-
     private func seek(to ms: Int64) {
-        currentPositionMs = ms
-        let cmTime = CMTime(value: CMTimeValue(ms), timescale: 1000)
-        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        if !isPlaying {
-            updateExactFramePreview()
+        playerModel.seek(to: ms) {
+            if !self.playerModel.isPlaying {
+                self.updateExactFramePreview()
+            }
         }
     }
 
     private func stepFrames(_ delta: Int64) {
         guard let info = videoInfo else { return }
-        if isPlaying {
-            player.pause()
-            isPlaying = false
+        if playerModel.isPlaying {
+            playerModel.player.pause()
+            playerModel.isPlaying = false
         }
         let frameDurationMs = max(1.0, 1000.0 / info.fps)
-        let targetMs = max(0, min(info.durationMs, currentPositionMs + Int64(Double(delta) * frameDurationMs)))
+        let targetMs = max(0, min(info.durationMs, playerModel.currentPositionMs + Int64(Double(delta) * frameDurationMs)))
         seek(to: targetMs)
     }
 
     private func updateExactFramePreview() {
         guard let url = videoUrl else { return }
-        let ms = currentPositionMs
+        let ms = playerModel.currentPositionMs
         Task {
             if let frame = try? await VideoEngine.shared.extractFrame(from: url, at: ms) {
                 await MainActor.run {
@@ -417,7 +382,7 @@ struct FrameExporterView: View {
 
         Task {
             do {
-                let frame = try await VideoEngine.shared.extractFrame(from: url, at: currentPositionMs)
+                let frame = try await VideoEngine.shared.extractFrame(from: url, at: playerModel.currentPositionMs)
                 let saved = try await VideoEngine.shared.saveFrameToPhotos(image: frame, format: selectedFormat)
                 await MainActor.run {
                     self.isExporting = false

@@ -3,7 +3,7 @@ import AVFoundation
 import Photos
 
 struct TrimResult {
-    let success: BooleanLiteralType
+    let success: Bool
     let outputUrl: URL?
     let errorMessage: String?
 }
