@@ -26,6 +26,8 @@
 		E20000012900000100000010 /* DirectDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000012 /* DirectDownloadEngine.swift */; };
 		E20000012900000100000011 /* DirectDownloaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000013 /* DirectDownloaderView.swift */; };
 		E20000012900000100000012 /* YouTubeDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000014 /* YouTubeDownloadEngine.swift */; };
+		E20000012900000100000013 /* MKVRemuxEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000015 /* MKVRemuxEngine.swift */; };
+		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +52,7 @@
 		E10000012900000100000012 /* DirectDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectDownloadEngine.swift; sourceTree = "<group>"; };
 		E10000012900000100000013 /* DirectDownloaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectDownloaderView.swift; sourceTree = "<group>"; };
 		E10000012900000100000014 /* YouTubeDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeDownloadEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000015 /* MKVRemuxEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MKVRemuxEngine.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,6 +60,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E20000012900000100000050 /* FFmpeg-Kit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -103,6 +107,7 @@
 				E10000012900000100000010 /* ImageCropEngine.swift */,
 				E10000012900000100000012 /* DirectDownloadEngine.swift */,
 				E10000012900000100000014 /* YouTubeDownloadEngine.swift */,
+				E10000012900000100000015 /* MKVRemuxEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -154,6 +159,9 @@
 			dependencies = (
 			);
 			name = CFXFrameStudio;
+			packageProductDependencies = (
+				EA0000012900000100000002 /* FFmpeg-Kit */,
+			);
 			productName = CFXFrameStudio;
 			productReference = E1000001290000010000000C /* CFXFrameStudio.app */;
 			productType = "com.apple.product-type.application";
@@ -182,6 +190,9 @@
 				Base,
 			);
 			mainGroup = E40000012900000100000001;
+			packageReferences = (
+				EA0000012900000100000001 /* XCRemoteSwiftPackageReference "ffmpeg-kit-spm" */,
+			);
 			productRefGroup = E40000012900000100000007 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -225,6 +236,7 @@
 				E20000012900000100000010 /* DirectDownloadEngine.swift in Sources */,
 				E20000012900000100000011 /* DirectDownloaderView.swift in Sources */,
 				E20000012900000100000012 /* YouTubeDownloadEngine.swift in Sources */,
+				E20000012900000100000013 /* MKVRemuxEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -429,6 +441,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		EA0000012900000100000001 /* XCRemoteSwiftPackageReference "ffmpeg-kit-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tylerjonesio/ffmpeg-kit-spm";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		EA0000012900000100000002 /* FFmpeg-Kit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EA0000012900000100000001 /* XCRemoteSwiftPackageReference "ffmpeg-kit-spm" */;
+			productName = "FFmpeg-Kit";
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E80000012900000100000001 /* Project object */;
 }

@@ -18,6 +18,7 @@ struct FrameExporterView: View {
     @State private var exportedFileUrl: URL? = nil
     @State private var showShareSheet: Bool = false
 
+    @State private var isRemuxing: Bool = false
     @State private var showTimecodeModal: Bool = false
     @State private var alertMessage: String? = nil
     @State private var showAlert: Bool = false
@@ -349,6 +350,36 @@ struct FrameExporterView: View {
                     onDismiss: { showTimecodeModal = false }
                 )
             }
+
+            // Remuxing Matroska Movie Modal
+            if isRemuxing {
+                ZStack {
+                    Color.black.opacity(0.85)
+                        .ignoresSafeArea()
+
+                    GlassCard(cornerRadius: 20, padding: 24) {
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .skyAccent))
+                                .scaleEffect(1.6)
+
+                            VStack(spacing: 6) {
+                                Text("Remuxing Matroska Movie")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.textPrimary)
+
+                                Text("Losslessly stream-copying video to Apple MP4 format. No quality loss.")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.textMuted)
+                                    .multilineTextAlignment(.center)
+                            }
+                        }
+                        .frame(maxWidth: 280)
+                    }
+                }
+                .transition(.opacity)
+                .zIndex(99)
+            }
         }
         .navigationBarBackButtonHidden(true)
         .onChange(of: selectedItem) { newItem in
@@ -360,7 +391,16 @@ struct FrameExporterView: View {
         }
         .fileImporter(
             isPresented: $showFilePicker,
-            allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie, UTType(filenameExtension: "mkv") ?? .movie],
+            allowedContentTypes: [
+                .movie,
+                .video,
+                .quickTimeMovie,
+                .mpeg4Movie,
+                UTType("org.matroska.mkv") ?? .movie,
+                UTType("org.webmproject.webm") ?? .movie,
+                UTType(filenameExtension: "mkv") ?? .movie,
+                UTType(filenameExtension: "webm") ?? .movie
+            ],
             allowsMultipleSelection: false
         ) { result in
             switch result {
@@ -427,13 +467,6 @@ struct FrameExporterView: View {
     }
 
     private func loadFromFiles(url: URL) {
-        let ext = url.pathExtension.lowercased()
-        if ext == "mkv" || ext == "webm" {
-            alertMessage = "Matroska (.MKV) is a container format not natively supported by Apple iOS (AVFoundation). While VLC bundles private software decoders to play it, native iOS frame export and editing tools require MP4 or MOV containers. Please convert or remux the movie to MP4."
-            showAlert = true
-            return
-        }
-
         guard url.startAccessingSecurityScopedResource() else {
             alertMessage = "Permission denied to read file"
             showAlert = true
@@ -449,11 +482,32 @@ struct FrameExporterView: View {
         do {
             try FileManager.default.copyItem(at: url, to: destUrl)
             Task {
-                let info = try await VideoEngine.shared.extractVideoInfo(from: destUrl)
+                var workingUrl = destUrl
+
+                if MKVRemuxEngine.shared.isMatroska(url: destUrl) {
+                    await MainActor.run {
+                        self.isRemuxing = true
+                    }
+                    do {
+                        workingUrl = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: destUrl)
+                    } catch {
+                        await MainActor.run {
+                            self.isRemuxing = false
+                            self.alertMessage = "Failed to remux Matroska movie: \(error.localizedDescription)"
+                            self.showAlert = true
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        self.isRemuxing = false
+                    }
+                }
+
+                let info = try await VideoEngine.shared.extractVideoInfo(from: workingUrl)
                 await MainActor.run {
-                    self.videoUrl = destUrl
+                    self.videoUrl = workingUrl
                     self.videoInfo = info
-                    self.playerModel.setup(with: destUrl)
+                    self.playerModel.setup(with: workingUrl)
                 }
             }
         } catch {

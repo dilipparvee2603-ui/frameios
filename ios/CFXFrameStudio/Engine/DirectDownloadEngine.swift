@@ -702,7 +702,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         )
     }
 
-    private func saveToPhotosLibrary(url: URL, inspection: MediaInspection) async -> Bool {
+    func saveVideoToPhotos(url: URL) async -> Bool {
         let status = await requestPhotoAuthorization()
         guard status == .authorized || status == .limited else {
             return false
@@ -711,11 +711,28 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         do {
             try await PHPhotoLibrary.shared().performChanges {
                 let request = PHAssetCreationRequest.forAsset()
-                if inspection.isVideo {
-                    request.addResource(with: .video, fileURL: url, options: nil)
-                } else {
-                    request.addResource(with: .photo, fileURL: url, options: nil)
-                }
+                request.addResource(with: .video, fileURL: url, options: nil)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func saveToPhotosLibrary(url: URL, inspection: MediaInspection) async -> Bool {
+        if inspection.isVideo {
+            return await saveVideoToPhotos(url: url)
+        }
+
+        let status = await requestPhotoAuthorization()
+        guard status == .authorized || status == .limited else {
+            return false
+        }
+
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                request.addResource(with: .photo, fileURL: url, options: nil)
             }
             return true
         } catch {

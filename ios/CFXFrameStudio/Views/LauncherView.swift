@@ -32,7 +32,7 @@ struct LauncherView: View {
                             NavigationLink(destination: VideoTrimmerView()) {
                                 toolCard(
                                     title: "Lossless Video Trimmer",
-                                    subtitle: "Instant stream-copy cut with optional audio muting",
+                                    subtitle: "Instant stream-copy cut (MP4, MOV & Matroska MKV)",
                                     icon: "scissors",
                                     accentColor: .brandAccent,
                                     gradient: LinearGradient.brandGradient
@@ -51,7 +51,7 @@ struct LauncherView: View {
                             NavigationLink(destination: VideoConverterView()) {
                                 toolCard(
                                     title: "Video Format Converter",
-                                    subtitle: "Convert MP4 ↔ MOV at 100% original resolution",
+                                    subtitle: "Convert MP4 ↔ MOV & Matroska MKV at 100% resolution",
                                     icon: "arrow.triangle.2.circlepath",
                                     accentColor: .emeraldAccent
                                 )
@@ -82,7 +82,7 @@ struct LauncherView: View {
                     Spacer()
 
                     // Minimal Footer
-                    Text("Powered by Apple AVFoundation & Metal")
+                    Text("Powered by Apple AVFoundation, Metal & FFmpeg Engine")
                         .font(.system(size: 11))
                         .foregroundColor(.textTertiary)
                         .padding(.bottom, 24)

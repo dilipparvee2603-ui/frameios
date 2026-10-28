@@ -11,6 +11,7 @@ struct DirectDownloaderView: View {
     @State private var recentDownloads: [URL] = []
     @State private var showSettingsModal: Bool = false
     @State private var selectedQualityId: String = ""
+    @State private var isRemuxingDownloadedFile: Bool = false
 
     private var isYouTubeLink: Bool {
         YouTubeDownloadEngine.isYouTubeUrl(inputUrl)
@@ -503,6 +504,31 @@ struct DirectDownloaderView: View {
                 Divider().background(Color.borderHairline)
 
                 VStack(spacing: 8) {
+                    if MKVRemuxEngine.shared.isMatroska(url: fileUrl) {
+                        Button(action: { remuxDownloadedMKV(url: fileUrl) }) {
+                            HStack(spacing: 8) {
+                                if isRemuxingDownloadedFile {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(0.8)
+                                    Text("Remuxing to MP4...")
+                                        .font(.system(size: 13, weight: .bold))
+                                } else {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 13, weight: .bold))
+                                    Text("⚡ Remux MKV to MP4 & Save to Photos")
+                                        .font(.system(size: 13, weight: .bold))
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                            .background(LinearGradient.brandGradient)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .disabled(isRemuxingDownloadedFile)
+                    }
+
                     Button(action: { showShareSheet = true }) {
                         HStack(spacing: 8) {
                             Image(systemName: "square.and.arrow.up")
@@ -703,6 +729,27 @@ struct DirectDownloaderView: View {
             return String(format: "%.1f MB", mb)
         } else {
             return String(format: "%.0f KB", Double(bytes) / 1024.0)
+        }
+    }
+
+    private func remuxDownloadedMKV(url: URL) {
+        guard !isRemuxingDownloadedFile else { return }
+        isRemuxingDownloadedFile = true
+        Task {
+            do {
+                let mp4Url = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url)
+                let saved = await engine.saveVideoToPhotos(url: mp4Url)
+                await MainActor.run {
+                    self.isRemuxingDownloadedFile = false
+                    if saved {
+                        self.engine.savedToPhotos = true
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.isRemuxingDownloadedFile = false
+                }
+            }
         }
     }
 

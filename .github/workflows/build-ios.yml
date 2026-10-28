@@ -29,6 +29,11 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" ios/CFXFrameStudio/Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" ios/CFXFrameStudio/Info.plist
 
+      - name: Resolve Swift Package Dependencies
+        run: |
+          cd ios
+          xcodebuild -resolvePackageDependencies -project CFXFrameStudio.xcodeproj
+
       - name: Build iOS App Bundle (Unsigned)
         run: |
           cd ios
@@ -52,7 +57,7 @@ jobs:
           cp CFXFrameStudio/AppIcon*.png "$APP_PATH/" 2>/dev/null || true
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
-          zip -r CFXFrameStudio.ipa Payload
+          zip -r -y CFXFrameStudio.ipa Payload
           ls -lh CFXFrameStudio.ipa
 
       - name: Upload .IPA Artifact
@@ -84,9 +89,10 @@ jobs:
             3. Choose **AltStore**, **Sideloadly**, or **TrollStore** to install.
             
             #### 🛠️ Studio Tools Included:
-            - ✂️ **Lossless Video Trimmer** (Instant stream-copy cut & audio toggle)
+            - 🎞️ **Matroska (.MKV / .WebM) Import & Lossless Remux Engine** (Zero re-encoding stream copy powered by FFmpeg)
+            - ✂️ **Lossless Video Trimmer** (Instant stream-copy cut & audio toggle for MP4, MOV & MKV)
             - 🎞️ **Precise Frame Exporter** (1f & 10f hardware stepping to PNG/JPG)
-            - 🔄 **Video Format Converter** (MP4 ↔ MOV with ProRes & HEVC)
+            - 🔄 **Video Format Converter** (MP4 ↔ MOV & MKV with ProRes & HEVC)
             - 📐 **Lossless Image Cropper** (Adjustable frame, 4-corner handles, pinch zoom & social aspect ratios)
             - ⬇️ **Direct & YouTube Downloader** (Fetch Cloudflare, S3, CDN & YouTube up to 4K/8K with smart Camera Roll & Files routing)
             - 📁 **Files App Integration** (`On My iPhone > CFX Studio`)
