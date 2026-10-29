@@ -50,6 +50,15 @@ final class ProjectStorageManager {
             try fileManager.copyItem(at: sourceUrl, to: destinationUrl)
             return destinationUrl
         } catch {
+            print("ProjectStorageManager: copyItem failed (\(error.localizedDescription)), attempting fallback")
+            if let data = try? Data(contentsOf: sourceUrl) {
+                do {
+                    try data.write(to: destinationUrl)
+                    return destinationUrl
+                } catch {
+                    print("ProjectStorageManager: Data write fallback failed: \(error.localizedDescription)")
+                }
+            }
             return sourceUrl
         }
     }

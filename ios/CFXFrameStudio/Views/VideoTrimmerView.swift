@@ -937,7 +937,9 @@ struct MovieTransferable: Transferable {
         FileRepresentation(contentType: .movie) { movie in
             SentTransferredFile(movie.url)
         } importing: { received in
-            let copyUrl = FileManager.default.temporaryDirectory.appendingPathComponent(received.file.lastPathComponent)
+            let ext = received.file.pathExtension.isEmpty ? "mp4" : received.file.pathExtension
+            let uniqueName = "picker_\(UUID().uuidString.prefix(8)).\(ext)"
+            let copyUrl = FileManager.default.temporaryDirectory.appendingPathComponent(uniqueName)
             try? FileManager.default.removeItem(at: copyUrl)
             try FileManager.default.copyItem(at: received.file, to: copyUrl)
             return Self(url: copyUrl)

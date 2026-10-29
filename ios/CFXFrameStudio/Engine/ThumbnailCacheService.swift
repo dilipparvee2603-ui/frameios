@@ -40,9 +40,10 @@ final class ThumbnailCacheService {
             let asset = AVURLAsset(url: clip.sourceUrl)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 160, height: 160)
-            generator.requestedTimeToleranceBefore = .zero
-            generator.requestedTimeToleranceAfter = .zero
+            generator.maximumSize = CGSize(width: 200, height: 200)
+            // Use 250ms tolerance for fast, reliable keyframe extraction across HEVC, 4K, and iPhone camera media
+            generator.requestedTimeToleranceBefore = CMTime(value: 250, timescale: 1000)
+            generator.requestedTimeToleranceAfter = CMTime(value: 250, timescale: 1000)
 
             var times: [NSValue] = []
             for i in 0..<count {
@@ -62,6 +63,9 @@ final class ThumbnailCacheService {
                 } else if let cgImage = try? generator.copyCGImage(at: cmTime, actualTime: nil) {
                     let image = UIImage(cgImage: cgImage)
                     self.cache.setObject(image, forKey: self.cacheKey(clipId: clip.id, timestampMs: ms))
+                    thumbnails.append(image)
+                } else if let fallback = try? generator.copyCGImage(at: CMTime(value: clip.sourceInPointMs, timescale: 1000), actualTime: nil) {
+                    let image = UIImage(cgImage: fallback)
                     thumbnails.append(image)
                 }
             }

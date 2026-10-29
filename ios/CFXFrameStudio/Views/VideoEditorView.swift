@@ -42,6 +42,8 @@ struct VideoEditorView: View {
     @State private var selectedPhotosItem: PhotosPickerItem? = nil
     @State private var showPhotosPicker: Bool = false
     @State private var showFilePicker: Bool = false
+    @State private var isImportingMedia: Bool = false
+    @State private var importStatusText: String = ""
 
     // Export State
     @State private var isExporting: Bool = false
@@ -93,6 +95,24 @@ struct VideoEditorView: View {
 
                 // 5. Contextual Action Toolbar & Inspector Dock
                 bottomEditingDock
+            }
+
+            // Media Ingestion Spinner Overlay
+            if isImportingMedia {
+                ZStack {
+                    Color.black.opacity(0.7).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .brandAccent))
+                            .scaleEffect(1.3)
+                        Text(importStatusText)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    .padding(24)
+                    .background(Color.surfaceCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
             }
 
             // Export Overlay Modal
@@ -265,14 +285,20 @@ struct VideoEditorView: View {
                     .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue)))
                     .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: 14) {
                     Image(systemName: "film.stack.fill")
-                        .font(.system(size: 34))
+                        .font(.system(size: 38))
                         .foregroundColor(.brandAccent)
 
-                    Text("No clips in timeline")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.textPrimary)
+                    VStack(spacing: 4) {
+                        Text("No Video Added Yet")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.textPrimary)
+
+                        Text("Import a video to view real timeline frames & audio")
+                            .font(.system(size: 11))
+                            .foregroundColor(.textMuted)
+                    }
 
                     HStack(spacing: 12) {
                         Button(action: { showPhotosPicker = true }) {
@@ -283,9 +309,9 @@ struct VideoEditorView: View {
                                     .font(.system(size: 12, weight: .bold))
                             }
                             .foregroundColor(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Color.brandAccent)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(LinearGradient.brandGradient)
                             .clipShape(Capsule())
                         }
 
@@ -297,8 +323,8 @@ struct VideoEditorView: View {
                                     .font(.system(size: 12, weight: .bold))
                             }
                             .foregroundColor(.textPrimary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
                             .background(Color.elevatedSurface)
                             .clipShape(Capsule())
                         }
@@ -567,13 +593,13 @@ struct VideoEditorView: View {
     @ViewBuilder
     private func clipTrackItem(clip: EditorClip, index: Int, isSelected: Bool, width: CGFloat) -> some View {
         ZStack(alignment: .leading) {
-            // Background Filmstrip Thumbnail Strip
+            // Background Filmstrip Thumbnail Strip (real video frames)
             ClipThumbnailStripView(clip: clip, width: width)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
             // Dark gradient overlay for text readability
             LinearGradient(
-                colors: [Color.black.opacity(0.65), Color.black.opacity(0.2), Color.black.opacity(0.5)],
+                colors: [Color.black.opacity(0.65), Color.black.opacity(0.15), Color.black.opacity(0.65)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -581,7 +607,33 @@ struct VideoEditorView: View {
 
             // Border (highlighted when selected)
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.brandAccent : Color.borderHairline, lineWidth: isSelected ? 2 : 1)
+                .stroke(isSelected ? Color.brandAccent : Color.borderHairline, lineWidth: isSelected ? 2.5 : 1)
+
+            // Visual Trim Handles when selected
+            if isSelected {
+                HStack {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.brandAccent)
+                        .frame(width: 8, height: 42)
+                        .overlay(
+                            Image(systemName: "chevron.compact.left")
+                                .font(.system(size: 8, weight: .heavy))
+                                .foregroundColor(.white)
+                        )
+
+                    Spacer()
+
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.brandAccent)
+                        .frame(width: 8, height: 42)
+                        .overlay(
+                            Image(systemName: "chevron.compact.right")
+                                .font(.system(size: 8, weight: .heavy))
+                                .foregroundColor(.white)
+                        )
+                }
+                .padding(.horizontal, 2)
+            }
 
             // Clip metadata overlay
             VStack(alignment: .leading, spacing: 2) {
@@ -590,6 +642,7 @@ struct VideoEditorView: View {
                         .font(.system(size: 9.5, weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
+                        .shadow(color: .black, radius: 2)
 
                     Spacer(minLength: 0)
 
@@ -600,7 +653,7 @@ struct VideoEditorView: View {
                             .foregroundColor(.pinkAccent)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
-                            .background(Color.black.opacity(0.7))
+                            .background(Color.black.opacity(0.8))
                             .clipShape(RoundedRectangle(cornerRadius: 3))
                     }
                 }
@@ -610,7 +663,8 @@ struct VideoEditorView: View {
                 HStack {
                     Text(formatMs(clip.timelineDurationMs))
                         .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundColor(.white.opacity(0.95))
+                        .shadow(color: .black, radius: 2)
 
                     Spacer()
 
@@ -1114,16 +1168,76 @@ struct VideoEditorView: View {
     }
 
     private func handlePhotosPickerImport(item: PhotosPickerItem) {
+        isImportingMedia = true
+        importStatusText = "Reading video from Camera Roll..."
+
         Task {
             do {
                 if let movie = try await item.loadTransferable(type: MovieTransferable.self) {
-                    let ingestedUrl = ProjectStorageManager.shared.importMedia(from: movie.url, to: project.id)
-                    let info = try? await VideoEngine.shared.extractVideoInfo(from: ingestedUrl)
+                    await MainActor.run {
+                        self.importStatusText = "Ingesting video into timeline..."
+                    }
 
-                    let durMs = info?.durationMs ?? 5000
+                    var rawUrl = movie.url
+                    if await MKVRemuxEngine.shared.requiresRemuxing(url: rawUrl) {
+                        await MainActor.run {
+                            self.importStatusText = "Optimizing container for playback..."
+                        }
+                        if let remuxed = try? await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: rawUrl, onProgress: { _, _ in }) {
+                            rawUrl = remuxed
+                        }
+                    }
+
+                    let ingestedUrl = ProjectStorageManager.shared.importMedia(from: rawUrl, to: project.id)
+
+                    // Extract exact real video duration and track properties
+                    let asset = AVURLAsset(url: ingestedUrl, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+                    var durMs: Int64 = 0
+
+                    if let dur = try? await asset.load(.duration) {
+                        let sec = CMTimeGetSeconds(dur)
+                        if sec.isFinite && sec > 0 {
+                            durMs = Int64(round(sec * 1000.0))
+                        }
+                    }
+
+                    if durMs <= 0 {
+                        let sec = CMTimeGetSeconds(asset.duration)
+                        if sec.isFinite && sec > 0 {
+                            durMs = Int64(round(sec * 1000.0))
+                        }
+                    }
+
+                    if durMs <= 0 {
+                        let info = try? await VideoEngine.shared.extractVideoInfo(from: ingestedUrl)
+                        durMs = info?.durationMs ?? 3000
+                    }
+
+                    // Auto-detect aspect ratio for first clip if desired
+                    if project.clips.isEmpty {
+                        if let track = try? await asset.loadTracks(withMediaType: .video).first {
+                            if let naturalSize = try? await track.load(.naturalSize),
+                               let transform = try? await track.load(.preferredTransform) {
+                                let isPortrait = abs(transform.b) == 1.0 && abs(transform.c) == 1.0
+                                let w = isPortrait ? naturalSize.height : naturalSize.width
+                                let h = isPortrait ? naturalSize.width : naturalSize.height
+                                if w > 0 && h > 0 {
+                                    if h > w * 1.2 {
+                                        project.canvasAspectRatio = .ratio9x16
+                                    } else if w > h * 1.2 {
+                                        project.canvasAspectRatio = .ratio16x9
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let rawName = movie.url.lastPathComponent.replacingOccurrences(of: "picker_", with: "")
+                    let clipName = rawName.isEmpty ? "Video Clip" : rawName
+
                     let newClip = EditorClip(
                         sourceUrl: ingestedUrl,
-                        filename: movie.url.lastPathComponent,
+                        filename: clipName,
                         sourceDurationMs: durMs,
                         sourceInPointMs: 0,
                         sourceOutPointMs: durMs
@@ -1134,18 +1248,22 @@ struct VideoEditorView: View {
                         self.recordUndo()
                         self.project.clips.append(newClip)
                         self.selectedClipIndex = self.project.clips.count - 1
+                        self.playheadMs = 0
                         ProjectStorageManager.shared.saveProject(self.project)
                         self.syncPlayheadToPlayer()
+                        self.isImportingMedia = false
                     }
                 } else {
                     await MainActor.run {
                         self.selectedPhotosItem = nil
+                        self.isImportingMedia = false
                     }
                 }
             } catch {
                 print("PhotosPicker load error: \(error)")
                 await MainActor.run {
                     self.selectedPhotosItem = nil
+                    self.isImportingMedia = false
                 }
             }
         }
@@ -1156,13 +1274,36 @@ struct VideoEditorView: View {
             _ = url.startAccessingSecurityScopedResource()
             defer { url.stopAccessingSecurityScopedResource() }
 
+            isImportingMedia = true
+            importStatusText = "Ingesting video from Files..."
+
             let ingestedUrl = ProjectStorageManager.shared.importMedia(from: url, to: project.id)
             Task {
-                let info = try? await VideoEngine.shared.extractVideoInfo(from: ingestedUrl)
-                let durMs = info?.durationMs ?? 5000
+                let asset = AVURLAsset(url: ingestedUrl, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+                var durMs: Int64 = 0
+
+                if let dur = try? await asset.load(.duration) {
+                    let sec = CMTimeGetSeconds(dur)
+                    if sec.isFinite && sec > 0 {
+                        durMs = Int64(round(sec * 1000.0))
+                    }
+                }
+
+                if durMs <= 0 {
+                    let sec = CMTimeGetSeconds(asset.duration)
+                    if sec.isFinite && sec > 0 {
+                        durMs = Int64(round(sec * 1000.0))
+                    }
+                }
+
+                if durMs <= 0 {
+                    let info = try? await VideoEngine.shared.extractVideoInfo(from: ingestedUrl)
+                    durMs = info?.durationMs ?? 3000
+                }
+
                 let newClip = EditorClip(
                     sourceUrl: ingestedUrl,
-                    filename: ingestedUrl.lastPathComponent,
+                    filename: url.lastPathComponent,
                     sourceDurationMs: durMs,
                     sourceInPointMs: 0,
                     sourceOutPointMs: durMs
@@ -1172,8 +1313,10 @@ struct VideoEditorView: View {
                     self.recordUndo()
                     self.project.clips.append(newClip)
                     self.selectedClipIndex = self.project.clips.count - 1
+                    self.playheadMs = 0
                     ProjectStorageManager.shared.saveProject(self.project)
                     self.syncPlayheadToPlayer()
+                    self.isImportingMedia = false
                 }
             }
         }
@@ -1203,7 +1346,21 @@ struct ClipThumbnailStripView: View {
     var body: some View {
         HStack(spacing: 0) {
             if thumbnails.isEmpty {
-                Color.surfaceCard
+                LinearGradient(
+                    colors: [Color.surfaceCard, Color.elevatedSurface],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .overlay(
+                    HStack(spacing: 4) {
+                        Image(systemName: "film")
+                            .font(.system(size: 11))
+                            .foregroundColor(.textTertiary)
+                        Text("Decoding frames...")
+                            .font(.system(size: 9))
+                            .foregroundColor(.textTertiary)
+                    }
+                )
             } else {
                 ForEach(0..<thumbnails.count, id: \.self) { i in
                     Image(uiImage: thumbnails[i])
@@ -1220,12 +1377,15 @@ struct ClipThumbnailStripView: View {
         .onChange(of: clip.id) { _ in loadThumbnails() }
         .onChange(of: clip.sourceInPointMs) { _ in loadThumbnails() }
         .onChange(of: clip.sourceOutPointMs) { _ in loadThumbnails() }
+        .onChange(of: width) { _ in loadThumbnails() }
     }
 
     private func loadThumbnails() {
-        let count = max(2, min(8, Int(width / 35.0)))
+        let count = max(3, min(10, Int(width / 32.0)))
         ThumbnailCacheService.shared.generateThumbnails(for: clip, count: count) { imgs in
-            self.thumbnails = imgs
+            if !imgs.isEmpty {
+                self.thumbnails = imgs
+            }
         }
     }
 }
