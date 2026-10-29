@@ -211,12 +211,23 @@ final class VideoEnhanceEngine {
             FFmpegKitConfig.enableStatisticsCallback(nil)
         }
 
-        let session = FFmpegKit.execute(withArguments: args)
-        let code = session?.getReturnCode()
+        var session = FFmpegKit.execute(withArguments: args)
+        var code = session?.getReturnCode()
 
         if isCancelled || ReturnCode.isCancel(code) {
             try? FileManager.default.removeItem(at: outputUrl)
             return EnhanceResult(success: false, outputUrl: nil, errorMessage: "OPERATION_CANCELLED")
+        }
+
+        // If primary hardware VideoToolbox encoder failed, try software libx264 fallback
+        if !ReturnCode.isSuccess(code) {
+            try? FileManager.default.removeItem(at: outputUrl)
+            var fallbackArgs = args
+            if let idx = fallbackArgs.firstIndex(of: "h264_videotoolbox") {
+                fallbackArgs[idx] = "libx264"
+            }
+            session = FFmpegKit.execute(withArguments: fallbackArgs)
+            code = session?.getReturnCode()
         }
 
         if ReturnCode.isSuccess(code),
@@ -252,24 +263,23 @@ final class VideoEnhanceEngine {
 
         switch profile {
         case .proteusDetail:
-            // 1. Light artifact cleanup
-            filters.append("deblock=filter=weak:block=4")
+            // 1. Deblock and deband
             filters.append("gradfun=radius=12")
             // 2. High-precision unsharp mask
             filters.append("unsharp=lx=5:ly=5:la=1.4:cx=5:cy=5:ca=0.0")
-            // 3. Dynamic range micro-contrast
-            filters.append("eq=contrast=1.06:brightness=0.01:saturation=1.08")
+            // 3. Dynamic range micro-contrast via universal LGPL filters
+            filters.append("colorlevels=rimin=0.01:gimin=0.01:bimin=0.01:rimax=0.99:gimax=0.99:bimax=0.99")
+            filters.append("vibrance=intensity=0.12")
             // 4. Lanczos super-sampling if needed
             if isScalingRequired {
                 filters.append("scale=w=\(targetWidth):h=\(targetHeight):flags=lanczos+accurate_rnd")
             }
 
         case .artemisClean:
-            // 1. Strong deblock to eliminate macroblocks
-            filters.append("deblock=filter=strong:block=4")
+            // 1. Clean compression macroblocks and gradients
             filters.append("gradfun=radius=16")
-            // 2. 3D Temporal Denoise
-            filters.append("hqdn3d=luma_spatial=4.0:chroma_spatial=3.0:luma_tmp=6.0:chroma_tmp=4.5")
+            // 2. Adaptive temporal noise reduction (100% LGPL universal)
+            filters.append("atadenoise=0a=0.08:0b=0.08:1a=0.08:1b=0.08")
             // 3. Clean edge recovery
             filters.append("unsharp=lx=5:ly=5:la=1.1:cx=5:cy=5:ca=0.0")
             // 4. Lanczos scale
@@ -278,20 +288,22 @@ final class VideoEnhanceEngine {
             }
 
         case .gaia4K:
-            // 1. Pre-scaling anti-aliasing & debanding
+            // 1. Pre-scaling debanding
             filters.append("gradfun=radius=8")
             // 2. High-order 36-point Sinc/Lanczos 4K Upscale
             filters.append("scale=w=3840:h=2160:flags=lanczos+accurate_rnd")
             // 3. Post-scaling 4K texture sharpening
             filters.append("unsharp=lx=7:ly=7:la=1.5:cx=7:cy=7:ca=0.0")
-            // 4. Crisp dynamic range polish
-            filters.append("eq=contrast=1.05:saturation=1.06")
+            // 4. Dynamic range polish (universal LGPL)
+            filters.append("colorlevels=rimin=0.01:gimin=0.01:bimin=0.01:rimax=0.99:gimax=0.99:bimax=0.99")
+            filters.append("vibrance=intensity=0.10")
 
         case .themisNight:
-            // 1. Heavy 5-frame temporal averaging
-            filters.append("hqdn3d=luma_spatial=6.0:chroma_spatial=5.0:luma_tmp=9.0:chroma_tmp=7.0")
+            // 1. Heavy temporal averaging for low-light sensor noise
+            filters.append("atadenoise=0a=0.12:0b=0.12:1a=0.12:1b=0.12")
             // 2. Lift shadow details while preserving black point
-            filters.append("eq=contrast=1.08:brightness=0.04:saturation=1.05:gamma=1.12")
+            filters.append("colorlevels=romin=0.02:gomin=0.02:bomin=0.02:rimax=0.98:gimax=0.98:bimax=0.98")
+            filters.append("vibrance=intensity=0.08")
             // 3. Restored edge definition
             filters.append("unsharp=lx=5:ly=5:la=1.2:cx=5:cy=5:ca=0.0")
             // 4. Lanczos scale if needed
@@ -300,20 +312,16 @@ final class VideoEnhanceEngine {
             }
 
         case .custom:
-            // Deblock
+            // Deblock / Deband
             if deblock > 0.05 {
-                let filterType = deblock > 0.6 ? "strong" : "weak"
-                filters.append("deblock=filter=\(filterType):block=4")
-                filters.append("gradfun=radius=\(max(8, Int(deblock * 20.0)))")
+                let radius = max(8, Int(deblock * 20.0))
+                filters.append("gradfun=radius=\(radius)")
             }
 
             // Denoise
             if denoise > 0.05 {
-                let ls = String(format: "%.1f", max(1.0, denoise * 8.0))
-                let cs = String(format: "%.1f", max(1.0, denoise * 6.0))
-                let lt = String(format: "%.1f", max(1.5, denoise * 10.0))
-                let ct = String(format: "%.1f", max(1.5, denoise * 8.0))
-                filters.append("hqdn3d=luma_spatial=\(ls):chroma_spatial=\(cs):luma_tmp=\(lt):chroma_tmp=\(ct)")
+                let th = String(format: "%.2f", max(0.02, denoise * 0.16))
+                filters.append("atadenoise=0a=\(th):0b=\(th):1a=\(th):1b=\(th)")
             }
 
             // Sharpen
@@ -323,9 +331,13 @@ final class VideoEnhanceEngine {
             }
 
             // Contrast & Dynamic Range
-            let effectiveContrast = String(format: "%.2f", 1.0 + (contrast * 0.3))
-            let effectiveSat = String(format: "%.2f", 1.0 + (contrast * 0.2))
-            filters.append("eq=contrast=\(effectiveContrast):saturation=\(effectiveSat)")
+            if contrast > 0.05 {
+                let vib = String(format: "%.2f", contrast * 0.3)
+                let minVal = String(format: "%.3f", contrast * 0.03)
+                let maxVal = String(format: "%.3f", 1.0 - (contrast * 0.03))
+                filters.append("colorlevels=rimin=\(minVal):gimin=\(minVal):bimin=\(minVal):rimax=\(maxVal):gimax=\(maxVal):bimax=\(maxVal)")
+                filters.append("vibrance=intensity=\(vib)")
+            }
 
             // Target scale
             if isScalingRequired {
