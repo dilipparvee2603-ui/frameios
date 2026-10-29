@@ -627,8 +627,32 @@ final class MKVRemuxEngine {
                 )
             }
 
+            func isValidMP4Output(url: URL) -> Bool {
+                guard FileManager.default.fileExists(atPath: url.path),
+                      let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                      (attrs[.size] as? Int64 ?? 0) > 1024 else {
+                    return false
+                }
+                // Verify that video stream does not have corrupted 'none' pixel format
+                if let probe = FFprobeKit.getMediaInformation(url.path),
+                   let streams = probe.getMediaInformation()?.getStreams() {
+                    for case let stream as StreamInformation in streams {
+                        if stream.getType()?.lowercased() == "video" {
+                            let pixFmt = (stream.getProperty("pix_fmt") as? String)?.lowercased() ?? ""
+                            if pixFmt == "none" {
+                                return false
+                            }
+                            return true
+                        }
+                    }
+                }
+                return true
+            }
+
+            let isHEVC = finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1
+
             // Tier 1: Pure Stream Copy (Both video and audio stream copied bit-for-bit, or audio transcoded to AAC if incompatible).
-            // Apply `-tag:v hvc1` for HEVC, `-avoid_negative_ts make_zero`, and `+faststart` for zero-buffer instant start.
+            // Apply `-tag:v hvc1` and `-bsf:v hevc_mp4toannexb` for HEVC, `-avoid_negative_ts make_zero`, and `+faststart` for zero-buffer instant start.
             var tier1Arguments = [
                 "-threads", "0",
                 "-y",
@@ -639,8 +663,8 @@ final class MKVRemuxEngine {
                 "-c:v", "copy"
             ]
 
-            if finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1 || isNonNative {
-                tier1Arguments += ["-tag:v", "hvc1"]
+            if isHEVC {
+                tier1Arguments += ["-tag:v", "hvc1", "-bsf:v", "hevc_mp4toannexb"]
             }
 
             if !finalInfo.colorPrimaries.isEmpty {
@@ -668,10 +692,7 @@ final class MKVRemuxEngine {
             let tier1Session = FFmpegKit.execute(withArguments: tier1Arguments)
             let tier1Code = tier1Session?.getReturnCode()
 
-            if ReturnCode.isSuccess(tier1Code),
-               FileManager.default.fileExists(atPath: outputUrl.path),
-               let attrs = try? FileManager.default.attributesOfItem(atPath: outputUrl.path),
-               (attrs[.size] as? Int64 ?? 0) > 1024 {
+            if ReturnCode.isSuccess(tier1Code), isValidMP4Output(url: outputUrl) {
                 onProgress?(1.0, "Complete")
                 return outputUrl
             }
@@ -698,8 +719,8 @@ final class MKVRemuxEngine {
                 "-c:v", "copy"
             ]
 
-            if finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1 || isNonNative {
-                tier2Arguments += ["-tag:v", "hvc1"]
+            if isHEVC {
+                tier2Arguments += ["-tag:v", "hvc1", "-bsf:v", "hevc_mp4toannexb"]
             }
 
             tier2Arguments += [
@@ -713,10 +734,7 @@ final class MKVRemuxEngine {
             let tier2Session = FFmpegKit.execute(withArguments: tier2Arguments)
             let tier2Code = tier2Session?.getReturnCode()
 
-            if ReturnCode.isSuccess(tier2Code),
-               FileManager.default.fileExists(atPath: outputUrl.path),
-               let attrs = try? FileManager.default.attributesOfItem(atPath: outputUrl.path),
-               (attrs[.size] as? Int64 ?? 0) > 1024 {
+            if ReturnCode.isSuccess(tier2Code), isValidMP4Output(url: outputUrl) {
                 onProgress?(1.0, "Complete")
                 return outputUrl
             } else if ReturnCode.isCancel(tier2Code) {

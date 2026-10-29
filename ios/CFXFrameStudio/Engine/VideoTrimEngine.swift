@@ -205,6 +205,23 @@ final class VideoTrimEngine {
         let startSec = Double(max(0, startMs)) / 1000.0
         let endSec = Double(max(startMs + 100, endMs)) / 1000.0
 
+        let binScan = MKVRemuxEngine.fastBinaryScan(url: srcUrl)
+        var isHEVC = binScan.hasHev1
+        if !isHEVC, let session = FFprobeKit.getMediaInformation(srcUrl.path),
+           let mediaInfo = session.getMediaInformation(),
+           let streams = mediaInfo.getStreams() {
+            for case let stream as StreamInformation in streams {
+                if stream.getType()?.lowercased() == "video" {
+                    let codec = stream.getCodec()?.lowercased() ?? ""
+                    let tag = (stream.getProperty("codec_tag_string") as? String)?.lowercased() ?? ""
+                    if codec.contains("hevc") || codec.contains("h265") || codec.contains("hev") || codec.contains("hvc") || tag.contains("hev") {
+                        isHEVC = true
+                        break
+                    }
+                }
+            }
+        }
+
         var args = [
             "-threads", "0",
             "-y",
@@ -212,9 +229,12 @@ final class VideoTrimEngine {
             "-to", String(format: "%.3f", endSec),
             "-i", srcUrl.path,
             "-map", "0:v:0",
-            "-c:v", "copy",
-            "-tag:v", "hvc1"
+            "-c:v", "copy"
         ]
+
+        if isHEVC {
+            args += ["-tag:v", "hvc1", "-bsf:v", "hevc_mp4toannexb"]
+        }
 
         if includeAudio {
             args += ["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "192k"]

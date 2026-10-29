@@ -84,7 +84,7 @@ class VideoTrimWorker(QThread):
                 "-c:v", "copy"
             ])
             if is_hevc_video(self.video_path) and is_mp4:
-                cmd.extend(["-tag:v", "hvc1"])
+                cmd.extend(["-tag:v", "hvc1", "-bsf:v", "hevc_mp4toannexb"])
 
             if needs_audio_downmix(self.video_path) and is_mp4:
                 # Transcode 5.1/7.1 Dolby/DTS to pristine stereo AAC so iPhone/Apple TV/Windows never freeze

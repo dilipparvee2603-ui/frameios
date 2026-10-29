@@ -8,9 +8,12 @@ final class PlayerModel: ObservableObject {
     @Published var isMuted: Bool = false
     @Published var currentPositionMs: Int64 = 0
     @Published var currentPositionTime: CMTime = .zero
+    @Published var playbackFailed: Bool = false
+    @Published var playbackErrorMessage: String? = nil
 
     private var timeObserverToken: Any? = nil
     private var endObserverToken: Any? = nil
+    private var statusObserverToken: NSKeyValueObservation? = nil
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .rigid)
 
     private func configureAudioSession() {
@@ -46,6 +49,20 @@ final class PlayerModel: ObservableObject {
             self.seek(to: Int64(0))
         }
 
+        statusObserverToken = playerItem.observe(\.status, options: [.new, .initial]) { [weak self] item, _ in
+            DispatchQueue.main.async {
+                if item.status == .failed {
+                    let errMsg = item.error?.localizedDescription ?? "Playback failed"
+                    print("AVPlayerItem status failed: \(errMsg)")
+                    self?.playbackFailed = true
+                    self?.playbackErrorMessage = errMsg
+                } else if item.status == .readyToPlay {
+                    self?.playbackFailed = false
+                    self?.playbackErrorMessage = nil
+                }
+            }
+        }
+
         let interval = CMTime(value: 1, timescale: 60) // 60Hz UI sync
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self else { return }
@@ -66,6 +83,10 @@ final class PlayerModel: ObservableObject {
         if let token = endObserverToken {
             NotificationCenter.default.removeObserver(token)
             endObserverToken = nil
+        }
+        if let token = statusObserverToken {
+            token.invalidate()
+            statusObserverToken = nil
         }
         player.pause()
         player.rate = 0.0
