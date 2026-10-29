@@ -22,7 +22,7 @@ enum SequenceFormat: String, CaseIterable, Identifiable {
 
 // MARK: - Sequence FPS
 enum SequenceFPS: String, CaseIterable, Identifiable {
-    case source = "Native Source FPS"
+    case source = "Auto Native Source FPS"
     case fps60 = "60 FPS (Super Smooth)"
     case fps30 = "30 FPS (Standard)"
     case fps24 = "24 FPS (Cinematic)"
@@ -45,9 +45,9 @@ enum SequenceFPS: String, CaseIterable, Identifiable {
 
 // MARK: - Sequence Destination
 enum SequenceDestination: String, CaseIterable, Identifiable {
-    case zipArchive = "ZIP Archive (Recommended for VFX / PC)"
-    case photosAlbum = "Save to Camera Roll Album"
-    case filesFolder = "Keep as Unzipped Folder in Files"
+    case photosAlbum = "Dedicated Album in Photos App (Recommended)"
+    case zipArchive = "ZIP Archive (For PC / AirDrop)"
+    case filesFolder = "Unzipped Folder in Files App"
 
     var id: String { rawValue }
 }
@@ -58,6 +58,7 @@ struct SequenceExportResult {
     let outputUrl: URL?
     let frameCount: Int
     let totalSizeBytes: Int64
+    let destinationAlbumTitle: String?
     let errorMessage: String?
 }
 
@@ -81,6 +82,7 @@ final class FrameSequenceEngine {
         fpsMode: SequenceFPS,
         format: SequenceFormat,
         destination: SequenceDestination,
+        customAlbumName: String? = nil,
         onProgress: @escaping (Float, Int) -> Void
     ) async -> SequenceExportResult {
         isCancelled = false
@@ -171,13 +173,30 @@ final class FrameSequenceEngine {
         guard actualFrameCount > 0 else {
             let msg = "No frames extracted"
             AppLogger.shared.error(tag: "SEQUENCE", message: msg)
-            return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, errorMessage: msg)
+            return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, destinationAlbumTitle: nil, errorMessage: msg)
         }
 
         // Process based on destination
         switch destination {
+        case .photosAlbum:
+            let baseName = srcUrl.deletingPathExtension().lastPathComponent
+            let albumTitle = customAlbumName ?? "CFX Sequence - \(baseName)"
+            await saveFramesToPhotosAlbum(
+                files: files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }),
+                albumName: albumTitle
+            )
+            // Cleanup temp folder
+            try? FileManager.default.removeItem(at: outputFolder)
+            return SequenceExportResult(
+                success: true,
+                outputUrl: nil,
+                frameCount: actualFrameCount,
+                totalSizeBytes: totalBytes,
+                destinationAlbumTitle: albumTitle,
+                errorMessage: nil
+            )
+
         case .zipArchive:
-            // Create ZIP archive using NSFileCoordinator forUploading
             var zipUrl: URL? = nil
             let coordinator = NSFileCoordinator()
             var coordError: NSError?
@@ -193,25 +212,41 @@ final class FrameSequenceEngine {
                 }
             }
 
-            // Cleanup raw folder to save disk space
+            // Cleanup raw folder
             try? FileManager.default.removeItem(at: outputFolder)
 
             if let finalZip = zipUrl {
                 let zipSize = (try? finalZip.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? Int(totalBytes)
-                return SequenceExportResult(success: true, outputUrl: finalZip, frameCount: actualFrameCount, totalSizeBytes: Int64(zipSize), errorMessage: nil)
+                return SequenceExportResult(
+                    success: true,
+                    outputUrl: finalZip,
+                    frameCount: actualFrameCount,
+                    totalSizeBytes: Int64(zipSize),
+                    destinationAlbumTitle: nil,
+                    errorMessage: nil
+                )
             } else {
                 let msg = "Failed to compress ZIP archive"
                 AppLogger.shared.error(tag: "SEQUENCE", message: msg)
-                return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, errorMessage: msg)
+                return SequenceExportResult(
+                    success: false,
+                    outputUrl: nil,
+                    frameCount: 0,
+                    totalSizeBytes: 0,
+                    destinationAlbumTitle: nil,
+                    errorMessage: msg
+                )
             }
 
         case .filesFolder:
-            return SequenceExportResult(success: true, outputUrl: outputFolder, frameCount: actualFrameCount, totalSizeBytes: totalBytes, errorMessage: nil)
-
-        case .photosAlbum:
-            // Save to Camera Roll
-            await saveFramesToPhotosAlbum(files: files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }))
-            return SequenceExportResult(success: true, outputUrl: outputFolder, frameCount: actualFrameCount, totalSizeBytes: totalBytes, errorMessage: nil)
+            return SequenceExportResult(
+                success: true,
+                outputUrl: outputFolder,
+                frameCount: actualFrameCount,
+                totalSizeBytes: totalBytes,
+                destinationAlbumTitle: nil,
+                errorMessage: nil
+            )
         }
     }
 
@@ -227,14 +262,36 @@ final class FrameSequenceEngine {
         return nil
     }
 
-    private func saveFramesToPhotosAlbum(files: [URL]) async {
+    private func saveFramesToPhotosAlbum(files: [URL], albumName: String) async {
         await withCheckedContinuation { continuation in
             PHPhotoLibrary.shared().performChanges({
+                var placeholders: [PHObjectPlaceholder] = []
                 for fileUrl in files {
                     let request = PHAssetCreationRequest.forAsset()
                     request.addResource(with: .photo, fileURL: fileUrl, options: nil)
+                    if let placeholder = request.placeholderForCreatedAsset {
+                        placeholders.append(placeholder)
+                    }
                 }
-            }, completionHandler: { _, _ in
+
+                // Check for existing album or create a new one
+                let fetchOptions = PHFetchOptions()
+                fetchOptions.predicate = NSPredicate(format: "title = %@", albumName)
+                let collections = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: fetchOptions)
+
+                if let existingAlbum = collections.firstObject {
+                    let albumChangeRequest = PHAssetCollectionChangeRequest(for: existingAlbum)
+                    albumChangeRequest?.addAssets(placeholders as NSArray)
+                } else {
+                    let createAlbumRequest = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: albumName)
+                    createAlbumRequest.addAssets(placeholders as NSArray)
+                }
+            }, completionHandler: { success, error in
+                if let err = error {
+                    AppLogger.shared.error(tag: "PHOTOS_ALBUM", message: "Failed saving to album '\(albumName)': \(err.localizedDescription)")
+                } else {
+                    AppLogger.shared.log(tag: "PHOTOS_ALBUM", message: "Saved \(files.count) frames to album '\(albumName)'")
+                }
                 continuation.resume()
             })
         }
