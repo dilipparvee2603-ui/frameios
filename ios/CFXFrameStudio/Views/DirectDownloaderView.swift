@@ -5,17 +5,31 @@ struct DirectDownloaderView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var engine = DirectDownloadEngine()
     @StateObject private var ytEngine = YouTubeDownloadEngine()
+    @StateObject private var igEngine = InstagramDownloadEngine()
 
     @State private var inputUrl: String = ""
     @State private var showShareSheet: Bool = false
     @State private var recentDownloads: [URL] = []
     @State private var showSettingsModal: Bool = false
     @State private var selectedQualityId: String = ""
+    @State private var selectedCarouselIndex: Int = 0
     @State private var isRemuxingDownloadedFile: Bool = false
     @State private var remuxProgress: Double = 0.0
 
     private var isYouTubeLink: Bool {
         YouTubeDownloadEngine.isYouTubeUrl(inputUrl)
+    }
+
+    private var isInstagramLink: Bool {
+        InstagramDownloadEngine.isInstagramUrl(inputUrl)
+    }
+
+    private var instagramGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color(hex: "833AB4"), Color(hex: "FD1D1D"), Color(hex: "F77737")],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     var body: some View {
@@ -27,27 +41,44 @@ struct DirectDownloaderView: View {
                     headerBar
                     inputCard
 
+                    // YouTube Fetching Indicator
                     if ytEngine.isFetching {
                         ytFetchingCard
                     }
 
+                    // Instagram Fetching Indicator
+                    if igEngine.isFetching {
+                        igFetchingCard
+                    }
+
+                    // YouTube Qualities Card
                     if let ytInfo = ytEngine.videoInfo, !engine.isDownloading, engine.downloadedFileUrl == nil {
                         ytQualitiesCard(info: ytInfo)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
 
+                    // Instagram Media Card (Reels, Posts, Carousels, Stories)
+                    if let igInfo = igEngine.postInfo, !engine.isDownloading, engine.downloadedFileUrl == nil {
+                        igMediaCard(info: igInfo)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    }
+
+                    // Download Progress Card
                     if engine.isDownloading {
                         downloadProgressCard
                     }
 
+                    // Result & Inspection Card
                     if let fileUrl = engine.downloadedFileUrl, let inspection = engine.mediaInspection {
                         downloadResultCard(fileUrl: fileUrl, inspection: inspection)
                     }
 
-                    if let error = engine.errorMessage ?? ytEngine.errorMessage {
+                    // Error Banner
+                    if let error = engine.errorMessage ?? ytEngine.errorMessage ?? igEngine.errorMessage {
                         errorBanner(error: error)
                     }
 
+                    // Recent Local Downloads
                     if !recentDownloads.isEmpty {
                         recentDownloadsSection
                     }
@@ -83,8 +114,7 @@ struct DirectDownloaderView: View {
         }
     }
 
-    // MARK: - Subviews
-
+    // MARK: - Header Bar
     @ViewBuilder
     private var headerBar: some View {
         HStack {
@@ -97,9 +127,15 @@ struct DirectDownloaderView: View {
                     .clipShape(Circle())
             }
 
-            Text("DIRECT & YOUTUBE DOWNLOADER")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(.textPrimary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("UNIVERSAL DOWNLOADER")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.textPrimary)
+
+                Text("Direct • YouTube • Instagram Reels & Stories")
+                    .font(.system(size: 10))
+                    .foregroundColor(.textMuted)
+            }
 
             Spacer()
 
@@ -125,25 +161,46 @@ struct DirectDownloaderView: View {
         }
     }
 
+    // MARK: - Input Card
     @ViewBuilder
     private var inputCard: some View {
         GlassCard(cornerRadius: 18, padding: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
-                    Image(systemName: isYouTubeLink ? "play.rectangle.fill" : "link.badge.plus")
-                        .foregroundColor(isYouTubeLink ? .brandAccent : .skyAccent)
-                        .font(.system(size: 14, weight: .bold))
+                    if isInstagramLink {
+                        Image(systemName: "play.square.stack.fill")
+                            .foregroundColor(.pinkAccent)
+                            .font(.system(size: 14, weight: .bold))
 
-                    Text(isYouTubeLink ? "YOUTUBE LINK DETECTED" : "DIRECT MEDIA OR YOUTUBE LINK")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(isYouTubeLink ? .gradientStart : .textMuted)
-                        .tracking(1.0)
+                        Text("INSTAGRAM LINK DETECTED")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundStyle(instagramGradient)
+                            .tracking(0.8)
+                    } else if isYouTubeLink {
+                        Image(systemName: "play.rectangle.fill")
+                            .foregroundColor(.brandAccent)
+                            .font(.system(size: 14, weight: .bold))
+
+                        Text("YOUTUBE LINK DETECTED")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.gradientStart)
+                            .tracking(1.0)
+                    } else {
+                        Image(systemName: "link.badge.plus")
+                            .foregroundColor(.skyAccent)
+                            .font(.system(size: 14, weight: .bold))
+
+                        Text("DIRECT MEDIA, YOUTUBE OR INSTA LINK")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textMuted)
+                            .tracking(1.0)
+                    }
 
                     Spacer()
                 }
 
                 HStack(spacing: 8) {
-                    TextField("https://... (Cloudflare, S3, CDN, YouTube)", text: $inputUrl)
+                    TextField("https://... (Instagram Reel, YouTube, S3, Direct Video)", text: $inputUrl)
                         .font(.system(size: 13, design: .monospaced))
                         .foregroundColor(.textPrimary)
                         .textInputAutocapitalization(.never)
@@ -154,7 +211,7 @@ struct DirectDownloaderView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(isYouTubeLink ? Color.brandAccent.opacity(0.4) : Color.borderHairline, lineWidth: 1)
+                                .stroke(isInstagramLink ? Color.pinkAccent.opacity(0.5) : (isYouTubeLink ? Color.brandAccent.opacity(0.4) : Color.borderHairline), lineWidth: 1)
                         )
 
                     if !inputUrl.isEmpty {
@@ -162,6 +219,8 @@ struct DirectDownloaderView: View {
                             inputUrl = ""
                             ytEngine.videoInfo = nil
                             ytEngine.errorMessage = nil
+                            igEngine.postInfo = nil
+                            igEngine.errorMessage = nil
                         }) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 16))
@@ -187,7 +246,29 @@ struct DirectDownloaderView: View {
 
                     Spacer()
 
-                    if isYouTubeLink {
+                    if isInstagramLink {
+                        Button(action: {
+                            engine.reset()
+                            selectedCarouselIndex = 0
+                            Task {
+                                await igEngine.fetchMedia(for: inputUrl)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles.tv")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Fetch Insta Media")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(instagramGradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .shadow(color: Color(hex: "FD1D1D").opacity(0.3), radius: 8, y: 3)
+                        }
+                        .disabled(igEngine.isFetching)
+                    } else if isYouTubeLink {
                         Button(action: {
                             engine.reset()
                             Task {
@@ -231,6 +312,226 @@ struct DirectDownloaderView: View {
         }
     }
 
+    // MARK: - Instagram Fetching Indicator Card
+    @ViewBuilder
+    private var igFetchingCard: some View {
+        GlassCard(cornerRadius: 16, padding: 16) {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .pinkAccent))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Extracting Instagram Media...")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.textPrimary)
+                    Text("Resolving direct CDN stream & metadata...")
+                        .font(.system(size: 11))
+                        .foregroundColor(.textMuted)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Instagram Media Card
+    @ViewBuilder
+    private func igMediaCard(info: InstagramPostInfo) -> some View {
+        GlassCard(cornerRadius: 18, padding: 16) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header (Author & Kind)
+                HStack(alignment: .top, spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(instagramGradient)
+                            .frame(width: 44, height: 44)
+
+                        Image(systemName: info.kind.badgeIcon)
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(info.author)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.textPrimary)
+                                .lineLimit(1)
+
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.skyAccent)
+                        }
+
+                        HStack(spacing: 6) {
+                            Text(info.kind.rawValue.uppercased())
+                                .font(.system(size: 8.5, weight: .heavy))
+                                .foregroundColor(.pinkAccent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.pinkAccent.opacity(0.14))
+                                .clipShape(Capsule())
+
+                            if info.items.count > 1 {
+                                Text("\(info.items.count) ITEMS")
+                                    .font(.system(size: 8.5, weight: .heavy))
+                                    .foregroundColor(.amberAccent)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.amberAccent.opacity(0.14))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+
+                    Spacer()
+                }
+
+                // Caption snippet
+                if !info.caption.isEmpty {
+                    Text(info.caption)
+                        .font(.system(size: 12))
+                        .foregroundColor(.textSecondary)
+                        .lineLimit(3)
+                        .padding(.vertical, 2)
+                }
+
+                Divider().background(Color.borderHairline)
+
+                // Multi-Item Carousel Selector
+                if info.items.count > 1 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("SELECT CAROUSEL SLIDE")
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .foregroundColor(.textTertiary)
+                            .tracking(0.8)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(0..<info.items.count, id: \.self) { index in
+                                    let item = info.items[index]
+                                    Button(action: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            selectedCarouselIndex = index
+                                        }
+                                    }) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: item.type.systemIcon)
+                                                .font(.system(size: 10, weight: .bold))
+
+                                            Text("Slide \(index + 1)")
+                                                .font(.system(size: 11, weight: .bold))
+                                        }
+                                        .foregroundColor(selectedCarouselIndex == index ? .white : .textSecondary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 7)
+                                        .background(selectedCarouselIndex == index ? AnyView(instagramGradient) : AnyView(Color.elevatedSurface))
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule().stroke(Color.borderHairline, lineWidth: 1)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Active Item Preview / Details
+                let activeIndex = min(selectedCarouselIndex, max(0, info.items.count - 1))
+                if activeIndex < info.items.count {
+                    let activeItem = info.items[activeIndex]
+
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.elevatedSurface)
+                                .frame(width: 50, height: 50)
+
+                            Image(systemName: activeItem.type.systemIcon)
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(activeItem.type == .video ? .skyAccent : .pinkAccent)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(activeItem.displayLabel)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.textPrimary)
+
+                            Text(activeItem.type == .video ? "Lossless H.264 MP4 with Audio" : "High-Resolution JPEG")
+                                .font(.system(size: 11))
+                                .foregroundColor(.emeraldAccent)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(10)
+                    .background(Color.elevatedSurface.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    // Download Buttons
+                    VStack(spacing: 8) {
+                        // 1. Download Selected Item
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                engine.startDownload(urlString: activeItem.downloadUrl, customFilename: activeItem.filename)
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.system(size: 15, weight: .bold))
+
+                                Text(activeItem.type == .video ? "Download Reel ➔ Camera Roll" : "Download Photo ➔ Camera Roll")
+                                    .font(.system(size: 13.5, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(instagramGradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .shadow(color: Color(hex: "FD1D1D").opacity(0.3), radius: 8, y: 3)
+                        }
+                        .disabled(engine.isDownloading || igEngine.isBatchDownloading)
+
+                        // 2. Download All Items (If Carousel)
+                        if info.items.count > 1 {
+                            Button(action: {
+                                Task {
+                                    await igEngine.downloadAllItems(items: info.items, with: engine)
+                                }
+                            }) {
+                                HStack(spacing: 8) {
+                                    if igEngine.isBatchDownloading {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .emeraldAccent))
+                                            .scaleEffect(0.8)
+                                        Text(igEngine.batchStatusMessage)
+                                            .font(.system(size: 12.5, weight: .bold))
+                                            .foregroundColor(.emeraldAccent)
+                                    } else {
+                                        Image(systemName: "square.and.arrow.down.on.square.fill")
+                                            .font(.system(size: 13, weight: .bold))
+                                        Text("Download All \(info.items.count) Items to Photos")
+                                            .font(.system(size: 13, weight: .bold))
+                                    }
+                                }
+                                .foregroundColor(.emeraldAccent)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 42)
+                                .background(Color.emeraldAccent.opacity(0.14))
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Color.emeraldAccent.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                            .disabled(engine.isDownloading || igEngine.isBatchDownloading)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - YouTube Fetching Indicator Card
     @ViewBuilder
     private var ytFetchingCard: some View {
         GlassCard(cornerRadius: 16, padding: 16) {
@@ -256,6 +557,7 @@ struct DirectDownloaderView: View {
         )
     }
 
+    // MARK: - YouTube Qualities Card
     @ViewBuilder
     private func ytQualitiesCard(info: YouTubeVideoInfo) -> some View {
         let currentOption = currentSelectedQuality(info: info)
@@ -403,6 +705,7 @@ struct DirectDownloaderView: View {
         }
     }
 
+    // MARK: - Download Progress Card
     @ViewBuilder
     private var downloadProgressCard: some View {
         GlassCard(cornerRadius: 16, padding: 16) {
@@ -462,6 +765,7 @@ struct DirectDownloaderView: View {
         }
     }
 
+    // MARK: - Download Result Card
     @ViewBuilder
     private func downloadResultCard(fileUrl: URL, inspection: MediaInspection) -> some View {
         GlassCard(cornerRadius: 18, padding: 16) {
@@ -666,6 +970,7 @@ struct DirectDownloaderView: View {
         )
     }
 
+    // MARK: - Recent Local Downloads Section
     @ViewBuilder
     private var recentDownloadsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -731,7 +1036,6 @@ struct DirectDownloaderView: View {
     }
 
     // MARK: - Helpers
-
     private func pasteFromClipboard() {
         if let clip = UIPasteboard.general.string {
             inputUrl = clip.trimmingCharacters(in: .whitespacesAndNewlines)

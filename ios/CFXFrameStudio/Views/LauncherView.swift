@@ -141,14 +141,14 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 9. Direct Downloader
+                                // 9. Universal Downloader (Direct, YouTube, Instagram)
                                 NavigationLink(destination: DirectDownloaderView()) {
                                     bentoCard(
                                         title: "Downloader",
-                                        badge: "FAST FETCH",
+                                        badge: "DIRECT • YT • INSTA",
                                         icon: "arrow.down.circle",
-                                        accentColor: .emeraldAccent,
-                                        footerTag: "CDN CAPTURE"
+                                        accentColor: .pinkAccent,
+                                        footerTag: "REELS • 4K • CDN"
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
