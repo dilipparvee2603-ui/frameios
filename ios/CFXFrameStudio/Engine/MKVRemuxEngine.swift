@@ -147,6 +147,7 @@ final class MKVRemuxEngine {
         var args = [
             "-threads", "0",
             "-y",
+            "-avoid_negative_ts", "make_zero",
             "-i", sourceUrl.path,
             "-map", "0:v:0",
             "-map_metadata", "0",
@@ -231,9 +232,47 @@ final class MKVRemuxEngine {
         return args
     }
 
+    /// Ultra-fast 2ms binary probe of container headers and metadata atoms
+    static func fastBinaryScan(url: URL) -> (hasHev1: Bool, hasEc3: Bool, hasAc3: Bool, hasDts: Bool, moovAtTail: Bool) {
+        guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
+            return (false, false, false, false, false)
+        }
+        defer { try? fileHandle.close() }
+
+        // Read first 1MB
+        let headData = fileHandle.readData(ofLength: 1024 * 1024)
+
+        // Seek to end minus 4MB
+        fileHandle.seekToEndOfFile()
+        let size = fileHandle.offsetInFile
+        let tailLength = min(size, 4 * 1024 * 1024)
+        fileHandle.seek(toFileOffset: max(0, size - tailLength))
+        let tailData = fileHandle.readData(ofLength: Int(tailLength))
+
+        let hev1Bytes = Data("hev1".utf8)
+        let ec3Bytes = Data("ec-3".utf8)
+        let ac3Bytes = Data("ac-3".utf8)
+        let dtsBytes = Data("dts".utf8)
+        let moovBytes = Data("moov".utf8)
+
+        let hasHev1 = headData.range(of: hev1Bytes) != nil || tailData.range(of: hev1Bytes) != nil
+        let hasEc3 = headData.range(of: ec3Bytes) != nil || tailData.range(of: ec3Bytes) != nil
+        let hasAc3 = headData.range(of: ac3Bytes) != nil || tailData.range(of: ac3Bytes) != nil
+        let hasDts = headData.range(of: dtsBytes) != nil || tailData.range(of: dtsBytes) != nil
+        let moovAtTail = tailData.range(of: moovBytes) != nil && headData.range(of: moovBytes) == nil
+
+        return (hasHev1, hasEc3, hasAc3, hasDts, moovAtTail)
+    }
+
     /// Checks if a video requires container remuxing, tag normalization, or video/audio transcoding
     func requiresRemuxing(url: URL) async -> Bool {
         if isNonNativeContainer(url: url) {
+            return true
+        }
+
+        // Fast 2ms binary check directly against local file bytes
+        let binScan = Self.fastBinaryScan(url: url)
+        if binScan.hasHev1 || binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts || binScan.moovAtTail {
             return true
         }
 
@@ -456,7 +495,17 @@ final class MKVRemuxEngine {
             probedInfo = ProbedMediaInfo()
         }
 
-        let totalDurationMs = probedInfo.durationSec * 1000.0
+        let binScan = Self.fastBinaryScan(url: sourceUrl)
+        var finalInfo = probedInfo
+        if binScan.hasHev1 {
+            finalInfo.isHEVC = true
+            finalInfo.isHev1Tag = true
+        }
+        if binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts {
+            finalInfo.needsAudioTranscode = true
+        }
+
+        let totalDurationMs = finalInfo.durationSec * 1000.0
 
         // Enable real-time statistics callback
         FFmpegKitConfig.enableStatisticsCallback { stats in
@@ -483,31 +532,31 @@ final class MKVRemuxEngine {
 
         return try await Task.detached(priority: .userInitiated) {
             // Determine if video stream MUST be transcoded (unsupported codec on Apple AVPlayer)
-            let requiresTranscode = probedInfo.isVP ||
-                                    probedInfo.isAV1 ||
-                                    probedInfo.isMPEG2 ||
-                                    probedInfo.isMPEG4Part2 ||
-                                    probedInfo.isVC1 ||
-                                    probedInfo.isFLV ||
-                                    probedInfo.isMJPEG ||
-                                    probedInfo.isTheora ||
-                                    probedInfo.isHi10P ||
-                                    (!probedInfo.isHEVC && !probedInfo.isH264 && !probedInfo.isProRes && !probedInfo.videoCodec.isEmpty)
+            let requiresTranscode = finalInfo.isVP ||
+                                    finalInfo.isAV1 ||
+                                    finalInfo.isMPEG2 ||
+                                    finalInfo.isMPEG4Part2 ||
+                                    finalInfo.isVC1 ||
+                                    finalInfo.isFLV ||
+                                    finalInfo.isMJPEG ||
+                                    finalInfo.isTheora ||
+                                    finalInfo.isHi10P ||
+                                    (!finalInfo.isHEVC && !finalInfo.isH264 && !finalInfo.isProRes && !finalInfo.videoCodec.isEmpty)
 
             if requiresTranscode {
                 onProgress?(0.05, "Optimizing Video for Apple Silicon...")
-                let primaryEncoder = MKVRemuxEngine.getBestVideoEncoder(forHDR: probedInfo.isHDR)
+                let primaryEncoder = MKVRemuxEngine.getBestVideoEncoder(forHDR: finalInfo.isHDR)
                 let primaryArgs = MKVRemuxEngine.buildTranscodeArgs(
                     sourceUrl: sourceUrl,
                     outputUrl: outputUrl,
                     encoder: primaryEncoder,
-                    width: probedInfo.width,
-                    height: probedInfo.height,
-                    isHDR: probedInfo.isHDR,
-                    colorPrimaries: probedInfo.colorPrimaries,
-                    colorTransfer: probedInfo.colorTransfer,
-                    colorSpace: probedInfo.colorSpace,
-                    hasAudio: !probedInfo.audioCodec.isEmpty
+                    width: finalInfo.width,
+                    height: finalInfo.height,
+                    isHDR: finalInfo.isHDR,
+                    colorPrimaries: finalInfo.colorPrimaries,
+                    colorTransfer: finalInfo.colorTransfer,
+                    colorSpace: finalInfo.colorSpace,
+                    hasAudio: !finalInfo.audioCodec.isEmpty
                 )
 
                 let session = FFmpegKit.execute(withArguments: primaryArgs)
@@ -528,13 +577,13 @@ final class MKVRemuxEngine {
                         sourceUrl: sourceUrl,
                         outputUrl: outputUrl,
                         encoder: "mpeg4",
-                        width: probedInfo.width,
-                        height: probedInfo.height,
+                        width: finalInfo.width,
+                        height: finalInfo.height,
                         isHDR: false,
                         colorPrimaries: "",
                         colorTransfer: "",
                         colorSpace: "",
-                        hasAudio: !probedInfo.audioCodec.isEmpty
+                        hasAudio: !finalInfo.audioCodec.isEmpty
                     )
                     let fbSession = FFmpegKit.execute(withArguments: fallbackArgs)
                     let fbCode = fbSession?.getReturnCode()
@@ -557,31 +606,32 @@ final class MKVRemuxEngine {
             }
 
             // Tier 1: Pure Stream Copy (Both video and audio stream copied bit-for-bit, or audio transcoded to AAC if incompatible).
-            // Apply `-tag:v hvc1` for HEVC and `+faststart` for zero-buffer instant start.
+            // Apply `-tag:v hvc1` for HEVC, `-avoid_negative_ts make_zero`, and `+faststart` for zero-buffer instant start.
             var tier1Arguments = [
                 "-threads", "0",
                 "-y",
+                "-avoid_negative_ts", "make_zero",
                 "-i", sourceUrl.path,
                 "-map", "0:v:0",
                 "-map", "0:a:0?",
                 "-c:v", "copy"
             ]
 
-            if probedInfo.isHEVC || probedInfo.isHev1Tag {
+            if finalInfo.isHEVC || finalInfo.isHev1Tag {
                 tier1Arguments += ["-tag:v", "hvc1"]
             }
 
-            if !probedInfo.colorPrimaries.isEmpty {
-                tier1Arguments += ["-color_primaries", probedInfo.colorPrimaries]
+            if !finalInfo.colorPrimaries.isEmpty {
+                tier1Arguments += ["-color_primaries", finalInfo.colorPrimaries]
             }
-            if !probedInfo.colorTransfer.isEmpty {
-                tier1Arguments += ["-color_trc", probedInfo.colorTransfer]
+            if !finalInfo.colorTransfer.isEmpty {
+                tier1Arguments += ["-color_trc", finalInfo.colorTransfer]
             }
-            if !probedInfo.colorSpace.isEmpty {
-                tier1Arguments += ["-colorspace", probedInfo.colorSpace]
+            if !finalInfo.colorSpace.isEmpty {
+                tier1Arguments += ["-colorspace", finalInfo.colorSpace]
             }
 
-            if probedInfo.needsAudioTranscode {
+            if finalInfo.needsAudioTranscode {
                 tier1Arguments += ["-c:a", "aac", "-b:a", "256k"]
             } else {
                 tier1Arguments += ["-c:a", "copy"]
@@ -619,13 +669,14 @@ final class MKVRemuxEngine {
             var tier2Arguments = [
                 "-threads", "0",
                 "-y",
+                "-avoid_negative_ts", "make_zero",
                 "-i", sourceUrl.path,
                 "-map", "0:v:0",
                 "-map", "0:a:0?",
                 "-c:v", "copy"
             ]
 
-            if probedInfo.isHEVC || probedInfo.isHev1Tag {
+            if finalInfo.isHEVC || finalInfo.isHev1Tag {
                 tier2Arguments += ["-tag:v", "hvc1"]
             }
 
@@ -658,14 +709,14 @@ final class MKVRemuxEngine {
             let tier3Args = MKVRemuxEngine.buildTranscodeArgs(
                 sourceUrl: sourceUrl,
                 outputUrl: outputUrl,
-                encoder: MKVRemuxEngine.getBestVideoEncoder(forHDR: probedInfo.isHDR),
-                width: probedInfo.width,
-                height: probedInfo.height,
-                isHDR: probedInfo.isHDR,
-                colorPrimaries: probedInfo.colorPrimaries,
-                colorTransfer: probedInfo.colorTransfer,
-                colorSpace: probedInfo.colorSpace,
-                hasAudio: !probedInfo.audioCodec.isEmpty
+                encoder: MKVRemuxEngine.getBestVideoEncoder(forHDR: finalInfo.isHDR),
+                width: finalInfo.width,
+                height: finalInfo.height,
+                isHDR: finalInfo.isHDR,
+                colorPrimaries: finalInfo.colorPrimaries,
+                colorTransfer: finalInfo.colorTransfer,
+                colorSpace: finalInfo.colorSpace,
+                hasAudio: !finalInfo.audioCodec.isEmpty
             )
             let tier3Session = FFmpegKit.execute(withArguments: tier3Args)
             let tier3Code = tier3Session?.getReturnCode()

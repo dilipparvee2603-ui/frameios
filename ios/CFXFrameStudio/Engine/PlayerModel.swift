@@ -22,7 +22,7 @@ final class PlayerModel: ObservableObject {
         player.actionAtItemEnd = .none
 
         // Prime decoder to display frame 0 immediately upon loading
-        player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+        player.seek(to: .zero)
 
         let interval = CMTime(value: 1, timescale: 60) // 60Hz UI sync
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
@@ -54,7 +54,7 @@ final class PlayerModel: ObservableObject {
 
     func play(rate: Float = 1.0) {
         let safeRate = max(0.01, rate)
-        player.rate = safeRate
+        player.playImmediately(atRate: safeRate)
         isPlaying = true
     }
 

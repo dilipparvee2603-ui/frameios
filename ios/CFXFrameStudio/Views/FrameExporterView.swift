@@ -550,21 +550,36 @@ struct FrameExporterView: View {
                 }
             }
 
-            var workingUrl: URL
+            let tempDir = FileManager.default.temporaryDirectory
+            let stagedUrl = tempDir.appendingPathComponent(url.lastPathComponent)
+            try? FileManager.default.removeItem(at: stagedUrl)
 
-            if await MKVRemuxEngine.shared.requiresRemuxing(url: url) {
+            do {
+                try FileManager.default.copyItem(at: url, to: stagedUrl)
+            } catch {
+                await MainActor.run {
+                    self.alertMessage = "Failed to access file: \(error.localizedDescription)"
+                    self.showAlert = true
+                }
+                return
+            }
+
+            var workingUrl = stagedUrl
+
+            if await MKVRemuxEngine.shared.requiresRemuxing(url: stagedUrl) {
                 await MainActor.run {
                     self.isRemuxing = true
                     self.remuxProgress = 0.0
                     self.remuxSpeedText = "Direct Stream Copy..."
                 }
                 do {
-                    workingUrl = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { progress, speed in
+                    workingUrl = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: stagedUrl) { progress, speed in
                         Task { @MainActor in
                             self.remuxProgress = progress
                             self.remuxSpeedText = speed
                         }
                     }
+                    try? FileManager.default.removeItem(at: stagedUrl)
                 } catch {
                     await MainActor.run {
                         self.isRemuxing = false
@@ -575,20 +590,6 @@ struct FrameExporterView: View {
                 }
                 await MainActor.run {
                     self.isRemuxing = false
-                }
-            } else {
-                let tempDir = FileManager.default.temporaryDirectory
-                let destUrl = tempDir.appendingPathComponent(url.lastPathComponent)
-                try? FileManager.default.removeItem(at: destUrl)
-                do {
-                    try FileManager.default.copyItem(at: url, to: destUrl)
-                    workingUrl = destUrl
-                } catch {
-                    await MainActor.run {
-                        self.alertMessage = "Failed to access file: \(error.localizedDescription)"
-                        self.showAlert = true
-                    }
-                    return
                 }
             }
 
