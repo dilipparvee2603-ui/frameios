@@ -64,74 +64,101 @@ class VideoTrimWorker(QThread):
             except Exception:
                 pass
 
+    def _build_cmd(self, include_subs: bool = True):
+        ext = Path(self.output_path).suffix.lower()
+        is_mp4 = ext in (".mp4", ".m4v", ".mov")
+
+        cmd = [self.ffmpeg_path, "-y"]
+        # -ss before -i enables fast keyframe seeking
+        cmd.extend([
+            "-ss", f"{self.start_sec:.3f}",
+            "-i", self.video_path,
+            "-t", f"{self.duration_sec:.3f}"
+        ])
+
+        if self.mode == "copy":
+            # Instant Lossless Stream Copy:
+            cmd.extend([
+                "-avoid_negative_ts", "make_zero",
+                "-map", "0:v:0",
+                "-c:v", "copy"
+            ])
+            if is_hevc_video(self.video_path) and is_mp4:
+                cmd.extend(["-tag:v", "hvc1"])
+
+            if needs_audio_downmix(self.video_path) and is_mp4:
+                # Transcode 5.1/7.1 Dolby/DTS to pristine stereo AAC so iPhone/Apple TV/Windows never freeze
+                cmd.extend(["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "256k"])
+            else:
+                cmd.extend(["-map", "0:a?", "-c:a", "copy"])
+
+            if include_subs:
+                if is_mp4:
+                    cmd.extend(["-map", "0:s?", "-c:s", "mov_text"])
+                else:
+                    cmd.extend(["-map", "0:s?"])
+
+            if is_mp4:
+                cmd.extend(["-movflags", "+faststart"])
+        elif self.mode in ("h265", "hevc"):
+            # Visually Lossless H.265 / HEVC Export with Apple hvc1 Tag:
+            cmd.extend([
+                "-avoid_negative_ts", "make_zero",
+                "-c:v", "libx265",
+                "-crf", "20",
+                "-preset", "fast",
+                "-pix_fmt", "yuv420p"
+            ])
+            if is_mp4:
+                cmd.extend(["-tag:v", "hvc1"])
+
+            if needs_audio_downmix(self.video_path) or is_mp4:
+                cmd.extend(["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "256k"])
+            else:
+                cmd.extend(["-map", "0:a?", "-c:a", "copy"])
+
+            cmd.extend(["-map", "0:v:0"])
+
+            if include_subs:
+                if is_mp4:
+                    cmd.extend(["-map", "0:s?", "-c:s", "mov_text"])
+                else:
+                    cmd.extend(["-map", "0:s?"])
+
+            if is_mp4:
+                cmd.extend(["-movflags", "+faststart"])
+        else:
+            # Frame-Accurate MP4 H.264 (Universal Compatibility) Cut at 100% Original Resolution:
+            cmd.extend([
+                "-avoid_negative_ts", "make_zero",
+                "-c:v", "libx264",
+                "-crf", "17",
+                "-preset", "fast",
+                "-pix_fmt", "yuv420p"
+            ])
+            if needs_audio_downmix(self.video_path) or is_mp4:
+                cmd.extend(["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "256k"])
+            else:
+                cmd.extend(["-map", "0:a?", "-c:a", "copy"])
+
+            cmd.extend(["-map", "0:v:0"])
+
+            if include_subs:
+                if is_mp4:
+                    cmd.extend(["-map", "0:s?", "-c:s", "mov_text"])
+                else:
+                    cmd.extend(["-map", "0:s?"])
+
+            if is_mp4:
+                cmd.extend(["-movflags", "+faststart"])
+
+        cmd.extend(["-progress", "pipe:1", self.output_path])
+        return cmd
+
     def run(self):
         if not os.path.exists(self.video_path):
             self.finished.emit(False, f"Source video not found: {self.video_path}", "", 0)
             return
-
-        ext = Path(self.output_path).suffix.lower()
-        is_mp4 = ext in (".mp4", ".m4v", ".mov")
-
-        def _build_cmd(include_subs: bool = True):
-            cmd = [self.ffmpeg_path, "-y"]
-            # -ss before -i enables fast keyframe seeking
-            cmd.extend([
-                "-ss", f"{self.start_sec:.3f}",
-                "-i", self.video_path,
-                "-t", f"{self.duration_sec:.3f}"
-            ])
-
-            if self.mode == "copy":
-                # Instant Lossless Stream Copy:
-                cmd.extend([
-                    "-avoid_negative_ts", "make_zero",
-                    "-map", "0:v:0",
-                    "-c:v", "copy"
-                ])
-                if is_hevc_video(self.video_path) and is_mp4:
-                    cmd.extend(["-tag:v", "hvc1"])
-
-                if needs_audio_downmix(self.video_path) and is_mp4:
-                    # Transcode 5.1/7.1 Dolby/DTS to pristine stereo AAC so iPhone/Apple TV/Windows never freeze
-                    cmd.extend(["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "256k"])
-                else:
-                    cmd.extend(["-map", "0:a?", "-c:a", "copy"])
-
-                if include_subs:
-                    if is_mp4:
-                        cmd.extend(["-map", "0:s?", "-c:s", "mov_text"])
-                    else:
-                        cmd.extend(["-map", "0:s?"])
-
-                if is_mp4:
-                    cmd.extend(["-movflags", "+faststart"])
-            else:
-                # Frame-Accurate Cut at 100% Original Resolution:
-                cmd.extend([
-                    "-avoid_negative_ts", "make_zero",
-                    "-c:v", "libx264",
-                    "-crf", "17",
-                    "-preset", "fast",
-                    "-pix_fmt", "yuv420p"
-                ])
-                if needs_audio_downmix(self.video_path) or is_mp4:
-                    cmd.extend(["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "256k"])
-                else:
-                    cmd.extend(["-map", "0:a?", "-c:a", "copy"])
-
-                cmd.extend(["-map", "0:v:0"])
-
-                if include_subs:
-                    if is_mp4:
-                        cmd.extend(["-map", "0:s?", "-c:s", "mov_text"])
-                    else:
-                        cmd.extend(["-map", "0:s?"])
-
-                if is_mp4:
-                    cmd.extend(["-movflags", "+faststart"])
-
-            cmd.extend(["-progress", "pipe:1", self.output_path])
-            return cmd
 
         startupinfo = None
         if os.name == "nt":
@@ -144,7 +171,7 @@ class VideoTrimWorker(QThread):
             if self._is_cancelled:
                 break
 
-            cmd = _build_cmd(include_subs=with_subs)
+            cmd = self._build_cmd(include_subs=with_subs)
 
             try:
                 self._proc = subprocess.Popen(
@@ -772,18 +799,22 @@ class VideoTrimDialog(DarkModalDialog):
 
         # Mode Selection
         mode_row = QHBoxLayout()
-        lbl_m = QLabel("Trim Mode:")
+        lbl_m = QLabel("Export Format:")
         lbl_m.setStyleSheet("color: #94a3b8; font-size: 11px; min-width: 75px;")
         mode_row.addWidget(lbl_m)
 
-        self.radio_copy = QRadioButton("⚡ Instant Stream Copy (Lossless / 0s Re-encode, Bit-Exact 100% Quality)")
+        self.radio_copy = QRadioButton("⚡ Lossless (Fast)")
         self.radio_copy.setChecked(True)
         self.radio_copy.setToolTip("Cuts instantly without re-encoding. 100% original stream quality and resolution at disk write speed!")
         mode_row.addWidget(self.radio_copy)
 
-        self.radio_accurate = QRadioButton("🎯 Precise Frame Cut (Visually Lossless Re-encode)")
-        self.radio_accurate.setToolTip("Frame-accurate cut re-encoding at CRF 17 while preserving 100% original pixel resolution.")
-        mode_row.addWidget(self.radio_accurate)
+        self.radio_h264 = QRadioButton("🎬 MP4 (H.264 Universal)")
+        self.radio_h264.setToolTip("Universally compatible H.264/AAC MP4 - plays flawlessly on iPhone, iPad, Windows, Mac, web & editors.")
+        mode_row.addWidget(self.radio_h264)
+
+        self.radio_h265 = QRadioButton("🚀 MP4 (H.265 HEVC)")
+        self.radio_h265.setToolTip("High-efficiency HEVC export tagged with hvc1 for Apple devices and stereo AAC audio.")
+        mode_row.addWidget(self.radio_h265)
         mode_row.addStretch()
         opt_layout.addLayout(mode_row)
 
@@ -1101,7 +1132,12 @@ class VideoTrimDialog(DarkModalDialog):
             return
 
         ff_bin = find_ffmpeg_path()
-        mode = "copy" if self.radio_copy.isChecked() else "accurate"
+        if self.radio_copy.isChecked():
+            mode = "copy"
+        elif self.radio_h264.isChecked():
+            mode = "h264"
+        else:
+            mode = "h265"
 
         self.btn_export.setEnabled(False)
         self.btn_cancel.setText("Stop Export")
