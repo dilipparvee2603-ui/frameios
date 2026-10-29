@@ -44,7 +44,7 @@ struct LauncherView: View {
                             }
                             .buttonStyle(BentoButtonStyle())
 
-                            // 2-Column Grid (6 Core Tools)
+                            // 2-Column Grid (8 Core Tools)
                             LazyVGrid(columns: columns, spacing: 12) {
                                 // 2. Video Stitcher
                                 NavigationLink(destination: VideoStitcherView()) {
@@ -58,7 +58,20 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 3. Frame Exporter
+                                // 3. Audio Extractor (New!)
+                                NavigationLink(destination: AudioExtractorView()) {
+                                    bentoCard(
+                                        title: "Audio Extractor",
+                                        badge: "0% LOSS",
+                                        icon: "waveform",
+                                        accentColor: .brandAccent,
+                                        gradient: LinearGradient.brandGradient,
+                                        footerTag: "RIP M4A • MP3"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
+
+                                // 4. Frame Exporter (Single Frame)
                                 NavigationLink(destination: FrameExporterView()) {
                                     bentoCard(
                                         title: "Frame Exporter",
@@ -70,7 +83,24 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 4. Format Converter
+                                // 5. Sequence Exporter (Batch Frames - New!)
+                                NavigationLink(destination: FrameSequenceView()) {
+                                    bentoCard(
+                                        title: "Sequence Studio",
+                                        badge: "VFX 60 FPS",
+                                        icon: "film",
+                                        accentColor: .skyAccent,
+                                        gradient: LinearGradient(
+                                            colors: [Color(hex: "00B4DB"), Color(hex: "0083B0")],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        footerTag: "BATCH PNG / ZIP"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
+
+                                // 6. Format Converter
                                 NavigationLink(destination: VideoConverterView()) {
                                     bentoCard(
                                         title: "Converter",
@@ -82,7 +112,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 5. Slow-Mo Studio
+                                // 7. Slow-Mo Studio
                                 NavigationLink(destination: SlowMoView()) {
                                     bentoCard(
                                         title: "Slow-Mo Studio",
@@ -99,7 +129,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 6. Image Cropper
+                                // 8. Image Cropper
                                 NavigationLink(destination: ImageCropperView()) {
                                     bentoCard(
                                         title: "Image Cropper",
@@ -111,7 +141,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 7. Direct Downloader
+                                // 9. Direct Downloader
                                 NavigationLink(destination: DirectDownloaderView()) {
                                     bentoCard(
                                         title: "Downloader",
