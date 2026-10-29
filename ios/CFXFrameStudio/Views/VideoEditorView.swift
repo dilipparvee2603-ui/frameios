@@ -251,10 +251,10 @@ struct VideoEditorView: View {
 
             if let clip = selectedClip {
                 // Live AVPlayer view
-                VideoPlayerContainer(player: playerModel.player)
+                VideoPlayerView(player: playerModel.player)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .scaleEffect(clip.transform.scale)
-                    .rotationEffect(.degrees(Double(clip.transform.rotation.rawValue)))
+                    .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue)))
                     .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
             } else {
                 VStack(spacing: 8) {

@@ -3,7 +3,7 @@ import ffmpegkit
 import Photos
 import AVFoundation
 
-enum SlowMoInterpolationMode: String, CaseIterable, Identifiable {
+enum SlowMoInterpolationMode: String, CaseIterable, Identifiable, Codable {
     case opticalFlow = "Optical Flow (MCI)"
     case frameBlend = "Frame Blend (Motion Blur)"
     case sensorNative = "Sensor Native (Conform)"
@@ -25,7 +25,7 @@ enum SlowMoInterpolationMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum SlowMoAudioMode: String, CaseIterable, Identifiable {
+enum SlowMoAudioMode: String, CaseIterable, Identifiable, Codable {
     case pitchPreserved = "Preserve Pitch"
     case vinylPitch = "Deep Vinyl Slowdown"
     case muted = "Mute Audio"
