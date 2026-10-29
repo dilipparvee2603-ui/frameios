@@ -41,6 +41,13 @@
 		E20000012900000100000029 /* InstagramDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000029 /* InstagramDownloadEngine.swift */; };
 		E2000001290000010000002A /* TwitterDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000002A /* TwitterDownloadEngine.swift */; };
 		E2000001290000010000002B /* TikTokDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000002B /* TikTokDownloadEngine.swift */; };
+		E2000001290000010000002C /* VideoProjectModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000002C /* VideoProjectModel.swift */; };
+		E2000001290000010000002D /* ProjectStorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000002D /* ProjectStorageManager.swift */; };
+		E2000001290000010000002E /* EditorUndoManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000002E /* EditorUndoManager.swift */; };
+		E2000001290000010000002F /* ThumbnailCacheService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000002F /* ThumbnailCacheService.swift */; };
+		E20000012900000100000030 /* VideoEditorExportEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000030 /* VideoEditorExportEngine.swift */; };
+		E20000012900000100000031 /* VideoEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000031 /* VideoEditorView.swift */; };
+		E20000012900000100000032 /* ProjectGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000032 /* ProjectGalleryView.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -82,6 +89,13 @@
 		E10000012900000100000029 /* InstagramDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstagramDownloadEngine.swift; sourceTree = "<group>"; };
 		E1000001290000010000002A /* TwitterDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwitterDownloadEngine.swift; sourceTree = "<group>"; };
 		E1000001290000010000002B /* TikTokDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokDownloadEngine.swift; sourceTree = "<group>"; };
+		E1000001290000010000002C /* VideoProjectModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoProjectModel.swift; sourceTree = "<group>"; };
+		E1000001290000010000002D /* ProjectStorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectStorageManager.swift; sourceTree = "<group>"; };
+		E1000001290000010000002E /* EditorUndoManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorUndoManager.swift; sourceTree = "<group>"; };
+		E1000001290000010000002F /* ThumbnailCacheService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCacheService.swift; sourceTree = "<group>"; };
+		E10000012900000100000030 /* VideoEditorExportEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEditorExportEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000031 /* VideoEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEditorView.swift; sourceTree = "<group>"; };
+		E10000012900000100000032 /* ProjectGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectGalleryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -160,6 +174,11 @@
 				E10000012900000100000029 /* InstagramDownloadEngine.swift */,
 				E1000001290000010000002A /* TwitterDownloadEngine.swift */,
 				E1000001290000010000002B /* TikTokDownloadEngine.swift */,
+				E1000001290000010000002C /* VideoProjectModel.swift */,
+				E1000001290000010000002D /* ProjectStorageManager.swift */,
+				E1000001290000010000002E /* EditorUndoManager.swift */,
+				E1000001290000010000002F /* ThumbnailCacheService.swift */,
+				E10000012900000100000030 /* VideoEditorExportEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -178,6 +197,8 @@
 				E10000012900000100000021 /* VideoStitcherView.swift */,
 				E10000012900000100000025 /* AudioExtractorView.swift */,
 				E10000012900000100000027 /* FrameSequenceView.swift */,
+				E10000012900000100000031 /* VideoEditorView.swift */,
+				E10000012900000100000032 /* ProjectGalleryView.swift */,
 				E40000012900000100000006 /* Components */,
 			);
 			path = Views;
@@ -309,6 +330,13 @@
 				E20000012900000100000029 /* InstagramDownloadEngine.swift in Sources */,
 				E2000001290000010000002A /* TwitterDownloadEngine.swift in Sources */,
 				E2000001290000010000002B /* TikTokDownloadEngine.swift in Sources */,
+				E2000001290000010000002C /* VideoProjectModel.swift in Sources */,
+				E2000001290000010000002D /* ProjectStorageManager.swift in Sources */,
+				E2000001290000010000002E /* EditorUndoManager.swift in Sources */,
+				E2000001290000010000002F /* ThumbnailCacheService.swift in Sources */,
+				E20000012900000100000030 /* VideoEditorExportEngine.swift in Sources */,
+				E20000012900000100000031 /* VideoEditorView.swift in Sources */,
+				E20000012900000100000032 /* ProjectGalleryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -31,22 +31,34 @@ struct LauncherView: View {
                     // Bento Grid Scroll View
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 12) {
-                            // 1. Hero Featured Tool: Lossless Video Trimmer (Full Width)
-                            NavigationLink(destination: VideoTrimmerView()) {
+                            // 1. Hero Featured Tool: Pro Video Editor (Full Width)
+                            NavigationLink(destination: ProjectGalleryView()) {
                                 heroBentoCard(
-                                    title: "Video Trimmer",
-                                    badge: "0% LOSS",
-                                    icon: "scissors",
+                                    title: "Pro Video Editor",
+                                    badge: "MULTI-CLIP • TIMELINE",
+                                    icon: "film.stack.fill",
                                     accentColor: .brandAccent,
                                     gradient: LinearGradient.brandGradient,
-                                    footerTag: "KEYFRAME STREAM COPY"
+                                    footerTag: "OPTICAL FLOW • SPLIT • 4K EXPORT"
                                 )
                             }
                             .buttonStyle(BentoButtonStyle())
 
-                            // 2-Column Grid (8 Core Tools)
+                            // 2-Column Grid (9 Core Tools)
                             LazyVGrid(columns: columns, spacing: 12) {
-                                // 2. Video Stitcher
+                                // 2. Video Trimmer
+                                NavigationLink(destination: VideoTrimmerView()) {
+                                    bentoCard(
+                                        title: "Video Trimmer",
+                                        badge: "0% LOSS",
+                                        icon: "scissors",
+                                        accentColor: .brandAccent,
+                                        footerTag: "KEYFRAME COPY"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
+
+                                // 3. Video Stitcher
                                 NavigationLink(destination: VideoStitcherView()) {
                                     bentoCard(
                                         title: "Clip Stitcher",
