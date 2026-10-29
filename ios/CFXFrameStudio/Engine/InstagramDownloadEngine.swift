@@ -148,13 +148,13 @@ final class InstagramDownloadEngine: ObservableObject {
         self.errorMessage = nil
         self.postInfo = nil
 
-        AppLogger.shared.log("Analyzing Instagram URL [\(initialKind.rawValue)]: \(cleanedUrl)", category: .system, level: .info)
+        AppLogger.shared.log(tag: "INSTAGRAM", message: "Analyzing Instagram URL [\(initialKind.rawValue)]: \(cleanedUrl)")
 
         // 1. Direct Meta-Crawler Ingestion (High-Speed Direct Native Extraction)
         if let metaResult = await fetchViaMetaCrawler(url: cleanedUrl, shortcode: shortcode, defaultKind: initialKind) {
             self.postInfo = metaResult
             self.isFetching = false
-            AppLogger.shared.log("Successfully extracted Instagram media via Meta Crawler (\(metaResult.items.count) item(s))", category: .system, level: .info)
+            AppLogger.shared.log(tag: "INSTAGRAM", message: "Successfully extracted Instagram media via Meta Crawler (\(metaResult.items.count) item(s))")
             return
         }
 
@@ -162,7 +162,7 @@ final class InstagramDownloadEngine: ObservableObject {
         if let cobaltResult = await fetchViaCobalt(url: cleanedUrl, shortcode: shortcode, defaultKind: initialKind) {
             self.postInfo = cobaltResult
             self.isFetching = false
-            AppLogger.shared.log("Successfully extracted Instagram media via Cobalt (\(cobaltResult.items.count) item(s))", category: .system, level: .info)
+            AppLogger.shared.log(tag: "INSTAGRAM", message: "Successfully extracted Instagram media via Cobalt (\(cobaltResult.items.count) item(s))")
             return
         }
 
@@ -170,12 +170,12 @@ final class InstagramDownloadEngine: ObservableObject {
         if let embedResult = await fetchViaEmbed(shortcode: shortcode, defaultKind: initialKind) {
             self.postInfo = embedResult
             self.isFetching = false
-            AppLogger.shared.log("Extracted media via Instagram embed fallback", category: .system, level: .info)
+            AppLogger.shared.log(tag: "INSTAGRAM", message: "Extracted media via Instagram embed fallback")
             return
         }
 
         self.errorMessage = "Could not extract media from this Instagram link. The post or account might be private or restricted."
-        AppLogger.shared.log("Failed to extract Instagram link: \(cleanedUrl)", category: .system, level: .error)
+        AppLogger.shared.error(tag: "INSTAGRAM", message: "Failed to extract Instagram link: \(cleanedUrl)")
         self.isFetching = false
     }
 
@@ -287,7 +287,7 @@ final class InstagramDownloadEngine: ObservableObject {
                 )
             }
         } catch {
-            AppLogger.shared.log("Meta crawler error: \(error.localizedDescription)", category: .system, level: .warning)
+            AppLogger.shared.error(tag: "INSTAGRAM", message: "Meta crawler error: \(error.localizedDescription)")
         }
 
         return nil
