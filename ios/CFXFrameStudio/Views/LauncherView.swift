@@ -24,9 +24,6 @@ struct LauncherView: View {
             ZStack {
                 Color.voidCanvas.ignoresSafeArea()
 
-                // Ambient Background Glow
-                ambientGlow
-
                 VStack(spacing: 0) {
                     // Top App Header
                     headerBar
@@ -40,17 +37,16 @@ struct LauncherView: View {
                             }
                             .buttonStyle(BentoButtonStyle())
 
-                            // 2. Bento 2-Column Grid of Core Tools
+                            // 2. Bento 2-Column Grid of Core Tools (Clean - Subtexts Removed)
                             LazyVGrid(columns: columns, spacing: 12) {
                                 // Lossless Trimmer
                                 NavigationLink(destination: VideoTrimmerView()) {
                                     bentoCard(
                                         title: "Video Trimmer",
-                                        subtitle: "Lossless stream-copy cut for MP4, MOV & MKV",
                                         badge: "0% LOSS",
                                         icon: "scissors",
                                         accentColor: .brandAccent,
-                                        footerTag: "INSTANT CUT"
+                                        footerTag: "STREAM COPY"
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
@@ -59,11 +55,10 @@ struct LauncherView: View {
                                 NavigationLink(destination: FrameExporterView()) {
                                     bentoCard(
                                         title: "Frame Exporter",
-                                        subtitle: "Sub-frame precision PNG extract & crop",
-                                        badge: "1-FRAME STEP",
+                                        badge: "1-FRAME",
                                         icon: "photo.stack",
                                         accentColor: .skyAccent,
-                                        footerTag: "UNCOMPRESSED"
+                                        footerTag: "LOSSLESS PNG"
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
@@ -71,9 +66,8 @@ struct LauncherView: View {
                                 // Format Converter
                                 NavigationLink(destination: VideoConverterView()) {
                                     bentoCard(
-                                        title: "Format Converter",
-                                        subtitle: "MKV ↔ MP4 ↔ MOV with full audio copy",
-                                        badge: "MULTI-FORMAT",
+                                        title: "Converter",
+                                        badge: "MKV • MP4",
                                         icon: "arrow.triangle.2.circlepath",
                                         accentColor: .emeraldAccent,
                                         footerTag: "100% QUALITY"
@@ -85,7 +79,6 @@ struct LauncherView: View {
                                 NavigationLink(destination: SlowMoView()) {
                                     bentoCard(
                                         title: "Slow-Mo Studio",
-                                        subtitle: "Optical flow frame synthesis down to 10%",
                                         badge: "OPTICAL FLOW",
                                         icon: "gauge.with.dots.needle.bottom.0percent",
                                         accentColor: .brandAccent,
@@ -103,11 +96,10 @@ struct LauncherView: View {
                                 NavigationLink(destination: ImageCropperView()) {
                                     bentoCard(
                                         title: "Image Cropper",
-                                        subtitle: "1:1, 4:5, 16:9, 9:16 & custom ratios",
-                                        badge: "ASPECT RATIOS",
+                                        badge: "PRESETS",
                                         icon: "crop",
                                         accentColor: .amberAccent,
-                                        footerTag: "PIXEL PERFECT"
+                                        footerTag: "PIXEL ACCURATE"
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
@@ -115,12 +107,11 @@ struct LauncherView: View {
                                 // Direct Downloader
                                 NavigationLink(destination: DirectDownloaderView()) {
                                     bentoCard(
-                                        title: "Link Downloader",
-                                        subtitle: "Direct Cloudflare & CDN video fetch",
+                                        title: "Downloader",
                                         badge: "FAST FETCH",
                                         icon: "arrow.down.circle",
                                         accentColor: .skyAccent,
-                                        footerTag: "STREAM CAPTURE"
+                                        footerTag: "CDN CAPTURE"
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
@@ -135,6 +126,7 @@ struct LauncherView: View {
                     }
                 }
             }
+            .background(ambientGlow.clipped())
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -177,7 +169,7 @@ struct LauncherView: View {
                     )
             }
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 12)
     }
@@ -186,7 +178,7 @@ struct LauncherView: View {
     private var heroEnhancerCard: some View {
         ZStack(alignment: .topTrailing) {
             // Glass container
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
@@ -199,7 +191,7 @@ struct LauncherView: View {
                     )
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .stroke(
                             LinearGradient(
                                 colors: [
@@ -213,13 +205,13 @@ struct LauncherView: View {
                             lineWidth: 1.2
                         )
                 )
-                .shadow(color: Color.black.opacity(0.45), radius: 14, x: 0, y: 6)
+                .shadow(color: Color.black.opacity(0.4), radius: 12, x: 0, y: 5)
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 // Top row with Icon, Badge, and Action Pill
                 HStack(alignment: .center, spacing: 12) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
                             .fill(
                                 LinearGradient(
                                     colors: [Color(hex: "00B4DB"), Color(hex: "8A2387")],
@@ -227,19 +219,19 @@ struct LauncherView: View {
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .frame(width: 46, height: 46)
-                            .shadow(color: Color(hex: "00B4DB").opacity(0.4), radius: 8)
+                            .frame(width: 44, height: 44)
+                            .shadow(color: Color(hex: "00B4DB").opacity(0.35), radius: 6)
 
                         Image(systemName: "wand.and.stars")
-                            .font(.system(size: 20, weight: .bold))
+                            .font(.system(size: 19, weight: .bold))
                             .foregroundColor(.white)
                     }
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             Text("STUDIO FLAGSHIP")
-                                .font(.system(size: 9, weight: .heavy))
-                                .tracking(1.0)
+                                .font(.system(size: 8.5, weight: .heavy))
+                                .tracking(0.8)
                                 .foregroundColor(Color(hex: "38BDF8"))
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
@@ -247,7 +239,7 @@ struct LauncherView: View {
                                 .clipShape(Capsule())
 
                             Text("PRO AI")
-                                .font(.system(size: 9, weight: .heavy))
+                                .font(.system(size: 8.5, weight: .heavy))
                                 .foregroundColor(Color.pinkAccent)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
@@ -256,26 +248,25 @@ struct LauncherView: View {
                         }
 
                         Text("AI Video Enhancer")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 17, weight: .bold))
                             .foregroundColor(.textPrimary)
                     }
 
                     Spacer()
 
                     Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.textSecondary)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 28, height: 28)
                         .background(Color.white.opacity(0.06))
                         .clipShape(Circle())
                 }
 
-                // Subtitle description
-                Text("AirVid portrait skin retouch, AMD CAS texture sharpening & 4K super-resolution reconstruction")
-                    .font(.system(size: 12, weight: .regular))
+                // Subtitle description (single clean line)
+                Text("AirVid portrait retouch, CAS sharpening & 4K super-resolution")
+                    .font(.system(size: 11.5, weight: .regular))
                     .foregroundColor(.textMuted)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
 
                 // Feature pills
                 HStack(spacing: 6) {
@@ -285,16 +276,16 @@ struct LauncherView: View {
                     featurePill(title: "🧹 De-noise", color: .emeraldAccent)
                 }
             }
-            .padding(18)
+            .padding(16)
         }
     }
 
     private func featurePill(title: String, color: Color) -> some View {
         Text(title)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 9.5, weight: .semibold))
             .foregroundColor(.textSecondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3.5)
             .background(Color.elevatedSurface)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .overlay(
@@ -303,10 +294,9 @@ struct LauncherView: View {
             )
     }
 
-    // MARK: - Bento 2-Column Card
+    // MARK: - Bento 2-Column Card (Clean - Subtexts Removed)
     private func bentoCard(
         title: String,
-        subtitle: String,
         badge: String,
         icon: String,
         accentColor: Color,
@@ -320,11 +310,11 @@ struct LauncherView: View {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(Color.borderHairline, lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 3)
+                .shadow(color: Color.black.opacity(0.28), radius: 6, x: 0, y: 3)
 
             VStack(alignment: .leading, spacing: 10) {
                 // Top Row: Icon + Badge
-                HStack(alignment: .top) {
+                HStack(alignment: .center) {
                     ZStack {
                         if let grad = gradient {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -341,7 +331,7 @@ struct LauncherView: View {
                         }
 
                         Image(systemName: icon)
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 19, weight: .bold))
                             .foregroundColor(gradient == nil ? accentColor : .white)
                     }
 
@@ -357,22 +347,14 @@ struct LauncherView: View {
                         .clipShape(Capsule())
                 }
 
-                // Title & Subtitle
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.textPrimary)
-                        .lineLimit(1)
+                Spacer(minLength: 4)
 
-                    Text(subtitle)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(.textMuted)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .frame(minHeight: 28, alignment: .topLeading)
-                }
-
-                Spacer(minLength: 0)
+                // Bold Clean Title (No cramped subtext)
+                Text(title)
+                    .font(.system(size: 14.5, weight: .bold))
+                    .foregroundColor(.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
 
                 // Bottom Tag + Arrow
                 HStack {
@@ -389,7 +371,7 @@ struct LauncherView: View {
             }
             .padding(14)
         }
-        .frame(minHeight: 148)
+        .frame(height: 124)
     }
 
     // MARK: - System Status Bento Bar
@@ -415,23 +397,22 @@ struct LauncherView: View {
         }
     }
 
-    // MARK: - Subtle Ambient Glow
+    // MARK: - Subtle Ambient Glow (Strictly bounded)
     private var ambientGlow: some View {
-        VStack {
-            HStack {
+        GeometryReader { geo in
+            ZStack {
                 Circle()
-                    .fill(Color.brandAccent.opacity(0.08))
-                    .frame(width: 250, height: 250)
-                    .blur(radius: 60)
-                    .offset(x: -80, y: -60)
-                Spacer()
+                    .fill(Color.brandAccent.opacity(0.07))
+                    .frame(width: 200, height: 200)
+                    .blur(radius: 50)
+                    .position(x: 30, y: 30)
+
                 Circle()
                     .fill(Color(hex: "00B4DB").opacity(0.06))
-                    .frame(width: 220, height: 220)
-                    .blur(radius: 60)
-                    .offset(x: 60, y: -40)
+                    .frame(width: 200, height: 200)
+                    .blur(radius: 50)
+                    .position(x: geo.size.width - 30, y: 50)
             }
-            Spacer()
         }
         .allowsHitTesting(false)
     }
