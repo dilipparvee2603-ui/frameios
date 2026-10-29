@@ -83,3 +83,12 @@ pip install -r requirements.txt
    - Check **"Save to video's folder"** to automatically save exported frames alongside the source video.
 3. **Naming Customization**:
    - Customizable naming patterns such as `{video_name}_frame_{frame:06d}` or `{video_name}_{timecode}` with a live filename preview before saving.
+
+
+---
+
+## 📱 iOS App Sideloading Policy (Bundle ID Preservation)
+
+- **Single Unified Bundle Identifier**: `com.cfx.framestudio`
+- **Zero App ID Waste**: Free Apple Developer accounts have a strict limit of 3 App IDs per 7 days when sideloading via AltStore, Sideloadly, or TrollStore.
+- **Rule for All Future Tools**: All new ideas, utilities, AI enhancers, converters, downloaders, and video/photo engines **must be added directly as modules inside this existing CFX Frame Studio IPA** and surfaced on the Bento Grid launcher. Never create separate apps or new bundle IDs.
