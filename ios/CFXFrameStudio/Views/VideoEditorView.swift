@@ -42,6 +42,7 @@ struct VideoEditorView: View {
     @State private var dragInitialScale: Double? = nil
     @State private var dragTrimInitialInMs: Int64? = nil
     @State private var dragTrimInitialOutMs: Int64? = nil
+    @State private var dragPlayheadInitialMs: Int64? = nil
     @State private var selectedKeyframeEasing: KeyframeEasing = .easeInOut
 
     // Import State
@@ -136,6 +137,7 @@ struct VideoEditorView: View {
             playerModel.periodicTickHandler = { curMs in
                 self.updatePlayheadFromPlayback(sourceMs: curMs)
             }
+            playerModel.ensureTimeObserver()
             setupInitialProject()
         }
         .onDisappear {
@@ -764,16 +766,24 @@ struct VideoEditorView: View {
                                 .gesture(
                                     DragGesture(minimumDistance: 1)
                                         .onChanged { value in
-                                            let rawX = playheadX + value.translation.width
-                                            let clampedX = max(leadPad, rawX)
-                                            let newMs = Int64(round(Double(clampedX - leadPad) / Double(pointsPerSecond) * 1000.0))
-                                            playheadMs = max(0, min(project.totalTimelineDurationMs, newMs))
-
-                                            // Dynamically switch active clip if scrubbing crosses clip boundaries
-                                            if let activeIdx = project.clipIndex(at: playheadMs), activeIdx != selectedClipIndex {
-                                                selectedClipIndex = activeIdx
+                                            if dragPlayheadInitialMs == nil {
+                                                dragPlayheadInitialMs = playheadMs
+                                                playerModel.pause()
                                             }
-                                            syncPlayheadToPlayer(preservePlayback: playerModel.isPlaying)
+                                            if let initialMs = dragPlayheadInitialMs {
+                                                let deltaMs = Int64(round(Double(value.translation.width) / Double(pointsPerSecond) * 1000.0))
+                                                let newMs = max(0, min(project.totalTimelineDurationMs, initialMs + deltaMs))
+                                                playheadMs = newMs
+
+                                                // Dynamically switch active clip if scrubbing crosses clip boundaries
+                                                if let activeIdx = project.clipIndex(at: playheadMs), activeIdx != selectedClipIndex {
+                                                    selectedClipIndex = activeIdx
+                                                }
+                                                syncPlayheadToPlayer(preservePlayback: false)
+                                            }
+                                        }
+                                        .onEnded { _ in
+                                            dragPlayheadInitialMs = nil
                                         }
                                 )
 
@@ -785,8 +795,14 @@ struct VideoEditorView: View {
                                 .allowsHitTesting(false)
                         }
                         .offset(x: playheadX - 7, y: 2)
+                        .id("PLAYHEAD_NEEDLE")
                     }
                     .frame(height: 148)
+                }
+            }
+            .onChange(of: playheadMs) { _ in
+                if playerModel.isPlaying {
+                    proxy.scrollTo("PLAYHEAD_NEEDLE", anchor: .center)
                 }
             }
         }
@@ -1865,6 +1881,7 @@ struct VideoEditorView: View {
         playerModel.periodicTickHandler = { curMs in
             self.updatePlayheadFromPlayback(sourceMs: curMs)
         }
+        playerModel.ensureTimeObserver()
 
         if let clip = project.clips.first {
             playerModel.player.isMuted = clip.isMuted
@@ -1898,9 +1915,7 @@ struct VideoEditorView: View {
         let timelineOffset = clip.mapSourceMsToTimelineOffset(sourceMs)
         let newPlayhead = clipStart + timelineOffset
 
-        DispatchQueue.main.async {
-            self.playheadMs = newPlayhead
-        }
+        self.playheadMs = newPlayhead
     }
 
     private func advanceToNextClipAndContinue() {
@@ -2118,8 +2133,9 @@ struct VideoEditorView: View {
                         self.recordUndo()
                         self.project.clips.append(newClip)
                         self.selectedClipIndex = self.project.clips.count - 1
-                        self.playheadMs = 0
+                        self.playheadMs = self.project.timelineStartTime(forClipIndex: self.selectedClipIndex)
                         ProjectStorageManager.shared.saveProject(self.project)
+                        self.playerModel.ensureTimeObserver()
                         self.syncPlayheadToPlayer()
                         self.isImportingMedia = false
                     }
@@ -2183,8 +2199,9 @@ struct VideoEditorView: View {
                     self.recordUndo()
                     self.project.clips.append(newClip)
                     self.selectedClipIndex = self.project.clips.count - 1
-                    self.playheadMs = 0
+                    self.playheadMs = self.project.timelineStartTime(forClipIndex: self.selectedClipIndex)
                     ProjectStorageManager.shared.saveProject(self.project)
+                    self.playerModel.ensureTimeObserver()
                     self.syncPlayheadToPlayer()
                     self.isImportingMedia = false
                 }

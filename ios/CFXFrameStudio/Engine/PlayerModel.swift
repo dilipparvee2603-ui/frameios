@@ -22,6 +22,11 @@ final class PlayerModel: ObservableObject {
     private var statusObserverToken: NSKeyValueObservation? = nil
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .rigid)
 
+    init() {
+        configureAudioSession()
+        ensureTimeObserver()
+    }
+
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
@@ -46,8 +51,30 @@ final class PlayerModel: ObservableObject {
         item.forwardPlaybackEndTime = outCm
     }
 
+    /// Ensures the 60Hz periodic time observer is attached to the AVPlayer instance
+    func ensureTimeObserver() {
+        guard timeObserverToken == nil else { return }
+        let interval = CMTime(value: 1, timescale: 60) // 60Hz UI sync
+        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self = self else { return }
+            self.currentPositionTime = time
+            let ms = Int64(CMTimeGetSeconds(time) * 1000.0)
+            self.currentPositionMs = ms
+
+            let isActivelyPlaying = self.isPlaying || self.player.rate > 0.001 || self.player.timeControlStatus == .playing
+            if isActivelyPlaying {
+                if ms >= self.trimOutMs - 25 {
+                    self.periodicTickHandler?(self.trimOutMs)
+                } else if ms < self.trimInMs - 50 {
+                    self.seek(to: self.trimInMs, preservePlaybackState: true)
+                } else {
+                    self.periodicTickHandler?(ms)
+                }
+            }
+        }
+    }
+
     func setup(with url: URL, onTick: ((Int64) -> Void)? = nil) {
-        cleanup()
         configureAudioSession()
         didReachEndTime = false
         if let tick = onTick {
@@ -60,11 +87,10 @@ final class PlayerModel: ObservableObject {
         let outSec = Double(trimOutMs) / 1000.0
         playerItem.forwardPlaybackEndTime = CMTime(seconds: outSec, preferredTimescale: 60000)
 
-        player = AVPlayer(playerItem: playerItem)
-        player.automaticallyWaitsToMinimizeStalling = false
-        player.isMuted = isMuted
-        player.actionAtItemEnd = .none
-
+        if let token = endObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            endObserverToken = nil
+        }
         // Loop / reset or notify continuous project playback
         endObserverToken = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
@@ -82,6 +108,10 @@ final class PlayerModel: ObservableObject {
             }
         }
 
+        if let token = statusObserverToken {
+            token.invalidate()
+            statusObserverToken = nil
+        }
         statusObserverToken = playerItem.observe(\.status, options: [.new, .initial]) { [weak self] item, _ in
             DispatchQueue.main.async {
                 if item.status == .failed {
@@ -96,29 +126,15 @@ final class PlayerModel: ObservableObject {
             }
         }
 
-        let interval = CMTime(value: 1, timescale: 60) // 60Hz UI sync
-        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self = self else { return }
-            self.currentPositionTime = time
-            let ms = Int64(CMTimeGetSeconds(time) * 1000.0)
-            self.currentPositionMs = ms
-            if self.isPlaying {
-                if ms >= self.trimOutMs - 25 {
-                    self.periodicTickHandler?(self.trimOutMs)
-                } else if ms < self.trimInMs - 50 {
-                    self.seek(to: self.trimInMs, preservePlaybackState: true)
-                } else {
-                    self.periodicTickHandler?(ms)
-                }
-            }
-        }
+        player.replaceCurrentItem(with: playerItem)
+        player.automaticallyWaitsToMinimizeStalling = false
+        player.isMuted = isMuted
+        player.actionAtItemEnd = .none
+
+        ensureTimeObserver()
     }
 
     func cleanup() {
-        if let token = timeObserverToken {
-            player.removeTimeObserver(token)
-            timeObserverToken = nil
-        }
         if let token = endObserverToken {
             NotificationCenter.default.removeObserver(token)
             endObserverToken = nil
@@ -147,6 +163,7 @@ final class PlayerModel: ObservableObject {
         autoPlay: Bool = true,
         completion: (() -> Void)? = nil
     ) {
+        ensureTimeObserver()
         didReachEndTime = false
         if let inMs = inMs { self.trimInMs = max(0, inMs) }
         if let outMs = outMs { self.trimOutMs = max(self.trimInMs + 50, outMs) }
@@ -215,6 +232,7 @@ final class PlayerModel: ObservableObject {
 
     func play(rate: Float = 1.0) {
         configureAudioSession()
+        ensureTimeObserver()
         let safeRate = max(0.01, rate)
         applyPlaybackBounds()
 
