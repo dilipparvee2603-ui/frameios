@@ -585,12 +585,15 @@ struct VideoTrimmerView: View {
                     target: target,
                     initialMs: initial,
                     durationMs: info.durationMs,
+                    fps: info.fps,
                     onApply: { newMs in
                         switch target {
                         case .inPoint:
                             inPointMs = min(newMs, outPointMs - 100)
+                            playerModel.seek(to: inPointMs)
                         case .outPoint:
                             outPointMs = max(newMs, inPointMs + 100)
+                            playerModel.seek(to: outPointMs)
                         case .playhead:
                             playerModel.seek(to: newMs)
                         }

@@ -165,6 +165,9 @@ final class PlayerModel: ObservableObject {
         }
         let targetSec = Double(ms) / 1000.0
         let cmTime = CMTime(seconds: targetSec, preferredTimescale: 60000)
+        self.currentPositionTime = cmTime
+        self.currentPositionMs = ms
+
         player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             guard let self = self else { return }
             self.currentPositionTime = cmTime

@@ -610,6 +610,7 @@ class VideoTrimDialog(DarkModalDialog):
             }
             QLineEdit:focus { border: 1px solid #f59e0b; }
         """)
+        self.txt_in_timecode.returnPressed.connect(self._on_in_timecode_edited)
         self.txt_in_timecode.editingFinished.connect(self._on_in_timecode_edited)
         row_in_tc.addWidget(self.txt_in_timecode)
         in_layout.addLayout(row_in_tc)
@@ -698,6 +699,7 @@ class VideoTrimDialog(DarkModalDialog):
             }
             QLineEdit:focus { border: 1px solid #f59e0b; }
         """)
+        self.txt_out_timecode.returnPressed.connect(self._on_out_timecode_edited)
         self.txt_out_timecode.editingFinished.connect(self._on_out_timecode_edited)
         row_out_tc.addWidget(self.txt_out_timecode)
         out_layout.addLayout(row_out_tc)

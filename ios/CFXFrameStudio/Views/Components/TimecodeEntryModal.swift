@@ -12,6 +12,7 @@ struct TimecodeEntryModal: View {
     let target: TimecodeTarget
     let initialMs: Int64
     let durationMs: Int64
+    let fps: Double
     let onApply: (Int64) -> Void
     let onDismiss: () -> Void
 
@@ -22,15 +23,17 @@ struct TimecodeEntryModal: View {
         target: TimecodeTarget,
         initialMs: Int64,
         durationMs: Int64,
+        fps: Double = 30.0,
         onApply: @escaping (Int64) -> Void,
         onDismiss: @escaping () -> Void
     ) {
         self.target = target
         self.initialMs = initialMs
         self.durationMs = durationMs
+        self.fps = fps
         self.onApply = onApply
         self.onDismiss = onDismiss
-        _timecodeText = State(initialValue: formatMsToTimecode(initialMs))
+        _timecodeText = State(initialValue: formatToSMPTETimecode(seconds: Double(initialMs) / 1000.0, fps: fps))
     }
 
     var body: some View {
@@ -77,12 +80,12 @@ struct TimecodeEntryModal: View {
                     .padding(.vertical, 8)
 
                     Button("Apply") {
-                        if let parsedMs = parseTimecodeToMs(timecodeText) {
+                        if let parsedMs = parseTimecodeToMs(timecodeText, fps: fps) {
                             let clamped = max(0, min(durationMs, parsedMs))
                             onApply(clamped)
                             onDismiss()
                         } else {
-                            errorMessage = "Invalid timecode format (e.g. 01:23.450 or 83.45)"
+                            errorMessage = "Invalid timecode format (e.g. 01:23:15 or 83.45)"
                         }
                     }
                     .font(.system(size: 14, weight: .bold))
@@ -136,29 +139,34 @@ func formatMsToSMPTETimecode(_ ms: Int64, fps: Double) -> String {
 }
 
 func parseTimecodeToMs(_ input: String, fps: Double = 30.0) -> Int64? {
-    let raw = input.trimmingCharacters(in: .whitespacesAndNewlines)
-    if let sec = Double(raw) {
-        return Int64(sec * 1000.0)
+    let clean = input.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ";", with: ":")
+    if clean.isEmpty { return nil }
+
+    // Plain seconds with decimal (e.g. "83.5")
+    if !clean.contains(":") {
+        if let sec = Double(clean) {
+            return Int64(round(sec * 1000.0))
+        }
     }
 
-    let parts = raw.split(separator: ":").map { String($0) }
+    let parts = clean.split(separator: ":").map { String($0) }
+    let safeFps = max(1.0, fps)
     if parts.count == 4 {
         // SMPTE standard: HH:MM:SS:FF
         guard let h = Double(parts[0]),
               let m = Double(parts[1]),
               let s = Double(parts[2]),
               let f = Double(parts[3]) else { return nil }
-        let safeFps = max(1.0, fps)
         let totalSec = h * 3600.0 + m * 60.0 + s + (f / safeFps)
-        return Int64(totalSec * 1000.0)
+        return Int64(round(totalSec * 1000.0))
     } else if parts.count == 3 {
         // HH:MM:SS[.mmm]
         guard let h = Double(parts[0]), let m = Double(parts[1]), let s = Double(parts[2]) else { return nil }
-        return Int64((h * 3600.0 + m * 60.0 + s) * 1000.0)
+        return Int64(round((h * 3600.0 + m * 60.0 + s) * 1000.0))
     } else if parts.count == 2 {
         // MM:SS[.mmm]
         guard let m = Double(parts[0]), let s = Double(parts[1]) else { return nil }
-        return Int64((m * 60.0 + s) * 1000.0)
+        return Int64(round((m * 60.0 + s) * 1000.0))
     }
     return nil
 }

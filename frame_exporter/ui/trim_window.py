@@ -1118,7 +1118,35 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
         self.btn_jump_out.clicked.connect(lambda: self.seek_to_frame(self.out_point, immediate=True))
         transport_box.addWidget(self.btn_jump_out)
 
-        transport_box.addSpacing(16)
+        transport_box.addSpacing(14)
+
+        # Interactive Playhead Timecode Jump Box
+        lbl_cur_tc = QLabel("Time:")
+        lbl_cur_tc.setStyleSheet("color: #38BDF8; font-weight: bold; font-size: 11px;")
+        transport_box.addWidget(lbl_cur_tc)
+
+        self.txt_playhead_timecode = QLineEdit("00:00:00.000")
+        self.txt_playhead_timecode.setFixedWidth(106)
+        self.txt_playhead_timecode.setFixedHeight(27)
+        self.txt_playhead_timecode.setToolTip("Current Playhead Timecode (Enter timecode e.g. 01:23.450 or frame # and press Enter to jump)")
+        self.txt_playhead_timecode.setStyleSheet("""
+            QLineEdit {
+                background: #15151A;
+                border: 1px solid rgba(56, 189, 248, 0.4);
+                color: #38BDF8;
+                font-family: 'Consolas', monospace;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 2px 6px;
+                border-radius: 6px;
+            }
+            QLineEdit:focus { border: 1px solid #38BDF8; background: #1C1C24; color: #FFFFFF; }
+        """)
+        self.txt_playhead_timecode.returnPressed.connect(self._on_playhead_timecode_edited)
+        self.txt_playhead_timecode.editingFinished.connect(self._on_playhead_timecode_edited)
+        transport_box.addWidget(self.txt_playhead_timecode)
+
+        transport_box.addSpacing(14)
 
         self.chk_loop = QCheckBox("🔁 Loop Range")
         self.chk_loop.setChecked(True)
@@ -1197,6 +1225,7 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
             }
             QLineEdit:focus { border: 1px solid #C0000A; }
         """)
+        self.txt_in_timecode.returnPressed.connect(self._on_in_timecode_edited)
         self.txt_in_timecode.editingFinished.connect(self._on_in_timecode_edited)
         row_trim.addWidget(self.txt_in_timecode)
 
@@ -1242,6 +1271,7 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
             }
             QLineEdit:focus { border: 1px solid #C0000A; }
         """)
+        self.txt_out_timecode.returnPressed.connect(self._on_out_timecode_edited)
         self.txt_out_timecode.editingFinished.connect(self._on_out_timecode_edited)
         row_trim.addWidget(self.txt_out_timecode)
 
@@ -1832,6 +1862,14 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
         self.timeline.set_range(self.in_point, self.out_point)
         self._update_timeframe_stats_only()
 
+    def _on_playhead_timecode_edited(self):
+        if not self.video_engine.is_loaded:
+            return
+        fps = self.video_engine.fps if self.video_engine.fps > 0 else 30.0
+        text = self.txt_playhead_timecode.text().strip()
+        f_idx = timecode_to_frames(text, fps)
+        self.seek_to_frame(f_idx, immediate=True)
+
     def _on_in_timecode_edited(self):
         fps = self.video_engine.fps if self.video_engine.fps > 0 else 30.0
         text = self.txt_in_timecode.text().strip()
@@ -1989,6 +2027,12 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
         self.timeline.set_current_frame(frame_idx)
         self.player_canvas.current_frame = frame_idx
         self.player_canvas.update()
+
+        fps = self.video_engine.fps if self.video_engine.fps > 0 else 30.0
+        if hasattr(self, "txt_playhead_timecode") and not self.txt_playhead_timecode.hasFocus():
+            self.txt_playhead_timecode.blockSignals(True)
+            self.txt_playhead_timecode.setText(frames_to_timecode(frame_idx, fps))
+            self.txt_playhead_timecode.blockSignals(False)
 
         # 2. Check RAM cache first: if already cached in RAM, show in 0ms!
         cached = self.video_engine.frame_cache.get(frame_idx)

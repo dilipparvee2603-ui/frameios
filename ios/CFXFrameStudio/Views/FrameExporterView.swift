@@ -354,6 +354,7 @@ struct FrameExporterView: View {
                     target: .playhead,
                     initialMs: playerModel.currentPositionMs,
                     durationMs: info.durationMs,
+                    fps: info.fps,
                     onApply: { newMs in
                         seek(to: newMs)
                     },
