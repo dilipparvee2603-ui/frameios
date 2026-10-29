@@ -269,83 +269,130 @@ struct VideoEditorView: View {
     // MARK: - 2. Preview Monitor
     @ViewBuilder
     private var previewMonitor: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.surfaceCard)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.borderHairline, lineWidth: 1)
-                )
+        GeometryReader { geo in
+            let availW = geo.size.width
+            let availH = geo.size.height
 
-            if let clip = selectedClip {
-                // Live AVPlayer view
-                VideoPlayerView(player: playerModel.player)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .scaleEffect(clip.transform.scale)
-                    .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue)))
-                    .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
-            } else {
-                VStack(spacing: 14) {
-                    Image(systemName: "film.stack.fill")
-                        .font(.system(size: 38))
-                        .foregroundColor(.brandAccent)
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.surfaceCard)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.borderHairline, lineWidth: 1)
+                    )
 
-                    VStack(spacing: 4) {
-                        Text("No Video Added Yet")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.textPrimary)
+                if let clip = selectedClip {
+                    let ratio: CGFloat = project.canvasAspectRatio.ratioValue ?? (9.0 / 16.0)
+                    let maxH = max(80, availH - 16)
+                    let maxW = max(80, availW - 16)
 
-                        Text("Import a video to view real timeline frames & audio")
-                            .font(.system(size: 11))
-                            .foregroundColor(.textMuted)
+                    let (canvasW, canvasH): (CGFloat, CGFloat) = {
+                        if ratio < 1.0 {
+                            let h = maxH
+                            let w = min(maxW, h * ratio)
+                            return (w, h)
+                        } else {
+                            let w = min(maxW, maxH * ratio)
+                            let h = min(maxH, w / ratio)
+                            return (w, h)
+                        }
+                    }()
+
+                    // Canvas Container Box (Accurately sized to chosen Aspect Ratio)
+                    ZStack {
+                        Color.black
+
+                        VideoPlayerView(player: playerModel.player)
+                            .scaleEffect(clip.transform.scale)
+                            .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue)))
+                            .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
                     }
+                    .frame(width: canvasW, height: canvasH)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.skyAccent.opacity(0.55), lineWidth: 1.5)
+                    )
+                    .shadow(color: Color.black.opacity(0.6), radius: 6)
 
-                    HStack(spacing: 12) {
-                        Button(action: { showPhotosPicker = true }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "photo.on.rectangle")
-                                    .font(.system(size: 12, weight: .bold))
-                                Text("Camera Roll")
-                                    .font(.system(size: 12, weight: .bold))
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 9)
-                            .background(LinearGradient.brandGradient)
-                            .clipShape(Capsule())
+                    // Canvas Aspect Ratio Indicator Tag
+                    VStack {
+                        HStack {
+                            Text(project.canvasAspectRatio.badgeText)
+                                .font(.system(size: 9.5, weight: .heavy, design: .monospaced))
+                                .foregroundColor(.skyAccent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.black.opacity(0.75))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .padding(10)
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                } else {
+                    VStack(spacing: 14) {
+                        Image(systemName: "film.stack.fill")
+                            .font(.system(size: 38))
+                            .foregroundColor(.brandAccent)
+
+                        VStack(spacing: 4) {
+                            Text("No Video Added Yet")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.textPrimary)
+
+                            Text("Import a video to view real timeline frames & audio")
+                                .font(.system(size: 11))
+                                .foregroundColor(.textMuted)
                         }
 
-                        Button(action: { showFilePicker = true }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "folder.fill")
-                                    .font(.system(size: 12, weight: .bold))
-                                Text("Files")
-                                    .font(.system(size: 12, weight: .bold))
+                        HStack(spacing: 12) {
+                            Button(action: { showPhotosPicker = true }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "photo.on.rectangle")
+                                        .font(.system(size: 12, weight: .bold))
+                                    Text("Camera Roll")
+                                        .font(.system(size: 12, weight: .bold))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(LinearGradient.brandGradient)
+                                .clipShape(Capsule())
                             }
-                            .foregroundColor(.textPrimary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 9)
-                            .background(Color.elevatedSurface)
-                            .clipShape(Capsule())
+
+                            Button(action: { showFilePicker = true }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 12, weight: .bold))
+                                    Text("Files")
+                                        .font(.system(size: 12, weight: .bold))
+                                }
+                                .foregroundColor(.textPrimary)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .background(Color.elevatedSurface)
+                                .clipShape(Capsule())
+                            }
                         }
                     }
                 }
-            }
 
-            // Floating Timecode Overlay
-            VStack {
-                HStack {
+                // Floating Timecode Overlay
+                VStack {
+                    HStack {
+                        Spacer()
+                        Text("\(formatMs(playheadMs)) / \(formatMs(project.totalTimelineDurationMs))")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(.textPrimary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.voidCanvas.opacity(0.75))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .padding(10)
+                    }
                     Spacer()
-                    Text("\(formatMs(playheadMs)) / \(formatMs(project.totalTimelineDurationMs))")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.textPrimary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.voidCanvas.opacity(0.75))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .padding(10)
                 }
-                Spacer()
             }
         }
     }
@@ -947,34 +994,142 @@ struct VideoEditorView: View {
         }
     }
 
-    // MARK: - Transform Inspector
+    // MARK: - Transform Inspector (Zoom, Aspect Ratio Canvas, Rotate, Flips)
     @ViewBuilder
     private func transformInspector(clip: EditorClip) -> some View {
-        HStack(spacing: 12) {
-            Button(action: {
-                recordUndo()
-                project.clips[selectedClipIndex].transform.rotation = clip.transform.rotation.next
-            }) {
-                Label("Rotate 90°", systemImage: "rotate.right")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.skyAccent)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.skyAccent.opacity(0.15))
-                    .clipShape(Capsule())
+        VStack(alignment: .leading, spacing: 10) {
+            // 1. Aspect Ratio Selector
+            VStack(alignment: .leading, spacing: 4) {
+                Text("CANVAS ASPECT RATIO")
+                    .font(.system(size: 10, weight: .heavy))
+                    .foregroundColor(.textTertiary)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(AspectRatioPreset.allCases) { preset in
+                            let isSelected = project.canvasAspectRatio == preset
+                            Button(action: {
+                                recordUndo()
+                                project.canvasAspectRatio = preset
+                                ProjectStorageManager.shared.saveProject(project)
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "rectangle.dashed")
+                                        .font(.system(size: 10, weight: .bold))
+                                    Text(preset.badgeText)
+                                        .font(.system(size: 11, weight: .bold))
+                                }
+                                .foregroundColor(isSelected ? .white : .textSecondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(isSelected ? Color.skyAccent : Color.surfaceCard)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule().stroke(isSelected ? Color.skyAccent : Color.borderHairline, lineWidth: 1)
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
-            Button(action: {
-                recordUndo()
-                project.clips[selectedClipIndex].transform.flipH.toggle()
-            }) {
-                Label("Flip H", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.textSecondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+            Divider().background(Color.borderHairline)
+
+            // 2. Zoom / Scale Control
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("ZOOM / SCALE")
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundColor(.textTertiary)
+                    Spacer()
+                    Text(String(format: "%.2fx", clip.transform.scale))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(.brandAccent)
+
+                    Button("Reset") {
+                        recordUndo()
+                        project.clips[selectedClipIndex].transform.scale = 1.0
+                    }
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.textMuted)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
                     .background(Color.elevatedSurface)
                     .clipShape(Capsule())
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { project.clips[selectedClipIndex].transform.scale },
+                        set: { project.clips[selectedClipIndex].transform.scale = $0 }
+                    ),
+                    in: 0.5...3.0,
+                    step: 0.05
+                )
+                .accentColor(.brandAccent)
+
+                // Quick zoom presets
+                HStack(spacing: 6) {
+                    ForEach([0.8, 1.0, 1.25, 1.5, 2.0], id: \.self) { z in
+                        let isCur = abs(clip.transform.scale - z) < 0.04
+                        Button(action: {
+                            recordUndo()
+                            project.clips[selectedClipIndex].transform.scale = z
+                        }) {
+                            Text(String(format: "%.1fx", z))
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(isCur ? .white : .textSecondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(isCur ? Color.brandAccent : Color.elevatedSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
+            }
+
+            Divider().background(Color.borderHairline)
+
+            // 3. Rotation & Flip Controls
+            HStack(spacing: 10) {
+                Button(action: {
+                    recordUndo()
+                    project.clips[selectedClipIndex].transform.rotation = clip.transform.rotation.next
+                }) {
+                    Label("Rotate 90°", systemImage: "rotate.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.skyAccent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.skyAccent.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+
+                Button(action: {
+                    recordUndo()
+                    project.clips[selectedClipIndex].transform.flipH.toggle()
+                }) {
+                    Label(clip.transform.flipH ? "Flipped H" : "Flip H", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(clip.transform.flipH ? .emeraldAccent : .textSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(clip.transform.flipH ? Color.emeraldAccent.opacity(0.15) : Color.elevatedSurface)
+                        .clipShape(Capsule())
+                }
+
+                Button(action: {
+                    recordUndo()
+                    project.clips[selectedClipIndex].transform.flipV.toggle()
+                }) {
+                    Label(clip.transform.flipV ? "Flipped V" : "Flip V", systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(clip.transform.flipV ? .emeraldAccent : .textSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(clip.transform.flipV ? Color.emeraldAccent.opacity(0.15) : Color.elevatedSurface)
+                        .clipShape(Capsule())
+                }
             }
         }
     }

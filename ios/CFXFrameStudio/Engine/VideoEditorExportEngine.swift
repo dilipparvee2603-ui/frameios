@@ -133,31 +133,79 @@ final class VideoEditorExportEngine {
         let targetH = Int(canvasDims.height)
 
         var concatArgs: [String] = ["-threads", "0", "-y"]
-        var filterComplexInputs = ""
-        var filterComplexStreams = ""
+        var filterComplexParts: [String] = []
+        var concatStreams = ""
 
         for (idx, clipUrl) in preparedClipUrls.enumerated() {
             concatArgs += ["-i", clipUrl.path]
             let clip = project.clips[idx]
 
-            // Color grading filters
-            var colorFilters: [String] = []
-            if clip.color.contrast != 1.0 { colorFilters.append("eq=contrast=\(String(format: "%.2f", clip.color.contrast))") }
-            if clip.color.brightness != 0.0 { colorFilters.append("eq=brightness=\(String(format: "%.2f", clip.color.brightness))") }
-            if clip.color.saturation != 1.0 { colorFilters.append("eq=saturation=\(String(format: "%.2f", clip.color.saturation))") }
+            // Check if audio track exists on this clip
+            let clipAsset = AVURLAsset(url: clipUrl)
+            let hasAudioTrack = (try? clipAsset.loadTracks(withMediaType: .audio).isEmpty == false) ?? false
 
-            let colorStr = colorFilters.isEmpty ? "" : (colorFilters.joined(separator: ",") + ",")
+            // 1. Video Filters
+            var vFilters: [String] = []
 
-            // Scale & Pad to target canvas aspect
-            let scaleFilter = "\(colorStr)scale=\(targetW):\(targetH):force_original_aspect_ratio=decrease,pad=\(targetW):\(targetH):(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=\(config.targetFps)"
-            filterComplexInputs += "[\(idx):v]\(scaleFilter)[v\(idx)];"
-            filterComplexStreams += "[v\(idx)][\(idx):a]"
+            // A. Rotation & Flip
+            switch clip.transform.rotation {
+            case .r90:
+                vFilters.append("transpose=1")
+            case .r180:
+                vFilters.append("transpose=1,transpose=1")
+            case .r270:
+                vFilters.append("transpose=2")
+            case .r0:
+                break
+            }
+
+            if clip.transform.flipH {
+                vFilters.append("hflip")
+            }
+            if clip.transform.flipV {
+                vFilters.append("vflip")
+            }
+
+            // B. Zoom / Scale
+            let zoom = max(0.5, min(4.0, clip.transform.scale))
+            if abs(zoom - 1.0) > 0.01 {
+                vFilters.append("scale=iw*\(String(format: "%.2f", zoom)):-2")
+            }
+
+            // C. Color grading
+            if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
+                vFilters.append("eq=contrast=\(String(format: "%.2f", clip.color.contrast)):brightness=\(String(format: "%.2f", clip.color.brightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
+            }
+
+            // D. Pad & Conform to target canvas aspect ratio
+            vFilters.append("scale=\(targetW):\(targetH):force_original_aspect_ratio=decrease")
+            vFilters.append("pad=\(targetW):\(targetH):(ow-iw)/2:(oh-ih)/2:black")
+            vFilters.append("setsar=1")
+            vFilters.append("fps=\(config.targetFps)")
+
+            let vFilterStr = vFilters.joined(separator: ",")
+            filterComplexParts.append("[\(idx):v]\(vFilterStr)[v\(idx)]")
+
+            // 2. Audio Filters
+            let clipDurationSec = max(0.1, Double(clip.timelineDurationMs) / 1000.0)
+            if hasAudioTrack && !clip.isMuted {
+                let vol = String(format: "%.2f", clip.volume)
+                filterComplexParts.append("[\(idx):a]volume=\(vol),aformat=sample_rates=48000:channel_layouts=stereo[a\(idx)]")
+            } else {
+                // Generate silent audio of exact duration so multi-clip concat never fails
+                filterComplexParts.append("aevalsrc=0:d=\(String(format: "%.3f", clipDurationSec)):s=48000:cl=stereo[a\(idx)]")
+            }
+
+            concatStreams += "[v\(idx)][a\(idx)]"
         }
 
-        let concatStream = "\(filterComplexInputs)\(filterComplexStreams)concat=n=\(preparedClipUrls.count):v=1:a=1[outv][outa]"
+        let concatFilter = "\(concatStreams)concat=n=\(preparedClipUrls.count):v=1:a=1[outv][outa]"
+        filterComplexParts.append(concatFilter)
+
+        let filterComplexString = filterComplexParts.joined(separator: ";")
 
         concatArgs += [
-            "-filter_complex", concatStream,
+            "-filter_complex", filterComplexString,
             "-map", "[outv]",
             "-map", "[outa]",
             "-c:v", config.videoCodec,
