@@ -1,6 +1,6 @@
 import SwiftUI
 import PhotosUI
-import CoreImage.CIFilterBuiltins
+import CoreImage
 
 // MARK: - Wi-Fi Transfer View
 struct WiFiTransferView: View {
