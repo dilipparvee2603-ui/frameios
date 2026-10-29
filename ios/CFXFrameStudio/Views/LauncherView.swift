@@ -31,9 +31,9 @@ struct LauncherView: View {
                     // Bento Grid Scroll View
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 12) {
-                            // Bento 2-Column Grid (6 Core Tools)
+                            // 2-Column Grid (6 Tools)
                             LazyVGrid(columns: columns, spacing: 12) {
-                                // Lossless Trimmer
+                                // 1. Lossless Trimmer
                                 NavigationLink(destination: VideoTrimmerView()) {
                                     bentoCard(
                                         title: "Video Trimmer",
@@ -45,7 +45,20 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // Frame Exporter
+                                // 2. Video Stitcher (New!)
+                                NavigationLink(destination: VideoStitcherView()) {
+                                    bentoCard(
+                                        title: "Clip Stitcher",
+                                        badge: "0% LOSS",
+                                        icon: "film.stack",
+                                        accentColor: .brandAccent,
+                                        gradient: LinearGradient.brandGradient,
+                                        footerTag: "MERGE CLIPS"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
+
+                                // 3. Frame Exporter
                                 NavigationLink(destination: FrameExporterView()) {
                                     bentoCard(
                                         title: "Frame Exporter",
@@ -57,7 +70,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // Format Converter
+                                // 4. Format Converter
                                 NavigationLink(destination: VideoConverterView()) {
                                     bentoCard(
                                         title: "Converter",
@@ -69,7 +82,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // Slow-Mo Studio
+                                // 5. Slow-Mo Studio
                                 NavigationLink(destination: SlowMoView()) {
                                     bentoCard(
                                         title: "Slow-Mo Studio",
@@ -86,7 +99,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // Image Cropper
+                                // 6. Image Cropper
                                 NavigationLink(destination: ImageCropperView()) {
                                     bentoCard(
                                         title: "Image Cropper",
@@ -97,19 +110,19 @@ struct LauncherView: View {
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
-
-                                // Direct Downloader
-                                NavigationLink(destination: DirectDownloaderView()) {
-                                    bentoCard(
-                                        title: "Downloader",
-                                        badge: "FAST FETCH",
-                                        icon: "arrow.down.circle",
-                                        accentColor: .skyAccent,
-                                        footerTag: "CDN CAPTURE"
-                                    )
-                                }
-                                .buttonStyle(BentoButtonStyle())
                             }
+
+                            // 7. Full-Width Wide Card: Direct Downloader
+                            NavigationLink(destination: DirectDownloaderView()) {
+                                wideBentoCard(
+                                    title: "Link Downloader",
+                                    badge: "FAST FETCH",
+                                    icon: "arrow.down.circle",
+                                    accentColor: .skyAccent,
+                                    footerTag: "DIRECT CLOUDFLARE & CDN CAPTURE"
+                                )
+                            }
+                            .buttonStyle(BentoButtonStyle())
 
                             // System Telemetry Bento Bar (Full Width)
                             systemStatusCard
@@ -247,6 +260,71 @@ struct LauncherView: View {
             .padding(13)
         }
         .frame(height: 120)
+    }
+
+    // MARK: - Wide Bento Card (Spanning 2 Columns)
+    private func wideBentoCard(
+        title: String,
+        badge: String,
+        icon: String,
+        accentColor: Color,
+        footerTag: String
+    ) -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.surfaceCard)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.borderHairline, lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.22), radius: 5, x: 0, y: 2)
+
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(accentColor.opacity(0.14))
+                        .frame(width: 36, height: 36)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .stroke(accentColor.opacity(0.3), lineWidth: 1)
+                        )
+
+                    Image(systemName: icon)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(accentColor)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(.system(size: 13.5, weight: .bold))
+                            .foregroundColor(.textPrimary)
+
+                        Text(badge)
+                            .font(.system(size: 7.5, weight: .heavy))
+                            .tracking(0.5)
+                            .foregroundColor(accentColor)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(accentColor.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+
+                    Text(footerTag)
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(.textTertiary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.textTertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+        .frame(height: 56)
     }
 
     // MARK: - System Status Bento Bar

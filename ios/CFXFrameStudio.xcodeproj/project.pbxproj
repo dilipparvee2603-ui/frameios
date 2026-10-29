@@ -31,6 +31,8 @@
 		E20000012900000100000015 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000017 /* SettingsView.swift */; };
 		E20000012900000100000016 /* SlowMoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000018 /* SlowMoEngine.swift */; };
 		E20000012900000100000017 /* SlowMoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000019 /* SlowMoView.swift */; };
+		E20000012900000100000020 /* VideoStitchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000020 /* VideoStitchEngine.swift */; };
+		E20000012900000100000021 /* VideoStitcherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000021 /* VideoStitcherView.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -62,6 +64,8 @@
 		E10000012900000100000017 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E10000012900000100000018 /* SlowMoEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlowMoEngine.swift; sourceTree = "<group>"; };
 		E10000012900000100000019 /* SlowMoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlowMoView.swift; sourceTree = "<group>"; };
+		E10000012900000100000020 /* VideoStitchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoStitchEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000021 /* VideoStitcherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoStitcherView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +137,7 @@
 				E10000012900000100000015 /* MKVRemuxEngine.swift */,
 				E10000012900000100000016 /* StorageManager.swift */,
 				E10000012900000100000018 /* SlowMoEngine.swift */,
+				E10000012900000100000020 /* VideoStitchEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -148,6 +153,7 @@
 				E10000012900000100000013 /* DirectDownloaderView.swift */,
 				E10000012900000100000017 /* SettingsView.swift */,
 				E10000012900000100000019 /* SlowMoView.swift */,
+				E10000012900000100000021 /* VideoStitcherView.swift */,
 				E40000012900000100000006 /* Components */,
 			);
 			path = Views;
@@ -269,6 +275,8 @@
 				E20000012900000100000015 /* SettingsView.swift in Sources */,
 				E20000012900000100000016 /* SlowMoEngine.swift in Sources */,
 				E20000012900000100000017 /* SlowMoView.swift in Sources */,
+				E20000012900000100000020 /* VideoStitchEngine.swift in Sources */,
+				E20000012900000100000021 /* VideoStitcherView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
