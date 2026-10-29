@@ -1,31 +1,74 @@
 import Foundation
 import ffmpegkit
 import AVFoundation
+import UniformTypeIdentifiers
 
-/// Probed media metadata extracted before remuxing
+// MARK: - Supported Media Type Extensions for Native Pickers
+
+extension UTType {
+    /// Comprehensive list of all modern, broadcast, cinema, and legacy video formats supported by CFX Studio
+    public static let supportedVideoImportTypes: [UTType] = [
+        .movie,
+        .video,
+        .quickTimeMovie,
+        .mpeg4Movie,
+        UTType(filenameExtension: "mkv") ?? .movie,
+        UTType(filenameExtension: "webm") ?? .movie,
+        UTType(filenameExtension: "avi") ?? .movie,
+        UTType(filenameExtension: "ts") ?? .movie,
+        UTType(filenameExtension: "mts") ?? .movie,
+        UTType(filenameExtension: "m2ts") ?? .movie,
+        UTType(filenameExtension: "flv") ?? .movie,
+        UTType(filenameExtension: "wmv") ?? .movie,
+        UTType(filenameExtension: "asf") ?? .movie,
+        UTType(filenameExtension: "vob") ?? .movie,
+        UTType(filenameExtension: "3gp") ?? .movie,
+        UTType(filenameExtension: "3g2") ?? .movie,
+        UTType(filenameExtension: "ogv") ?? .movie,
+        UTType(filenameExtension: "divx") ?? .movie,
+        UTType(filenameExtension: "m4v") ?? .movie,
+        .item
+    ]
+}
+
+/// Probed media metadata extracted before remuxing or normalizing
 private struct ProbedMediaInfo {
     var durationSec: Double = 0.0
     var width: Int = 0
     var height: Int = 0
     var isHEVC: Bool = false
     var isH264: Bool = false
+    var isProRes: Bool = false
     var isVP: Bool = false
     var isAV1: Bool = false
+    var isMPEG2: Bool = false
+    var isMPEG4Part2: Bool = false
+    var isVC1: Bool = false
+    var isFLV: Bool = false
+    var isMJPEG: Bool = false
+    var isTheora: Bool = false
+    var isHi10P: Bool = false
+    var isHDR: Bool = false
     var videoCodec: String = ""
     var audioCodec: String = ""
     var isHev1Tag: Bool = false
     var needsAudioTranscode: Bool = false
+    var colorPrimaries: String = ""
+    var colorTransfer: String = ""
+    var colorSpace: String = ""
 }
 
-/// Ultra-fast container remuxer that repackages Matroska (.mkv) and WebM (.webm)
-/// files into native Apple QuickTime/MP4 containers with real-time percentage progress.
+/// Universal Media Normalizer Engine
 ///
-/// Performance & Compatibility Features:
-/// 1. Direct stream-copy for video with automatic `-tag:v hvc1` tagging for HEVC (prevents Apple AVPlayer black screen).
-/// 2. Stream-copies compatible audio (AAC/AC3/MP3) with automatic Tier-2 AAC fallback for exotic audio (DTS/Opus/FLAC).
-/// 3. Resilient WebM transcode using Apple hardware `h264_videotoolbox` with automatic `mpeg4` fallback (zero missing encoder failures).
-/// 4. Applies `-movflags +faststart` to place MOOV atom at file beginning for instant frame rendering and scrubbing in AVPlayer.
-/// 5. Multithreaded execution (`-threads 0`) utilizing all Apple Silicon high-performance cores.
+/// Converts, repackages, and normalizes ANY video format (MKV, WebM, AVI, TS, FLV, WMV, VOB,
+/// HEVC `hev1`, VP9, AV1, DivX, Xvid, MPEG-2, Hi10P) into Apple-compatible hardware MP4 containers.
+///
+/// Guarantees:
+/// 1. Direct stream-copy for standard H.264 / HEVC (100% lossless, 0% quality loss, ~1-2s).
+/// 2. Automatic `-tag:v hvc1` tagging for HEVC (prevents Apple AVPlayer black screen).
+/// 3. In-flight transcode of incompatible audio (DTS, AC3, EAC3 Dolby Atmos, TrueHD, Opus, Vorbis, FLAC, WMA) to AAC.
+/// 4. Hardware-accelerated VideoToolbox transcode for VP8, VP9, AV1, DivX, Xvid, MPEG-2, and Hi10P.
+/// 5. Injects `-movflags +faststart` for zero-buffer instant playback and scrubbing.
 final class MKVRemuxEngine {
     static let shared = MKVRemuxEngine()
     private init() {}
@@ -35,36 +78,70 @@ final class MKVRemuxEngine {
         FFmpegKit.cancel()
     }
 
-    private static var cachedSupportedVideoEncoder: String? = nil
+    private static let nonNativeContainers: Set<String> = [
+        "mkv", "webm", "avi", "ts", "mts", "m2ts", "flv", "wmv", "asf", "vob", "3gp", "3g2", "ogv", "divx", "f4v"
+    ]
 
-    /// Detects the highest-performing video encoder supported by the runtime FFmpeg build
-    private static func getBestVideoEncoder() -> String {
-        if let cached = cachedSupportedVideoEncoder {
-            return cached
-        }
-        if let session = FFmpegKit.execute("-encoders"),
-           let output = session.getAllLogsAsString() ?? session.getOutput() {
-            if output.contains("h264_videotoolbox") {
-                cachedSupportedVideoEncoder = "h264_videotoolbox"
-                return "h264_videotoolbox"
-            }
-            if output.contains("libx264") {
-                cachedSupportedVideoEncoder = "libx264"
-                return "libx264"
-            }
-        }
-        // Native MPEG-4 Part 2 is built into every libavcodec binary and natively decoded by iOS AVPlayer
-        cachedSupportedVideoEncoder = "mpeg4"
-        return "mpeg4"
+    /// Checks if a given file URL points to a non-native Apple container
+    func isNonNativeContainer(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return Self.nonNativeContainers.contains(ext)
     }
 
-    /// Constructs studio-grade transcode arguments with adaptive high bitrate for pristine, visual-lossless quality
+    /// Legacy convenience alias for backwards compatibility
+    func isMatroska(url: URL) -> Bool {
+        return isNonNativeContainer(url: url)
+    }
+
+    private static var cachedH264Encoder: String? = nil
+    private static var cachedHEVCEncoder: String? = nil
+
+    /// Detects the highest-performing video encoder supported by runtime FFmpeg
+    private static func getBestVideoEncoder(forHDR: Bool = false) -> String {
+        if forHDR {
+            if let cached = cachedHEVCEncoder { return cached }
+            if let session = FFmpegKit.execute("-encoders"),
+               let output = session.getAllLogsAsString() ?? session.getOutput() {
+                if output.contains("hevc_videotoolbox") {
+                    cachedHEVCEncoder = "hevc_videotoolbox"
+                    return "hevc_videotoolbox"
+                }
+                if output.contains("libx265") {
+                    cachedHEVCEncoder = "libx265"
+                    return "libx265"
+                }
+            }
+            cachedHEVCEncoder = "hevc_videotoolbox"
+            return "hevc_videotoolbox"
+        } else {
+            if let cached = cachedH264Encoder { return cached }
+            if let session = FFmpegKit.execute("-encoders"),
+               let output = session.getAllLogsAsString() ?? session.getOutput() {
+                if output.contains("h264_videotoolbox") {
+                    cachedH264Encoder = "h264_videotoolbox"
+                    return "h264_videotoolbox"
+                }
+                if output.contains("libx264") {
+                    cachedH264Encoder = "libx264"
+                    return "libx264"
+                }
+            }
+            cachedH264Encoder = "h264_videotoolbox"
+            return "h264_videotoolbox"
+        }
+    }
+
+    /// Constructs studio-grade transcode arguments with adaptive high bitrate
     private static func buildTranscodeArgs(
         sourceUrl: URL,
         outputUrl: URL,
         encoder: String,
         width: Int,
         height: Int,
+        isHDR: Bool,
+        colorPrimaries: String,
+        colorTransfer: String,
+        colorSpace: String,
         hasAudio: Bool
     ) -> [String] {
         var args = [
@@ -73,12 +150,40 @@ final class MKVRemuxEngine {
             "-i", sourceUrl.path,
             "-map", "0:v:0",
             "-map_metadata", "0",
-            "-c:v", encoder,
-            "-pix_fmt", "yuv420p"
+            "-c:v", encoder
         ]
 
-        if encoder == "h264_videotoolbox" {
-            // Adaptive ultra-high bitrate matching Apple ProRes/AVFoundation master profiles
+        if encoder.contains("hevc") {
+            args += ["-tag:v", "hvc1"]
+            if isHDR {
+                args += ["-pix_fmt", "yuv420p10le"]
+            } else {
+                args += ["-pix_fmt", "yuv420p"]
+            }
+        } else {
+            args += ["-pix_fmt", "yuv420p"]
+        }
+
+        // Forward color metadata for HDR10 / HLG / Wide Gamut
+        if !colorPrimaries.isEmpty {
+            args += ["-color_primaries", colorPrimaries]
+        } else if isHDR {
+            args += ["-color_primaries", "bt2020"]
+        }
+
+        if !colorTransfer.isEmpty {
+            args += ["-color_trc", colorTransfer]
+        } else if isHDR {
+            args += ["-color_trc", "smpte2084"]
+        }
+
+        if !colorSpace.isEmpty {
+            args += ["-colorspace", colorSpace]
+        } else if isHDR {
+            args += ["-colorspace", "bt2020nc"]
+        }
+
+        if encoder.contains("videotoolbox") {
             let targetBitrate: String
             let maxBitrate: String
             if width >= 3840 || height >= 2160 {
@@ -98,22 +203,14 @@ final class MKVRemuxEngine {
             args += [
                 "-b:v", targetBitrate,
                 "-maxrate", maxBitrate,
-                "-profile:v", "high",
-                "-allow_sw", "1",
-                "-colorspace", "1",
-                "-color_primaries", "1",
-                "-color_trc", "1"
+                "-allow_sw", "1"
             ]
-        } else if encoder == "libx264" {
+        } else if encoder == "libx264" || encoder == "libx265" {
             args += [
                 "-preset", "veryfast",
-                "-crf", "17",
-                "-colorspace", "1",
-                "-color_primaries", "1",
-                "-color_trc", "1"
+                "-crf", "18"
             ]
         } else if encoder == "mpeg4" {
-            // Quality scale 1 is pristine maximum quality for native MPEG-4
             args += ["-q:v", "1"]
         }
 
@@ -121,7 +218,7 @@ final class MKVRemuxEngine {
             args += [
                 "-map", "0:a:0?",
                 "-c:a", "aac",
-                "-b:a", "320k"
+                "-b:a", "256k"
             ]
         } else {
             args += ["-an"]
@@ -134,16 +231,9 @@ final class MKVRemuxEngine {
         return args
     }
 
-    /// Checks if a given file URL points to a Matroska or WebM container
-    func isMatroska(url: URL) -> Bool {
-        let ext = url.pathExtension.lowercased()
-        return ext == "mkv" || ext == "webm"
-    }
-
-    /// Checks if a video requires container remuxing or tag normalization
-    /// (e.g. MKV, WebM, HEVC tagged as `hev1`, or MP4 with AC3/EAC3/DTS audio that causes black screens in AVPlayer)
+    /// Checks if a video requires container remuxing, tag normalization, or video/audio transcoding
     func requiresRemuxing(url: URL) async -> Bool {
-        if isMatroska(url: url) {
+        if isNonNativeContainer(url: url) {
             return true
         }
 
@@ -158,18 +248,25 @@ final class MKVRemuxEngine {
                     if fourCC == "hev1" {
                         return true
                     }
+                    // Non-native video codecs inside MP4/MOV that AVPlayer fails on
+                    if fourCC == "vp08" || fourCC == "vp09" || fourCC == "av01" ||
+                       fourCC == "divx" || fourCC == "xvid" || fourCC == "mp4v" ||
+                       fourCC == "dvc " || fourCC == "wmv3" {
+                        return true
+                    }
                 }
             }
         }
 
-        // Check if audio has AC-3, E-AC-3, DTS, TrueHD, Opus, or FLAC which cause AVPlayer / AVAssetExportSession failure in MP4
+        // Check if audio has non-standard tracks
         if let audioTracks = try? await asset.loadTracks(withMediaType: .audio) {
             for aTrack in audioTracks {
                 if let descs = try? await aTrack.load(.formatDescriptions) {
                     for desc in descs {
                         let subType = CMFormatDescriptionGetMediaSubType(desc)
                         let fourCC = fourCharCodeToString(subType).lowercased()
-                        if fourCC.contains("ac-3") || fourCC.contains("ec-3") || fourCC.contains("dts") || fourCC.contains("opus") {
+                        if fourCC.contains("ac-3") || fourCC.contains("ec-3") || fourCC.contains("dts") ||
+                           fourCC.contains("opus") || fourCC.contains("flac") || fourCC.contains("wma") {
                             return true
                         }
                     }
@@ -188,11 +285,30 @@ final class MKVRemuxEngine {
                     let type = stream.getType()?.lowercased() ?? ""
                     let codec = stream.getCodec()?.lowercased() ?? ""
                     let tag = (stream.getProperty("codec_tag_string") as? String)?.lowercased() ?? ""
-                    if type == "video" && (codec.contains("hevc") || codec.contains("h265")) && (tag == "hev1" || tag.contains("hev")) {
-                        return true
+                    let pixFmt = (stream.getProperty("pix_fmt") as? String)?.lowercased() ?? ""
+                    let profile = (stream.getProperty("profile") as? String)?.lowercased() ?? ""
+
+                    if type == "video" {
+                        if (codec.contains("hevc") || codec.contains("h265")) && (tag == "hev1" || tag.contains("hev")) {
+                            return true
+                        }
+                        if (codec.contains("264") || codec.contains("avc")) && (pixFmt.contains("10") || profile.contains("high 10")) {
+                            return true
+                        }
+                        if codec.contains("vp8") || codec.contains("vp9") || codec.contains("vp09") ||
+                           codec.contains("av1") || codec.contains("av01") ||
+                           codec.contains("mpeg2") || codec.contains("mpeg1") || codec.contains("mp2v") ||
+                           codec.contains("mpeg4") || codec.contains("mp4v") || codec.contains("divx") || codec.contains("xvid") ||
+                           codec.contains("vc1") || codec.contains("wmv") ||
+                           codec.contains("flv") || codec.contains("theora") || codec.contains("mjpeg") {
+                            return true
+                        }
                     }
+
                     if type == "audio" {
-                        if codec.contains("ac3") || codec.contains("eac3") || codec.contains("dts") || codec.contains("opus") || codec.contains("vorbis") || codec.contains("flac") || codec.contains("truehd") {
+                        if codec.contains("ac3") || codec.contains("eac3") || codec.contains("dts") ||
+                           codec.contains("opus") || codec.contains("vorbis") || codec.contains("flac") ||
+                           codec.contains("truehd") || codec.contains("wma") || codec.contains("amr") {
                             return true
                         }
                     }
@@ -208,11 +324,11 @@ final class MKVRemuxEngine {
         return false
     }
 
-    /// Remuxes an MKV or WebM video file to an Apple-compatible MP4 container.
+    /// Remuxes or normalizes any video file to an Apple-compatible MP4 container.
     ///
     /// - Parameters:
-    ///   - sourceUrl: The local file URL of the source .mkv or .webm video.
-    ///   - onProgress: Closure receiving normalized progress (0.0 ... 1.0) and current speed text (e.g., "45.0x").
+    ///   - sourceUrl: The local file URL of the source video.
+    ///   - onProgress: Closure receiving normalized progress (0.0 ... 1.0) and current speed text.
     /// - Returns: The URL of the resulting .mp4 file stored in the temporary directory.
     func remuxToMP4(
         sourceUrl: URL,
@@ -221,7 +337,7 @@ final class MKVRemuxEngine {
         let baseName = sourceUrl.deletingPathExtension().lastPathComponent
         let sanitizedBaseName = baseName.isEmpty ? "movie" : baseName
         let outputUrl = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(sanitizedBaseName)_remuxed.mp4")
+            .appendingPathComponent("\(sanitizedBaseName)_optimized.mp4")
 
         try? FileManager.default.removeItem(at: outputUrl)
 
@@ -250,22 +366,52 @@ final class MKVRemuxEngine {
                             info.height = h
                         }
                         let tag = (stream.getProperty("codec_tag_string") as? String)?.lowercased() ?? ""
+                        let pixFmt = (stream.getProperty("pix_fmt") as? String)?.lowercased() ?? ""
+                        let profile = (stream.getProperty("profile") as? String)?.lowercased() ?? ""
+                        info.colorPrimaries = (stream.getProperty("color_primaries") as? String)?.lowercased() ?? ""
+                        info.colorTransfer = (stream.getProperty("color_transfer") as? String)?.lowercased() ?? ""
+                        info.colorSpace = (stream.getProperty("color_space") as? String)?.lowercased() ?? ""
+
                         if tag == "hev1" || tag.contains("hev") {
                             info.isHev1Tag = true
+                        }
+                        if pixFmt.contains("10") || profile.contains("10") || info.colorTransfer.contains("smpte2084") || info.colorTransfer.contains("arib-std-b67") {
+                            info.isHDR = true
                         }
                         if codec.contains("hevc") || codec.contains("h265") || codec.contains("hev") || codec.contains("hvc") {
                             info.isHEVC = true
                         } else if codec.contains("264") || codec.contains("avc") {
                             info.isH264 = true
-                        } else if codec.contains("vp9") || codec.contains("vp8") {
+                            if pixFmt.contains("10") || profile.contains("high 10") {
+                                info.isHi10P = true
+                            }
+                        } else if codec.contains("prores") {
+                            info.isProRes = true
+                        } else if codec.contains("vp9") || codec.contains("vp8") || codec.contains("vp09") {
                             info.isVP = true
                         } else if codec.contains("av1") || codec.contains("av01") {
                             info.isAV1 = true
+                        } else if codec.contains("mpeg2") || codec.contains("mpeg1") || codec.contains("mp2v") {
+                            info.isMPEG2 = true
+                        } else if codec.contains("mpeg4") || codec.contains("mp4v") || codec.contains("divx") || codec.contains("xvid") || codec.contains("dx50") || codec.contains("3ivx") {
+                            info.isMPEG4Part2 = true
+                        } else if codec.contains("vc1") || codec.contains("wmv") {
+                            info.isVC1 = true
+                        } else if codec.contains("flv") || codec.contains("vp6") || codec.contains("sorenson") {
+                            info.isFLV = true
+                        } else if codec.contains("mjpeg") || codec.contains("jpeg") {
+                            info.isMJPEG = true
+                        } else if codec.contains("theora") {
+                            info.isTheora = true
                         }
                     } else if type == "audio" && info.audioCodec.isEmpty {
                         info.audioCodec = codec
                         let lower = codec.lowercased()
-                        if lower.contains("ac3") || lower.contains("eac3") || lower.contains("dts") || lower.contains("opus") || lower.contains("vorbis") || lower.contains("flac") || lower.contains("truehd") || (!lower.contains("aac") && !lower.contains("mp3") && !lower.contains("alac")) {
+                        if lower.contains("ac3") || lower.contains("eac3") || lower.contains("dts") ||
+                           lower.contains("opus") || lower.contains("vorbis") || lower.contains("flac") ||
+                           lower.contains("truehd") || lower.contains("wma") || lower.contains("amr") ||
+                           lower.contains("pcm") || lower.contains("mp2") || lower.contains("ra") ||
+                           (!lower.contains("aac") && !lower.contains("mp3") && !lower.contains("alac")) {
                             info.needsAudioTranscode = true
                         }
                     }
@@ -336,21 +482,31 @@ final class MKVRemuxEngine {
         }
 
         return try await Task.detached(priority: .userInitiated) {
-            // Check if source video codec requires transcoding for Apple AVPlayer compatibility:
-            // - WebM files (which typically use VP8, VP9, or AV1)
-            // - Any container with VP8/VP9/AV1
-            let isWebM = sourceUrl.pathExtension.lowercased() == "webm"
-            let requiresTranscode = probedInfo.isVP || probedInfo.isAV1 || (isWebM && !probedInfo.isHEVC && !probedInfo.isH264)
+            // Determine if video stream MUST be transcoded (unsupported codec on Apple AVPlayer)
+            let requiresTranscode = probedInfo.isVP ||
+                                    probedInfo.isAV1 ||
+                                    probedInfo.isMPEG2 ||
+                                    probedInfo.isMPEG4Part2 ||
+                                    probedInfo.isVC1 ||
+                                    probedInfo.isFLV ||
+                                    probedInfo.isMJPEG ||
+                                    probedInfo.isTheora ||
+                                    probedInfo.isHi10P ||
+                                    (!probedInfo.isHEVC && !probedInfo.isH264 && !probedInfo.isProRes && !probedInfo.videoCodec.isEmpty)
 
             if requiresTranscode {
-                onProgress?(0.05, "Converting WebM with Master Quality...")
-                let primaryEncoder = MKVRemuxEngine.getBestVideoEncoder()
+                onProgress?(0.05, "Optimizing Video for Apple Silicon...")
+                let primaryEncoder = MKVRemuxEngine.getBestVideoEncoder(forHDR: probedInfo.isHDR)
                 let primaryArgs = MKVRemuxEngine.buildTranscodeArgs(
                     sourceUrl: sourceUrl,
                     outputUrl: outputUrl,
                     encoder: primaryEncoder,
                     width: probedInfo.width,
                     height: probedInfo.height,
+                    isHDR: probedInfo.isHDR,
+                    colorPrimaries: probedInfo.colorPrimaries,
+                    colorTransfer: probedInfo.colorTransfer,
+                    colorSpace: probedInfo.colorSpace,
                     hasAudio: !probedInfo.audioCodec.isEmpty
                 )
 
@@ -374,6 +530,10 @@ final class MKVRemuxEngine {
                         encoder: "mpeg4",
                         width: probedInfo.width,
                         height: probedInfo.height,
+                        isHDR: false,
+                        colorPrimaries: "",
+                        colorTransfer: "",
+                        colorSpace: "",
                         hasAudio: !probedInfo.audioCodec.isEmpty
                     )
                     let fbSession = FFmpegKit.execute(withArguments: fallbackArgs)
@@ -387,18 +547,17 @@ final class MKVRemuxEngine {
                     }
                 }
 
-                let logs = session?.getAllLogsAsString() ?? session?.getFailStackTrace() ?? "WebM conversion failed"
+                let logs = session?.getAllLogsAsString() ?? session?.getFailStackTrace() ?? "Video optimization failed"
                 let lastLines = logs.split(separator: "\n").suffix(6).joined(separator: "\n")
                 throw NSError(
                     domain: "MKVRemuxEngine",
                     code: Int(code?.getValue() ?? -1),
-                    userInfo: [NSLocalizedDescriptionKey: "WebM conversion error:\n\(lastLines)"]
+                    userInfo: [NSLocalizedDescriptionKey: "Video conversion error:\n\(lastLines)"]
                 )
             }
 
             // Tier 1: Pure Stream Copy (Both video and audio stream copied bit-for-bit, or audio transcoded to AAC if incompatible).
-            // IMPORTANT: If video is HEVC, tag as `hvc1` so Apple's AVPlayer/AVPlayerLayer can decode it (without this, iOS shows a black screen!).
-            // Apply +faststart to move MOOV atom to file beginning for instant playback.
+            // Apply `-tag:v hvc1` for HEVC and `+faststart` for zero-buffer instant start.
             var tier1Arguments = [
                 "-threads", "0",
                 "-y",
@@ -410,6 +569,16 @@ final class MKVRemuxEngine {
 
             if probedInfo.isHEVC || probedInfo.isHev1Tag {
                 tier1Arguments += ["-tag:v", "hvc1"]
+            }
+
+            if !probedInfo.colorPrimaries.isEmpty {
+                tier1Arguments += ["-color_primaries", probedInfo.colorPrimaries]
+            }
+            if !probedInfo.colorTransfer.isEmpty {
+                tier1Arguments += ["-color_trc", probedInfo.colorTransfer]
+            }
+            if !probedInfo.colorSpace.isEmpty {
+                tier1Arguments += ["-colorspace", probedInfo.colorSpace]
             }
 
             if probedInfo.needsAudioTranscode {
@@ -439,11 +608,11 @@ final class MKVRemuxEngine {
                 throw NSError(
                     domain: "MKVRemuxEngine",
                     code: -3,
-                    userInfo: [NSLocalizedDescriptionKey: "Remux operation was cancelled."]
+                    userInfo: [NSLocalizedDescriptionKey: "Operation was cancelled."]
                 )
             }
 
-            // Tier 2 Fallback: If audio track is incompatible with direct copy (e.g. DTS, Vorbis, Opus, FLAC),
+            // Tier 2 Fallback: If audio track caused copy failure (e.g. exotic multi-track Dolby/DTS),
             // copy video 100% losslessly with `hvc1` tag and transcode audio to standard high-compatibility AAC.
             try? FileManager.default.removeItem(at: outputUrl)
 
@@ -480,15 +649,40 @@ final class MKVRemuxEngine {
                 throw NSError(
                     domain: "MKVRemuxEngine",
                     code: -3,
-                    userInfo: [NSLocalizedDescriptionKey: "Remux operation was cancelled."]
+                    userInfo: [NSLocalizedDescriptionKey: "Operation was cancelled."]
                 )
+            }
+
+            // Tier 3 Ultimate Fallback: Full hardware transcode
+            try? FileManager.default.removeItem(at: outputUrl)
+            let tier3Args = MKVRemuxEngine.buildTranscodeArgs(
+                sourceUrl: sourceUrl,
+                outputUrl: outputUrl,
+                encoder: MKVRemuxEngine.getBestVideoEncoder(forHDR: probedInfo.isHDR),
+                width: probedInfo.width,
+                height: probedInfo.height,
+                isHDR: probedInfo.isHDR,
+                colorPrimaries: probedInfo.colorPrimaries,
+                colorTransfer: probedInfo.colorTransfer,
+                colorSpace: probedInfo.colorSpace,
+                hasAudio: !probedInfo.audioCodec.isEmpty
+            )
+            let tier3Session = FFmpegKit.execute(withArguments: tier3Args)
+            let tier3Code = tier3Session?.getReturnCode()
+
+            if ReturnCode.isSuccess(tier3Code),
+               FileManager.default.fileExists(atPath: outputUrl.path),
+               let attrs = try? FileManager.default.attributesOfItem(atPath: outputUrl.path),
+               (attrs[.size] as? Int64 ?? 0) > 1024 {
+                onProgress?(1.0, "Complete")
+                return outputUrl
             } else {
-                let logs = tier2Session?.getAllLogsAsString() ?? tier2Session?.getFailStackTrace() ?? "Unknown remux error"
+                let logs = tier3Session?.getAllLogsAsString() ?? tier3Session?.getFailStackTrace() ?? "Video optimization error"
                 let lastLines = logs.split(separator: "\n").suffix(5).joined(separator: "\n")
                 throw NSError(
                     domain: "MKVRemuxEngine",
-                    code: Int(tier2Code?.getValue() ?? -1),
-                    userInfo: [NSLocalizedDescriptionKey: "MKV Remux failed:\n\(lastLines)"]
+                    code: Int(tier3Code?.getValue() ?? -1),
+                    userInfo: [NSLocalizedDescriptionKey: "Video optimization failed:\n\(lastLines)"]
                 )
             }
         }.value

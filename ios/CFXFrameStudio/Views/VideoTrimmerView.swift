@@ -687,17 +687,7 @@ struct VideoTrimmerView: View {
         }
         .fileImporter(
             isPresented: $showFilePicker,
-            allowedContentTypes: [
-                .movie,
-                .video,
-                .quickTimeMovie,
-                .mpeg4Movie,
-                UTType("org.webmproject.webm") ?? .movie,
-                UTType("org.matroska.mkv") ?? .movie,
-                UTType(filenameExtension: "webm") ?? .movie,
-                UTType(filenameExtension: "mkv") ?? .movie,
-                .item
-            ],
+            allowedContentTypes: UTType.supportedVideoImportTypes,
             allowsMultipleSelection: false
         ) { result in
             switch result {
