@@ -724,11 +724,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         }
     }
 
-    private func saveToPhotosLibrary(url: URL, inspection: MediaInspection) async -> Bool {
-        if inspection.isVideo {
-            return await saveVideoToPhotos(url: url)
-        }
-
+    func saveImageToPhotos(url: URL) async -> Bool {
         let status = await requestPhotoAuthorization()
         guard status == .authorized || status == .limited else {
             return false
@@ -747,6 +743,14 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
             return true
         } catch {
             return false
+        }
+    }
+
+    private func saveToPhotosLibrary(url: URL, inspection: MediaInspection) async -> Bool {
+        if inspection.isVideo {
+            return await saveVideoToPhotos(url: url)
+        } else {
+            return await saveImageToPhotos(url: url)
         }
     }
 

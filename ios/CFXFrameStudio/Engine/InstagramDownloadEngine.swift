@@ -152,13 +152,34 @@ final class InstagramDownloadEngine: ObservableObject {
 
         // 1. Direct Meta-Crawler Ingestion (High-Speed Direct Native Extraction)
         if let metaResult = await fetchViaMetaCrawler(url: cleanedUrl, shortcode: shortcode, defaultKind: initialKind) {
+            // If the post has multiple items (Carousel), return it immediately
+            if metaResult.items.count > 1 {
+                self.postInfo = metaResult
+                self.isFetching = false
+                AppLogger.shared.log(tag: "INSTAGRAM", message: "Extracted carousel via Meta Crawler with \(metaResult.items.count) slides")
+                return
+            }
+
+            // If it's a post (/p/) with only 1 item, check Cobalt in case it is a multi-image carousel
+            if initialKind == .post {
+                if let cobaltResult = await fetchViaCobalt(url: cleanedUrl, shortcode: shortcode, defaultKind: initialKind) {
+                    if cobaltResult.items.count > 1 {
+                        self.postInfo = cobaltResult
+                        self.isFetching = false
+                        AppLogger.shared.log(tag: "INSTAGRAM", message: "Extracted multi-image carousel via Cobalt with \(cobaltResult.items.count) slides")
+                        return
+                    }
+                }
+            }
+
+            // Single item post or reel
             self.postInfo = metaResult
             self.isFetching = false
-            AppLogger.shared.log(tag: "INSTAGRAM", message: "Successfully extracted Instagram media via Meta Crawler (\(metaResult.items.count) item(s))")
+            AppLogger.shared.log(tag: "INSTAGRAM", message: "Extracted single media item via Meta Crawler")
             return
         }
 
-        // 2. Cobalt API / Custom Instance (Handles Carousels and Stories)
+        // 2. Cobalt API / Custom Instance (Fallback for Carousels and Stories)
         if let cobaltResult = await fetchViaCobalt(url: cleanedUrl, shortcode: shortcode, defaultKind: initialKind) {
             self.postInfo = cobaltResult
             self.isFetching = false
@@ -179,7 +200,7 @@ final class InstagramDownloadEngine: ObservableObject {
         self.isFetching = false
     }
 
-    // MARK: - Strategy 1: Meta-Crawler Direct Ingestion
+    // MARK: - Strategy 1: Meta-Crawler Direct Ingestion (With Carousel Discovery)
     private func fetchViaMetaCrawler(url: String, shortcode: String, defaultKind: InstagramPostKind) async -> InstagramPostInfo? {
         guard let reqUrl = URL(string: url) else { return nil }
 
@@ -212,13 +233,13 @@ final class InstagramDownloadEngine: ObservableObject {
                 }
             }
 
-            // Extract Thumbnail from og:image
+            // Extract Primary Thumbnail from og:image
             var thumbnailUrl: String? = nil
             if let ogImage = html.extractRegex(pattern: #"<meta[^>]+property=['"]og:image['"][^>]+content=['"]([^'"]+)['"]"#) {
                 thumbnailUrl = ogImage.htmlUnescaped()
             }
 
-            // Extract High-Def Video Stream from BaseURL or mp4 regex
+            // Extract High-Def Video Streams from BaseURL or mp4 regex
             var videoUrls: [String] = []
             let baseURLMatches = html.extractAllRegex(pattern: #"<BaseURL>([^<]+)</BaseURL>"#)
             for m in baseURLMatches {
@@ -231,7 +252,6 @@ final class InstagramDownloadEngine: ObservableObject {
                 }
             }
 
-            // Fallback MP4 regex if BaseURL wasn't found
             if videoUrls.isEmpty {
                 let mp4Matches = html.extractAllRegex(pattern: #"(https?:[\\/]+[^"'<>]+\.mp4[^"'<>]*)"#)
                 for m in mp4Matches {
@@ -245,44 +265,90 @@ final class InstagramDownloadEngine: ObservableObject {
                 }
             }
 
+            // Extract ALL Carousel Images (display_url, display_resources, and scontent image URLs)
+            var extractedPhotoUrls: [String] = []
+            var seenPhotoKeys = Set<String>()
+
+            // 1. High-resolution display_url occurrences
+            let displayUrlMatches = html.extractAllRegex(pattern: #""display_url"\s*:\s*"([^"]+)""#)
+            for dUrl in displayUrlMatches {
+                let clean = dUrl.htmlUnescaped()
+                if clean.contains("cdninstagram.com") && !clean.contains("150x150") && !clean.contains("rsrc.php") {
+                    let photoKey = Self.extractPhotoIdentifier(from: clean)
+                    if !seenPhotoKeys.contains(photoKey) {
+                        seenPhotoKeys.insert(photoKey)
+                        extractedPhotoUrls.append(clean)
+                    }
+                }
+            }
+
+            // 2. Additional CDN jpg URLs in page data
+            let allJpgMatches = html.extractAllRegex(pattern: #"(https?:[\\/]+[^"'<>]+\.jpg[^"'<>]*)"#)
+            for jUrl in allJpgMatches {
+                let clean = jUrl.htmlUnescaped()
+                if clean.contains("scontent") && clean.contains("cdninstagram.com") &&
+                   !clean.contains("150x150") && !clean.contains("s150x150") && !clean.contains("rsrc.php") &&
+                   !clean.contains("favicon") && !clean.contains("null") {
+                    let photoKey = Self.extractPhotoIdentifier(from: clean)
+                    if !seenPhotoKeys.contains(photoKey) {
+                        seenPhotoKeys.insert(photoKey)
+                        extractedPhotoUrls.append(clean)
+                    }
+                }
+            }
+
+            // 3. Fallback to og:image if no other photos found
+            if extractedPhotoUrls.isEmpty, let thumb = thumbnailUrl, !thumb.isEmpty {
+                extractedPhotoUrls.append(thumb)
+            }
+
             var items: [InstagramMediaItem] = []
 
-            if !videoUrls.isEmpty {
-                // Best quality video URL (usually first or largest stream)
-                let primaryVideo = videoUrls[0]
+            // If it has multiple photos, or both videos and photos -> Carousel!
+            let isCarousel = (extractedPhotoUrls.count > 1) || (!videoUrls.isEmpty && extractedPhotoUrls.count > 1)
+            let finalKind: InstagramPostKind = isCarousel ? .carousel : defaultKind
+
+            // Add Videos
+            for (vIdx, vUrl) in videoUrls.prefix(isCarousel ? 10 : 1).enumerated() {
                 let item = InstagramMediaItem(
-                    id: "\(shortcode)_vid_0",
+                    id: "\(shortcode)_vid_\(vIdx)",
                     type: .video,
-                    downloadUrl: primaryVideo,
+                    downloadUrl: vUrl,
                     thumbnailUrl: thumbnailUrl,
-                    filename: "Instagram_\(defaultKind == .reel ? "Reel" : "Video")_\(shortcode).mp4",
+                    filename: isCarousel ? "Instagram_Slide_\(vIdx + 1)_\(shortcode).mp4" : "Instagram_\(defaultKind == .reel ? "Reel" : "Video")_\(shortcode).mp4",
                     width: 1080,
                     height: 1920,
-                    displayLabel: defaultKind == .reel ? "Reel Video (1080p MP4)" : "Post Video (MP4)"
+                    displayLabel: isCarousel ? "Slide \(vIdx + 1) (Video MP4)" : (defaultKind == .reel ? "Reel Video (1080p MP4)" : "Post Video (MP4)")
                 )
                 items.append(item)
-            } else if let thumb = thumbnailUrl, !thumb.isEmpty {
-                // Single Photo Post
-                let item = InstagramMediaItem(
-                    id: "\(shortcode)_photo_0",
-                    type: .photo,
-                    downloadUrl: thumb,
-                    thumbnailUrl: thumb,
-                    filename: "Instagram_Post_\(shortcode).jpg",
-                    width: 1080,
-                    height: 1080,
-                    displayLabel: "Original High-Res Photo"
-                )
-                items.append(item)
+            }
+
+            // Add Photos (If video already added and not a carousel, don't duplicate video thumb as a photo)
+            if items.isEmpty || isCarousel {
+                let offset = items.count
+                for (pIdx, pUrl) in extractedPhotoUrls.enumerated() {
+                    let slideNum = offset + pIdx + 1
+                    let item = InstagramMediaItem(
+                        id: "\(shortcode)_photo_\(pIdx)",
+                        type: .photo,
+                        downloadUrl: pUrl,
+                        thumbnailUrl: pUrl,
+                        filename: isCarousel ? "Instagram_Slide_\(slideNum)_\(shortcode).jpg" : "Instagram_Post_\(shortcode).jpg",
+                        width: 1080,
+                        height: 1080,
+                        displayLabel: isCarousel ? "Slide \(slideNum) (Photo)" : "Original High-Res Photo"
+                    )
+                    items.append(item)
+                }
             }
 
             if !items.isEmpty {
                 return InstagramPostInfo(
                     originalUrl: url,
-                    kind: defaultKind,
+                    kind: finalKind,
                     author: author,
                     caption: caption,
-                    thumbnailUrl: thumbnailUrl,
+                    thumbnailUrl: thumbnailUrl ?? items.first?.thumbnailUrl,
                     items: items
                 )
             }
@@ -291,6 +357,21 @@ final class InstagramDownloadEngine: ObservableObject {
         }
 
         return nil
+    }
+
+    // MARK: - Photo Identifier for Deduplication
+    private static func extractPhotoIdentifier(from url: String) -> String {
+        guard let urlObj = URL(string: url) else { return url }
+        let filename = urlObj.lastPathComponent
+        // Strip trailing query parameters
+        let base = filename.components(separatedBy: "?").first ?? filename
+        // Remove resolution tags like _s1080x1080 to match different sizes of the same image
+        if let regex = try? NSRegularExpression(pattern: #"_s\d+x\d+"#) {
+            let ns = base as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            return regex.stringByReplacingMatches(in: base, range: range, withTemplate: "")
+        }
+        return base
     }
 
     // MARK: - Strategy 2: Cobalt API Extraction (Carousels & Stories)
@@ -476,18 +557,35 @@ final class InstagramDownloadEngine: ObservableObject {
 
         for (idx, item) in items.enumerated() {
             self.batchCurrentIndex = idx + 1
-            self.batchStatusMessage = "Downloading Item \(idx + 1) of \(items.count)..."
+            self.batchStatusMessage = "Downloading Slide \(idx + 1) of \(items.count)..."
 
-            downloadEngine.startDownload(urlString: item.downloadUrl, customFilename: item.filename)
+            guard let url = URL(string: item.downloadUrl) else { continue }
 
-            // Await completion of single download
-            while downloadEngine.isDownloading {
-                try? await Task.sleep(nanoseconds: 300_000_000)
+            do {
+                let (tempUrl, _) = try await URLSession.shared.download(from: url)
+                let ext = item.type == .video ? "mp4" : "jpg"
+                let targetFilename = "CFX_Insta_Slide_\(idx + 1)_\(UUID().uuidString.prefix(6)).\(ext)"
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                let localUrl = docs.appendingPathComponent(targetFilename)
+
+                try? FileManager.default.removeItem(at: localUrl)
+                try FileManager.default.moveItem(at: tempUrl, to: localUrl)
+
+                // Save directly to iOS Photos Camera Roll
+                if item.type == .video {
+                    _ = await downloadEngine.saveVideoToPhotos(url: localUrl)
+                } else {
+                    _ = await downloadEngine.saveImageToPhotos(url: localUrl)
+                }
+
+                AppLogger.shared.log(tag: "INSTAGRAM", message: "Saved Slide \(idx + 1) to Camera Roll: \(targetFilename)")
+            } catch {
+                AppLogger.shared.error(tag: "INSTAGRAM", message: "Failed downloading Slide \(idx + 1): \(error.localizedDescription)")
             }
         }
 
         self.isBatchDownloading = false
-        self.batchStatusMessage = "All \(items.count) items downloaded & saved to Camera Roll!"
+        self.batchStatusMessage = "All \(items.count) carousel items saved to Photos!"
     }
 }
 
