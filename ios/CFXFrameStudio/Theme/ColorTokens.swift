@@ -43,6 +43,7 @@ extension Color {
     static let emeraldAccent = Color(hex: "10B981")
     static let skyAccent = Color(hex: "38BDF8")
     static let amberAccent = Color(hex: "F59E0B")
+    static let pinkAccent = Color(hex: "EC4899")
 
     // Typography
     static let textPrimary = Color(hex: "F4F5F7")
