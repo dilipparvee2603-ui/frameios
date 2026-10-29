@@ -52,6 +52,11 @@
 	<string>CFX FrameStudio needs permission to save trimmed videos, converted media, and lossless cropped images directly to your Camera Roll.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>CFX FrameStudio uses your local Wi-Fi to transfer videos and frames between your iPhone and PC without cables or iTunes.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_cfx-sync._tcp</string>
+		<string>_http._tcp</string>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

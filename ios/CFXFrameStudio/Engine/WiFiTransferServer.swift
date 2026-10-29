@@ -67,6 +67,7 @@ final class WiFiTransferServer: ObservableObject {
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
             let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port) ?? 8080)
+            listener.service = NWListener.Service(name: "CFX Studio", type: "_cfx-sync._tcp")
 
             listener.stateUpdateHandler = { [weak self] state in
                 DispatchQueue.main.async {
