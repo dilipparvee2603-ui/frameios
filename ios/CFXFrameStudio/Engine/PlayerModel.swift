@@ -106,6 +106,73 @@ final class PlayerModel: ObservableObject {
         isPlaying = false
     }
 
+    func transitionTo(url: URL, startMs: Int64 = 0, playRate: Float = 1.0, autoPlay: Bool = true, completion: (() -> Void)? = nil) {
+        didReachEndTime = false
+        let safeRate = max(0.01, playRate)
+        let targetSec = Double(max(0, startMs)) / 1000.0
+        let targetCm = CMTime(seconds: targetSec, preferredTimescale: 60000)
+
+        // Case A: Same source asset (e.g. split clip, trimmed segment, duplicate) - zero latency seek
+        if (player.currentItem?.asset as? AVURLAsset)?.url == url, player.currentItem != nil {
+            player.seek(to: targetCm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                guard let self = self else { return }
+                self.currentPositionTime = targetCm
+                self.currentPositionMs = startMs
+                if autoPlay {
+                    self.player.playImmediately(atRate: safeRate)
+                    self.isPlaying = true
+                }
+                completion?()
+            }
+            return
+        }
+
+        // Case B: Different source asset -> reuse existing AVPlayer with replaceCurrentItem (never destroy AVPlayerLayer)
+        let playerItem = AVPlayerItem(url: url)
+        playerItem.audioTimePitchAlgorithm = .timeDomain
+
+        if let token = endObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            endObserverToken = nil
+        }
+        endObserverToken = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self.didReachEndTime = true
+            if self.loopOnEnd {
+                self.seek(to: Int64(0)) {
+                    self.play()
+                }
+            }
+        }
+
+        player.replaceCurrentItem(with: playerItem)
+
+        if startMs > 0 {
+            player.seek(to: targetCm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                guard let self = self else { return }
+                self.currentPositionTime = targetCm
+                self.currentPositionMs = startMs
+                if autoPlay {
+                    self.player.playImmediately(atRate: safeRate)
+                    self.isPlaying = true
+                }
+                completion?()
+            }
+        } else {
+            self.currentPositionTime = .zero
+            self.currentPositionMs = 0
+            if autoPlay {
+                self.player.playImmediately(atRate: safeRate)
+                self.isPlaying = true
+            }
+            completion?()
+        }
+    }
+
     func play(rate: Float = 1.0) {
         configureAudioSession()
         let safeRate = max(0.01, rate)

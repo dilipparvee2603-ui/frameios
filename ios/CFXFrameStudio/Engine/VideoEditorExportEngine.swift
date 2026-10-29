@@ -187,17 +187,19 @@ final class VideoEditorExportEngine {
             let xExpr = padX != 0 ? "(W-w)/2+(\(padX))" : "(W-w)/2"
             let yExpr = padY != 0 ? "(H-h)/2+(\(padY))" : "(H-h)/2"
 
-            filterComplexParts.append("color=c=black:s=\(targetW)x\(targetH):d=\(String(format: "%.3f", clipDurationSec)):r=\(config.targetFps)[bg\(idx)]")
+            let durFormatted = String(format: "%.3f", clipDurationSec)
+
+            filterComplexParts.append("color=c=black:s=\(targetW)x\(targetH):d=\(durFormatted):r=\(config.targetFps)[bg\(idx)]")
             filterComplexParts.append("[\(idx):v]\(vFilterStr)[fg\(idx)]")
-            filterComplexParts.append("[bg\(idx)][fg\(idx)]overlay=x='\(xExpr)':y='\(yExpr)':shortest=1,setsar=1,fps=\(config.targetFps)[v\(idx)]")
+            filterComplexParts.append("[bg\(idx)][fg\(idx)]overlay=x='\(xExpr)':y='\(yExpr)':shortest=1,setsar=1,fps=\(config.targetFps),trim=duration=\(durFormatted),setpts=PTS-STARTPTS[v\(idx)]")
 
             // 2. Audio Filters
             if hasAudioTrack && !clip.isMuted {
                 let vol = String(format: "%.2f", clip.volume)
-                filterComplexParts.append("[\(idx):a]volume=\(vol),aformat=sample_rates=48000:channel_layouts=stereo[a\(idx)]")
+                filterComplexParts.append("[\(idx):a]volume=\(vol),aformat=sample_rates=48000:channel_layouts=stereo,atrim=duration=\(durFormatted),asetpts=PTS-STARTPTS[a\(idx)]")
             } else {
                 // Generate silent audio of exact duration so multi-clip concat never fails
-                filterComplexParts.append("aevalsrc=0:d=\(String(format: "%.3f", clipDurationSec)):s=48000:c=stereo[a\(idx)]")
+                filterComplexParts.append("aevalsrc=0:d=\(durFormatted):s=48000:c=stereo,atrim=duration=\(durFormatted),asetpts=PTS-STARTPTS[a\(idx)]")
             }
 
             concatStreams += "[v\(idx)][a\(idx)]"

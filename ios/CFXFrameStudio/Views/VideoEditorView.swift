@@ -1377,7 +1377,7 @@ struct VideoEditorView: View {
             self.playheadMs = newPlayhead
 
             // Seamless continuous advance to next clip when clip ends
-            if timelineOffset >= clip.timelineDurationMs - 45 {
+            if timelineOffset >= clip.timelineDurationMs - 20 {
                 self.advanceToNextClipAndContinue()
             }
         }
@@ -1387,33 +1387,26 @@ struct VideoEditorView: View {
         guard !isAdvancingClip else { return }
         isAdvancingClip = true
 
-        DispatchQueue.main.async {
-            defer {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                    self.isAdvancingClip = false
-                }
+        if selectedClipIndex + 1 < project.clips.count {
+            selectedClipIndex += 1
+            let nextClip = project.clips[selectedClipIndex]
+            let startMs = project.timelineStartTime(forClipIndex: selectedClipIndex)
+            playheadMs = startMs
+
+            let speed = Float(nextClip.speedConfig.speedMultiplier)
+            playerModel.transitionTo(
+                url: nextClip.sourceUrl,
+                startMs: nextClip.sourceInPointMs,
+                playRate: speed,
+                autoPlay: true
+            ) {
+                self.isAdvancingClip = false
             }
-
-            if self.selectedClipIndex + 1 < self.project.clips.count {
-                self.selectedClipIndex += 1
-                let nextClip = self.project.clips[self.selectedClipIndex]
-                let startMs = self.project.timelineStartTime(forClipIndex: self.selectedClipIndex)
-                self.playheadMs = startMs
-
-                self.playerModel.setup(with: nextClip.sourceUrl) { [weak playerModel] curMs in
-                    _ = playerModel
-                    self.updatePlayheadFromPlayback(sourceMs: curMs)
-                }
-
-                let speed = Float(nextClip.speedConfig.speedMultiplier)
-                self.playerModel.seek(to: nextClip.sourceInPointMs, preservePlaybackState: true) {
-                    self.playerModel.play(rate: speed)
-                }
-            } else {
-                // End of entire project timeline reached
-                self.playerModel.pause()
-                self.playheadMs = self.project.totalTimelineDurationMs
-            }
+        } else {
+            // End of entire project timeline reached
+            playerModel.pause()
+            playheadMs = project.totalTimelineDurationMs
+            isAdvancingClip = false
         }
     }
 
@@ -1423,14 +1416,18 @@ struct VideoEditorView: View {
         let offsetMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
         let sourceMs = clip.mapTimelineOffsetToSourceMs(offsetMs)
 
-        if playerModel.player.currentItem?.asset as? AVURLAsset == nil ||
-           (playerModel.player.currentItem?.asset as? AVURLAsset)?.url != clip.sourceUrl {
-            playerModel.setup(with: clip.sourceUrl) { [weak playerModel] curMs in
-                _ = playerModel
-                self.updatePlayheadFromPlayback(sourceMs: curMs)
-            }
+        let isCurrentUrl = (playerModel.player.currentItem?.asset as? AVURLAsset)?.url == clip.sourceUrl
+        if !isCurrentUrl {
+            let speed = Float(clip.speedConfig.speedMultiplier)
+            playerModel.transitionTo(
+                url: clip.sourceUrl,
+                startMs: sourceMs,
+                playRate: speed,
+                autoPlay: preservePlayback
+            )
+        } else {
+            playerModel.seek(to: sourceMs, preservePlaybackState: preservePlayback)
         }
-        playerModel.seek(to: sourceMs, preservePlaybackState: preservePlayback)
     }
 
     private func performSplitAtPlayhead() {
