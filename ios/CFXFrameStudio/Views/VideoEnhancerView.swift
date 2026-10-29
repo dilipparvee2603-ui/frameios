@@ -27,14 +27,15 @@ struct VideoEnhancerView: View {
     @State private var activeDisplayMode: EnhanceDisplayMode = .original
 
     // Enhancement Configuration
-    @State private var selectedProfile: EnhanceProfile = .proteusDetail
+    @State private var selectedProfile: EnhanceProfile = .airvidPortrait
     @State private var selectedResolution: EnhanceResolutionTarget = .native
 
     // Custom Studio Sliders (0.0 to 1.0)
-    @State private var sharpnessLevel: Double = 0.6
+    @State private var faceSmoothingLevel: Double = 0.6
+    @State private var sharpnessLevel: Double = 0.65
     @State private var denoiseLevel: Double = 0.5
     @State private var deblockLevel: Double = 0.5
-    @State private var contrastBoost: Double = 0.1
+    @State private var contrastBoost: Double = 0.15
 
     // Collapsible Sections
     @State private var isProfileSectionExpanded: Bool = true
@@ -800,6 +801,21 @@ struct VideoEnhancerView: View {
                     .foregroundColor(.brandAccent)
                     .tracking(0.8)
 
+                // AirVid Facial Skin Smoothing
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("AirVid Face & Skin Retouch")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                        Spacer()
+                        Text(String(format: "%.0f%%", faceSmoothingLevel * 100.0))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(.pinkAccent)
+                    }
+                    Slider(value: $faceSmoothingLevel, in: 0.0...1.0)
+                        .tint(.pinkAccent)
+                }
+
                 // Sharpness
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -1035,6 +1051,7 @@ struct VideoEnhancerView: View {
                 sourceUrl: url,
                 profile: selectedProfile,
                 resolutionTarget: selectedResolution,
+                faceSmoothingLevel: faceSmoothingLevel,
                 sharpnessLevel: sharpnessLevel,
                 denoiseLevel: denoiseLevel,
                 deblockLevel: deblockLevel,
