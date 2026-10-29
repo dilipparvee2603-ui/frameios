@@ -90,14 +90,24 @@ struct FrameSequenceView: View {
         .onChange(of: selectedPhotosItem) { newItem in
             handlePhotosItem(newItem)
         }
-        .sheet(isPresented: $showFilePicker) {
-            DocumentPicker(allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie]) { url in
-                loadVideoUrl(url)
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    loadVideoUrl(url)
+                }
+            case .failure(let error):
+                alertMessage = "File import error: \(error.localizedDescription)"
+                showAlert = true
             }
         }
         .sheet(isPresented: $showShareSheet) {
             if let outUrl = exportResult?.outputUrl {
-                ShareSheet(activityItems: [outUrl])
+                SequenceShareSheet(activityItems: [outUrl])
             }
         }
         .alert(isPresented: $showAlert) {
@@ -596,8 +606,9 @@ struct FrameSequenceView: View {
 
             var fps = 30.0
             if let videoTracks = try? await asset.loadTracks(withMediaType: .video), let vTrack = videoTracks.first {
-                fps = Double(try? await vTrack.load(.nominalFrameRate) ?? 30.0)
-                if fps <= 0 { fps = 30.0 }
+                if let nominalRate = try? await vTrack.load(.nominalFrameRate), nominalRate > 0 {
+                    fps = Double(nominalRate)
+                }
             }
 
             await MainActor.run {
@@ -654,4 +665,15 @@ struct FrameSequenceView: View {
         let millis = Int((totalSeconds.truncatingRemainder(dividingBy: 1.0)) * 10)
         return String(format: "%02d:%02d.%d", minutes, seconds, millis)
     }
+}
+
+// MARK: - Sequence Share Sheet
+struct SequenceShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

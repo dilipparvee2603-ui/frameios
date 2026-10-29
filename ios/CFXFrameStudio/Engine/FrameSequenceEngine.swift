@@ -100,8 +100,9 @@ final class FrameSequenceEngine {
         // Calculate expected frame count
         var sourceFps = 30.0
         if let videoTracks = try? await asset.loadTracks(withMediaType: .video), let vTrack = videoTracks.first {
-            sourceFps = Double(try? await vTrack.load(.nominalFrameRate) ?? 30.0)
-            if sourceFps <= 0 { sourceFps = 30.0 }
+            if let nominalRate = try? await vTrack.load(.nominalFrameRate), nominalRate > 0 {
+                sourceFps = Double(nominalRate)
+            }
         }
 
         let effectiveFps = fpsMode.numericValue ?? sourceFps

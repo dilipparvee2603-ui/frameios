@@ -89,14 +89,24 @@ struct AudioExtractorView: View {
         .onChange(of: selectedPhotosItem) { newItem in
             handlePhotosItem(newItem)
         }
-        .sheet(isPresented: $showFilePicker) {
-            DocumentPicker(allowedContentTypes: [.movie, .video, .quickTimeMovie, .mpeg4Movie]) { url in
-                loadVideoUrl(url)
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    loadVideoUrl(url)
+                }
+            case .failure(let error):
+                alertMessage = "File import error: \(error.localizedDescription)"
+                showAlert = true
             }
         }
         .sheet(isPresented: $showShareSheet) {
             if let outUrl = extractedResult?.outputUrl {
-                ShareSheet(activityItems: [outUrl])
+                AudioShareSheet(activityItems: [outUrl])
             }
         }
         .alert(isPresented: $showAlert) {
@@ -662,4 +672,15 @@ struct AudioExtractorView: View {
         let millis = Int((totalSeconds.truncatingRemainder(dividingBy: 1.0)) * 10)
         return String(format: "%02d:%02d.%d", minutes, seconds, millis)
     }
+}
+
+// MARK: - Audio Share Sheet
+struct AudioShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

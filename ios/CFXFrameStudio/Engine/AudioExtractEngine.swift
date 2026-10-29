@@ -97,7 +97,10 @@ final class AudioExtractEngine {
                 codecName = fourCharCodeToString(subType).uppercased()
             }
 
-            let bitrate = Int64(try? await track.load(.estimatedDataRate) ?? 256000)
+            var bitrate: Int64 = 256000
+            if let estRate = try? await track.load(.estimatedDataRate), estRate > 0 {
+                bitrate = Int64(estRate)
+            }
 
             return AudioTrackInfo(
                 codecName: codecName,
