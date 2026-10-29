@@ -37,6 +37,7 @@
 		E20000012900000100000025 /* AudioExtractorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000025 /* AudioExtractorView.swift */; };
 		E20000012900000100000026 /* FrameSequenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000026 /* FrameSequenceEngine.swift */; };
 		E20000012900000100000027 /* FrameSequenceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000027 /* FrameSequenceView.swift */; };
+		E20000012900000100000028 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000028 /* AppLogger.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -74,6 +75,7 @@
 		E10000012900000100000025 /* AudioExtractorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioExtractorView.swift; sourceTree = "<group>"; };
 		E10000012900000100000026 /* FrameSequenceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSequenceEngine.swift; sourceTree = "<group>"; };
 		E10000012900000100000027 /* FrameSequenceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSequenceView.swift; sourceTree = "<group>"; };
+		E10000012900000100000028 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -148,6 +150,7 @@
 				E10000012900000100000020 /* VideoStitchEngine.swift */,
 				E10000012900000100000024 /* AudioExtractEngine.swift */,
 				E10000012900000100000026 /* FrameSequenceEngine.swift */,
+				E10000012900000100000028 /* AppLogger.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -293,6 +296,7 @@
 				E20000012900000100000025 /* AudioExtractorView.swift in Sources */,
 				E20000012900000100000026 /* FrameSequenceEngine.swift in Sources */,
 				E20000012900000100000027 /* FrameSequenceView.swift in Sources */,
+				E20000012900000100000028 /* AppLogger.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

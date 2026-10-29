@@ -211,6 +211,7 @@ final class AudioExtractEngine {
             }
 
             let logs = session?.getAllLogsAsString() ?? "Unknown error"
+            AppLogger.shared.error(tag: "AUDIO_EXTRACT", message: logs)
             return AudioExtractResult(success: false, outputUrl: nil, errorMessage: logs, durationSeconds: 0)
         }
     }

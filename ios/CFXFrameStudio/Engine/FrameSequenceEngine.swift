@@ -154,6 +154,7 @@ final class FrameSequenceEngine {
 
         guard let returnCode = session?.getReturnCode(), returnCode.isValueSuccess() else {
             let logs = session?.getAllLogsAsString() ?? "Extraction failed"
+            AppLogger.shared.error(tag: "SEQUENCE", message: logs)
             return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, errorMessage: logs)
         }
 

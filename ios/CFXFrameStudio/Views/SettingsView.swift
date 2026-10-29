@@ -3,11 +3,13 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var storage = StorageManager.shared
+    @StateObject private var logger = AppLogger.shared
 
     @State private var showConfirmWipeAll: Bool = false
     @State private var showConfirmDeleteDocs: Bool = false
     @State private var showConfirmDeletePhotos: Bool = false
     @State private var includePhotosInMasterWipe: Bool = true
+    @State private var copiedLogsToast: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -24,6 +26,9 @@ struct SettingsView: View {
 
                         // Cleanup Actions Section
                         actionsSection
+
+                        // Diagnostic & Error Logs Section
+                        errorLogSection
 
                         // App Version & Info
                         aboutSection
@@ -50,6 +55,30 @@ struct SettingsView: View {
                         }
                     }
                     .transition(.opacity)
+                }
+
+                // Copied Logs Toast
+                if copiedLogsToast {
+                    VStack {
+                        Spacer()
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.emeraldAccent)
+                            Text("Error Log Copied to Clipboard!")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.textPrimary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color.elevatedSurface)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule().stroke(Color.emeraldAccent.opacity(0.5), lineWidth: 1)
+                        )
+                        .shadow(radius: 8)
+                        .padding(.bottom, 20)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .navigationTitle("Storage & Settings")
@@ -336,6 +365,121 @@ struct SettingsView: View {
                 .shadow(color: Color(hex: "FF4757").opacity(0.3), radius: 8, y: 3)
             }
             .padding(.top, 4)
+        }
+    }
+
+    // MARK: - Error Log Section
+
+    private var errorLogSection: some View {
+        GlassCard(cornerRadius: 18, padding: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "terminal.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.amberAccent)
+
+                        Text("SYSTEM & ERROR LOGS")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textTertiary)
+                            .tracking(1.0)
+                    }
+
+                    Spacer()
+
+                    let errCount = logger.errorCount
+                    Text(errCount > 0 ? "\(errCount) ERRORS" : "ALL SYSTEMS OK")
+                        .font(.system(size: 8.5, weight: .heavy))
+                        .foregroundColor(errCount > 0 ? Color(hex: "FF4757") : .emeraldAccent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2.5)
+                        .background((errCount > 0 ? Color(hex: "FF4757") : Color.emeraldAccent).opacity(0.14))
+                        .clipShape(Capsule())
+                }
+
+                // Log terminal box
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 5) {
+                        if logger.logs.isEmpty {
+                            Text("No logs recorded yet. All operations running normally.")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.textTertiary)
+                                .padding(.vertical, 10)
+                        } else {
+                            ForEach(logger.logs) { entry in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text(entry.formattedTime)
+                                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.textTertiary)
+
+                                    Text("[\(entry.tag)]")
+                                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                        .foregroundColor(entry.isError ? Color(hex: "FF4757") : .skyAccent)
+
+                                    Text(entry.message)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(entry.isError ? Color(hex: "FFA8A8") : .textSecondary)
+                                        .lineLimit(nil)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .id(entry.id)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                }
+                .frame(height: 160)
+                .background(Color.voidCanvas)
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.borderHairline, lineWidth: 1)
+                )
+
+                // Action buttons: Copy & Clear
+                HStack(spacing: 10) {
+                    Button(action: {
+                        UIPasteboard.general.string = logger.getFullLogString()
+                        withAnimation { copiedLogsToast = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { copiedLogsToast = false }
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc.on.doc.fill")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Copy Full Error Log")
+                                .font(.system(size: 12.5, weight: .bold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(Color.brandAccent)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+
+                    Button(action: {
+                        logger.clearLogs()
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Clear")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 38)
+                        .background(Color.elevatedSurface)
+                        .foregroundColor(.textSecondary)
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.borderHairline, lineWidth: 1)
+                        )
+                    }
+                }
+            }
         }
     }
 
