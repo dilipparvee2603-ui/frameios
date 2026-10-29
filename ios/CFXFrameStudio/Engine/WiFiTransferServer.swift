@@ -2,6 +2,7 @@ import Foundation
 import Network
 import UIKit
 import Photos
+import Darwin
 
 // MARK: - Wi-Fi File Item
 struct WiFiSharedFile: Identifiable, Equatable {
@@ -463,7 +464,8 @@ final class WiFiTransferServer: ObservableObject {
                 })
             } else if ["png", "jpg", "jpeg"].contains(ext) {
                 PHPhotoLibrary.shared().performChanges({
-                    PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: targetUrl)
+                    let request = PHAssetCreationRequest.forAsset()
+                    request.addResource(with: .photo, fileURL: targetUrl, options: nil)
                 })
             }
         }

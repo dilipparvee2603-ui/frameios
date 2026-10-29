@@ -111,7 +111,7 @@ final class VideoStitchEngine {
             if let formatDescriptions = try? await videoTrack.load(.formatDescriptions) {
                 if let firstDesc = formatDescriptions.first {
                     let subType = CMFormatDescriptionGetMediaSubType(firstDesc)
-                    videoCodec = fourCCToString(subType)
+                    videoCodec = fourCharCodeToString(subType)
                 }
             }
         }
@@ -120,7 +120,7 @@ final class VideoStitchEngine {
             if let formatDescriptions = try? await audioTrack.load(.formatDescriptions) {
                 if let firstDesc = formatDescriptions.first {
                     let subType = CMFormatDescriptionGetMediaSubType(firstDesc)
-                    audioCodec = fourCCToString(subType)
+                    audioCodec = fourCharCodeToString(subType)
                 }
             }
         }
@@ -374,19 +374,5 @@ final class VideoStitchEngine {
         if lower.contains("hevc") || lower.contains("hvc1") || lower.contains("hev1") || lower.contains("265") { return "hevc" }
         if lower.contains("prores") { return "prores" }
         return lower
-    }
-
-    private func fourCCToString(_ code: FourCharCode) -> String {
-        let n = Int(code)
-        var s: String = ""
-        let b1 = Character(UnicodeScalar((n >> 24) & 255) ?? " ")
-        let b2 = Character(UnicodeScalar((n >> 16) & 255) ?? " ")
-        let b3 = Character(UnicodeScalar((n >> 8) & 255) ?? " ")
-        let b4 = Character(UnicodeScalar(n & 255) ?? " ")
-        s.append(b1)
-        s.append(b2)
-        s.append(b3)
-        s.append(b4)
-        return s.trimmingCharacters(in: .whitespaces)
     }
 }

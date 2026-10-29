@@ -458,7 +458,10 @@ struct WiFiTransferView: View {
             qrImage = nil
             return
         }
-        let filter = CIFilter.qrCodeGenerator()
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else {
+            qrImage = nil
+            return
+        }
         filter.setValue(url.data(using: .ascii), forKey: "inputMessage")
         filter.setValue("M", forKey: "inputCorrectionLevel")
 
