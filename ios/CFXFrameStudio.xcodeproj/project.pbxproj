@@ -39,6 +39,8 @@
 		E20000012900000100000027 /* FrameSequenceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000027 /* FrameSequenceView.swift */; };
 		E20000012900000100000028 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000028 /* AppLogger.swift */; };
 		E20000012900000100000029 /* InstagramDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000029 /* InstagramDownloadEngine.swift */; };
+		E2000001290000010000002A /* TwitterDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000002A /* TwitterDownloadEngine.swift */; };
+		E2000001290000010000002B /* TikTokDownloadEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001290000010000002B /* TikTokDownloadEngine.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -78,6 +80,8 @@
 		E10000012900000100000027 /* FrameSequenceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSequenceView.swift; sourceTree = "<group>"; };
 		E10000012900000100000028 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		E10000012900000100000029 /* InstagramDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstagramDownloadEngine.swift; sourceTree = "<group>"; };
+		E1000001290000010000002A /* TwitterDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwitterDownloadEngine.swift; sourceTree = "<group>"; };
+		E1000001290000010000002B /* TikTokDownloadEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokDownloadEngine.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -154,6 +158,8 @@
 				E10000012900000100000026 /* FrameSequenceEngine.swift */,
 				E10000012900000100000028 /* AppLogger.swift */,
 				E10000012900000100000029 /* InstagramDownloadEngine.swift */,
+				E1000001290000010000002A /* TwitterDownloadEngine.swift */,
+				E1000001290000010000002B /* TikTokDownloadEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -301,6 +307,8 @@
 				E20000012900000100000027 /* FrameSequenceView.swift in Sources */,
 				E20000012900000100000028 /* AppLogger.swift in Sources */,
 				E20000012900000100000029 /* InstagramDownloadEngine.swift in Sources */,
+				E2000001290000010000002A /* TwitterDownloadEngine.swift in Sources */,
+				E2000001290000010000002B /* TikTokDownloadEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

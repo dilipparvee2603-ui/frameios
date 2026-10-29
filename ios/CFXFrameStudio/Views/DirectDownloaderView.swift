@@ -6,6 +6,8 @@ struct DirectDownloaderView: View {
     @StateObject private var engine = DirectDownloadEngine()
     @StateObject private var ytEngine = YouTubeDownloadEngine()
     @StateObject private var igEngine = InstagramDownloadEngine()
+    @StateObject private var twitterEngine = TwitterDownloadEngine()
+    @StateObject private var tiktokEngine = TikTokDownloadEngine()
 
     @State private var inputUrl: String = ""
     @State private var showShareSheet: Bool = false
@@ -13,6 +15,8 @@ struct DirectDownloaderView: View {
     @State private var showSettingsModal: Bool = false
     @State private var selectedQualityId: String = ""
     @State private var selectedCarouselIndex: Int = 0
+    @State private var selectedTwitterIndex: Int = 0
+    @State private var selectedTikTokIndex: Int = 0
     @State private var isRemuxingDownloadedFile: Bool = false
     @State private var remuxProgress: Double = 0.0
 
@@ -24,9 +28,33 @@ struct DirectDownloaderView: View {
         InstagramDownloadEngine.isInstagramUrl(inputUrl)
     }
 
+    private var isTwitterLink: Bool {
+        TwitterDownloadEngine.isTwitterUrl(inputUrl)
+    }
+
+    private var isTikTokLink: Bool {
+        TikTokDownloadEngine.isTikTokUrl(inputUrl)
+    }
+
     private var instagramGradient: LinearGradient {
         LinearGradient(
             colors: [Color(hex: "833AB4"), Color(hex: "FD1D1D"), Color(hex: "F77737")],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var twitterGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color(hex: "1D9BF0"), Color(hex: "0C71B0")],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var tiktokGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color(hex: "00F2FE"), Color(hex: "4FACFE"), Color(hex: "FE0979")],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -51,6 +79,16 @@ struct DirectDownloaderView: View {
                         igFetchingCard
                     }
 
+                    // TikTok Fetching Indicator
+                    if tiktokEngine.isFetching {
+                        tiktokFetchingCard
+                    }
+
+                    // Twitter Fetching Indicator
+                    if twitterEngine.isFetching {
+                        twitterFetchingCard
+                    }
+
                     // YouTube Qualities Card
                     if let ytInfo = ytEngine.videoInfo, !engine.isDownloading, engine.downloadedFileUrl == nil {
                         ytQualitiesCard(info: ytInfo)
@@ -60,6 +98,18 @@ struct DirectDownloaderView: View {
                     // Instagram Media Card (Reels, Posts, Carousels, Stories)
                     if let igInfo = igEngine.postInfo, !engine.isDownloading, engine.downloadedFileUrl == nil {
                         igMediaCard(info: igInfo)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    }
+
+                    // TikTok Media Card (HD Video, Audio, Photo Slides)
+                    if let ttInfo = tiktokEngine.postInfo, !engine.isDownloading, engine.downloadedFileUrl == nil {
+                        tiktokMediaCard(info: ttInfo)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    }
+
+                    // Twitter / X Media Card (Videos, GIFs, Photos)
+                    if let twInfo = twitterEngine.tweetInfo, !engine.isDownloading, engine.downloadedFileUrl == nil {
+                        twitterMediaCard(info: twInfo)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
 
@@ -74,7 +124,7 @@ struct DirectDownloaderView: View {
                     }
 
                     // Error Banner
-                    if let error = engine.errorMessage ?? ytEngine.errorMessage ?? igEngine.errorMessage {
+                    if let error = engine.errorMessage ?? ytEngine.errorMessage ?? igEngine.errorMessage ?? twitterEngine.errorMessage ?? tiktokEngine.errorMessage {
                         errorBanner(error: error)
                     }
 
@@ -132,7 +182,7 @@ struct DirectDownloaderView: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.textPrimary)
 
-                Text("Direct • YouTube • Instagram Reels & Stories")
+                Text("Direct • YouTube • Instagram • TikTok • X / Twitter")
                     .font(.system(size: 10))
                     .foregroundColor(.textMuted)
             }
@@ -167,7 +217,25 @@ struct DirectDownloaderView: View {
         GlassCard(cornerRadius: 18, padding: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 8) {
-                    if isInstagramLink {
+                    if isTikTokLink {
+                        Image(systemName: "music.note.tv.fill")
+                            .foregroundColor(.skyAccent)
+                            .font(.system(size: 14, weight: .bold))
+
+                        Text("TIKTOK LINK DETECTED")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundStyle(tiktokGradient)
+                            .tracking(0.8)
+                    } else if isTwitterLink {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .foregroundColor(.skyAccent)
+                            .font(.system(size: 14, weight: .bold))
+
+                        Text("X / TWITTER LINK DETECTED")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundStyle(twitterGradient)
+                            .tracking(0.8)
+                    } else if isInstagramLink {
                         Image(systemName: "play.square.stack.fill")
                             .foregroundColor(.pinkAccent)
                             .font(.system(size: 14, weight: .bold))
@@ -190,7 +258,7 @@ struct DirectDownloaderView: View {
                             .foregroundColor(.skyAccent)
                             .font(.system(size: 14, weight: .bold))
 
-                        Text("DIRECT MEDIA, YOUTUBE OR INSTA LINK")
+                        Text("DIRECT MEDIA, TIKTOK, TWITTER OR INSTA LINK")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(.textMuted)
                             .tracking(1.0)
@@ -200,7 +268,7 @@ struct DirectDownloaderView: View {
                 }
 
                 HStack(spacing: 8) {
-                    TextField("https://... (Instagram Reel, YouTube, S3, Direct Video)", text: $inputUrl)
+                    TextField("https://... (TikTok, Twitter/X, Instagram, YouTube, S3)", text: $inputUrl)
                         .font(.system(size: 13, design: .monospaced))
                         .foregroundColor(.textPrimary)
                         .textInputAutocapitalization(.never)
@@ -211,7 +279,13 @@ struct DirectDownloaderView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(isInstagramLink ? Color.pinkAccent.opacity(0.5) : (isYouTubeLink ? Color.brandAccent.opacity(0.4) : Color.borderHairline), lineWidth: 1)
+                                .stroke(
+                                    isTikTokLink ? Color(hex: "00F2FE").opacity(0.6) :
+                                    (isTwitterLink ? Color(hex: "1D9BF0").opacity(0.6) :
+                                    (isInstagramLink ? Color.pinkAccent.opacity(0.5) :
+                                    (isYouTubeLink ? Color.brandAccent.opacity(0.4) : Color.borderHairline))),
+                                    lineWidth: 1
+                                )
                         )
 
                     if !inputUrl.isEmpty {
@@ -221,6 +295,10 @@ struct DirectDownloaderView: View {
                             ytEngine.errorMessage = nil
                             igEngine.postInfo = nil
                             igEngine.errorMessage = nil
+                            twitterEngine.tweetInfo = nil
+                            twitterEngine.errorMessage = nil
+                            tiktokEngine.postInfo = nil
+                            tiktokEngine.errorMessage = nil
                         }) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 16))
@@ -246,7 +324,51 @@ struct DirectDownloaderView: View {
 
                     Spacer()
 
-                    if isInstagramLink {
+                    if isTikTokLink {
+                        Button(action: {
+                            engine.reset()
+                            selectedTikTokIndex = 0
+                            Task {
+                                await tiktokEngine.fetchMedia(for: inputUrl)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "music.note.tv.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Fetch TikTok Media")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(tiktokGradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .shadow(color: Color(hex: "FE0979").opacity(0.3), radius: 8, y: 3)
+                        }
+                        .disabled(tiktokEngine.isFetching)
+                    } else if isTwitterLink {
+                        Button(action: {
+                            engine.reset()
+                            selectedTwitterIndex = 0
+                            Task {
+                                await twitterEngine.fetchMedia(for: inputUrl)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "bubble.left.and.bubble.right.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Fetch Tweet Media")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(twitterGradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .shadow(color: Color(hex: "1D9BF0").opacity(0.3), radius: 8, y: 3)
+                        }
+                        .disabled(twitterEngine.isFetching)
+                    } else if isInstagramLink {
                         Button(action: {
                             engine.reset()
                             selectedCarouselIndex = 0
@@ -524,6 +646,534 @@ struct DirectDownloaderView: View {
                                 )
                             }
                             .disabled(engine.isDownloading || igEngine.isBatchDownloading)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - TikTok Fetching Indicator Card
+    @ViewBuilder
+    private var tiktokFetchingCard: some View {
+        GlassCard(cornerRadius: 16, padding: 16) {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .skyAccent))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Extracting TikTok Media...")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.textPrimary)
+                    Text("Resolving watermark-free CDN stream & original audio...")
+                        .font(.system(size: 11))
+                        .foregroundColor(.textMuted)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Twitter Fetching Indicator Card
+    @ViewBuilder
+    private var twitterFetchingCard: some View {
+        GlassCard(cornerRadius: 16, padding: 16) {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .skyAccent))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Extracting X / Twitter Media...")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.textPrimary)
+                    Text("Parsing tweet payload & high-resolution media...")
+                        .font(.system(size: 11))
+                        .foregroundColor(.textMuted)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - TikTok Media Card
+    @ViewBuilder
+    private func tiktokMediaCard(info: TikTokPostInfo) -> some View {
+        GlassCard(cornerRadius: 18, padding: 16) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header (Author & Platform Badge)
+                HStack(alignment: .top, spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(tiktokGradient)
+                            .frame(width: 44, height: 44)
+
+                        Image(systemName: "music.note.tv.fill")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(info.authorName)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.textPrimary)
+                                .lineLimit(1)
+
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.skyAccent)
+                        }
+
+                        HStack(spacing: 6) {
+                            Text(info.authorHandle)
+                                .font(.system(size: 11))
+                                .foregroundColor(.textSecondary)
+
+                            Text("TIKTOK")
+                                .font(.system(size: 8.5, weight: .heavy))
+                                .foregroundColor(.skyAccent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.skyAccent.opacity(0.14))
+                                .clipShape(Capsule())
+
+                            let photoCount = info.items.filter { $0.type == .photo }.count
+                            if photoCount > 1 {
+                                Text("\(photoCount) SLIDES")
+                                    .font(.system(size: 8.5, weight: .heavy))
+                                    .foregroundColor(.amberAccent)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.amberAccent.opacity(0.14))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+
+                    Spacer()
+                }
+
+                // Caption snippet
+                if !info.caption.isEmpty {
+                    Text(info.caption)
+                        .font(.system(size: 12))
+                        .foregroundColor(.textSecondary)
+                        .lineLimit(3)
+                        .padding(.vertical, 2)
+                }
+
+                // Music Title if present
+                if let music = info.musicTitle, !music.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.pinkAccent)
+                        Text(music)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.pinkAccent)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.pinkAccent.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+
+                Divider().background(Color.borderHairline)
+
+                // Multi-Slide Selector (if slideshow)
+                let photoItems = info.items.filter { $0.type == .photo }
+                if photoItems.count > 1 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("SELECT PHOTO SLIDE")
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .foregroundColor(.textTertiary)
+                            .tracking(0.8)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(0..<photoItems.count, id: \.self) { index in
+                                    Button(action: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            selectedTikTokIndex = index
+                                        }
+                                    }) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "photo.fill")
+                                                .font(.system(size: 10, weight: .bold))
+
+                                            Text("Slide \(index + 1)")
+                                                .font(.system(size: 11, weight: .bold))
+                                        }
+                                        .foregroundColor(selectedTikTokIndex == index ? .white : .textSecondary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 7)
+                                        .background(selectedTikTokIndex == index ? AnyView(tiktokGradient) : AnyView(Color.elevatedSurface))
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule().stroke(Color.borderHairline, lineWidth: 1)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Main Video Item (if exists)
+                if let videoItem = info.items.first(where: { $0.type == .video }) {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.elevatedSurface)
+                                    .frame(width: 48, height: 48)
+
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 22, weight: .bold))
+                                    .foregroundColor(.skyAccent)
+                            }
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(videoItem.displayLabel)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.textPrimary)
+
+                                Text("Clean 1080p Stream • Zero Watermark")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.emeraldAccent)
+                            }
+
+                            Spacer()
+                        }
+                        .padding(10)
+                        .background(Color.elevatedSurface.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                engine.startDownload(urlString: videoItem.downloadUrl, customFilename: videoItem.filename)
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.system(size: 15, weight: .bold))
+
+                                Text("Download HD Video ➔ Camera Roll")
+                                    .font(.system(size: 13.5, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(tiktokGradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .shadow(color: Color(hex: "FE0979").opacity(0.3), radius: 8, y: 3)
+                        }
+                        .disabled(engine.isDownloading || tiktokEngine.isBatchDownloading)
+                    }
+                }
+
+                // Photo Item (if slideshow)
+                if !photoItems.isEmpty {
+                    let activeIndex = min(selectedTikTokIndex, max(0, photoItems.count - 1))
+                    let activePhoto = photoItems[activeIndex]
+
+                    VStack(spacing: 8) {
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                engine.startDownload(urlString: activePhoto.downloadUrl, customFilename: activePhoto.filename)
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "photo.fill")
+                                    .font(.system(size: 14, weight: .bold))
+
+                                Text("Save Slide \(activeIndex + 1) ➔ Camera Roll")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                            .background(tiktokGradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .disabled(engine.isDownloading || tiktokEngine.isBatchDownloading)
+
+                        if photoItems.count > 1 {
+                            Button(action: {
+                                Task {
+                                    await tiktokEngine.downloadAllItems(items: photoItems, with: engine)
+                                }
+                            }) {
+                                HStack(spacing: 8) {
+                                    if tiktokEngine.isBatchDownloading {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .emeraldAccent))
+                                            .scaleEffect(0.8)
+                                        Text(tiktokEngine.batchStatusMessage)
+                                            .font(.system(size: 12.5, weight: .bold))
+                                            .foregroundColor(.emeraldAccent)
+                                    } else {
+                                        Image(systemName: "square.and.arrow.down.on.square.fill")
+                                            .font(.system(size: 13, weight: .bold))
+                                        Text("Download All \(photoItems.count) Slides to Photos")
+                                            .font(.system(size: 13, weight: .bold))
+                                    }
+                                }
+                                .foregroundColor(.emeraldAccent)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 42)
+                                .background(Color.emeraldAccent.opacity(0.14))
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Color.emeraldAccent.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                            .disabled(engine.isDownloading || tiktokEngine.isBatchDownloading)
+                        }
+                    }
+                }
+
+                // Audio Item (MP3)
+                if let audioItem = info.items.first(where: { $0.type == .audio }) {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            engine.startDownload(urlString: audioItem.downloadUrl, customFilename: audioItem.filename)
+                        }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "music.note")
+                                .font(.system(size: 13, weight: .bold))
+
+                            Text("Extract Audio (MP3)")
+                                .font(.system(size: 12.5, weight: .bold))
+                        }
+                        .foregroundColor(.skyAccent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(Color.skyAccent.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.skyAccent.opacity(0.25), lineWidth: 1)
+                        )
+                    }
+                    .disabled(engine.isDownloading || tiktokEngine.isBatchDownloading)
+                }
+            }
+        }
+    }
+
+    // MARK: - Twitter / X Media Card
+    @ViewBuilder
+    private func twitterMediaCard(info: TweetInfo) -> some View {
+        GlassCard(cornerRadius: 18, padding: 16) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header (Author & Kind)
+                HStack(alignment: .top, spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(twitterGradient)
+                            .frame(width: 44, height: 44)
+
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(info.authorName)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.textPrimary)
+                                .lineLimit(1)
+
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.skyAccent)
+                        }
+
+                        HStack(spacing: 6) {
+                            Text(info.authorHandle)
+                                .font(.system(size: 11))
+                                .foregroundColor(.textSecondary)
+
+                            Text("X / TWITTER")
+                                .font(.system(size: 8.5, weight: .heavy))
+                                .foregroundColor(.skyAccent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.skyAccent.opacity(0.14))
+                                .clipShape(Capsule())
+
+                            if info.items.count > 1 {
+                                Text("\(info.items.count) MEDIA")
+                                    .font(.system(size: 8.5, weight: .heavy))
+                                    .foregroundColor(.amberAccent)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.amberAccent.opacity(0.14))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    // Metrics
+                    if let likes = info.likes, likes > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.pinkAccent)
+                            Text("\(likes)")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundColor(.textSecondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.elevatedSurface)
+                        .clipShape(Capsule())
+                    }
+                }
+
+                // Tweet text
+                if !info.text.isEmpty {
+                    Text(info.text)
+                        .font(.system(size: 12))
+                        .foregroundColor(.textSecondary)
+                        .lineLimit(4)
+                        .padding(.vertical, 2)
+                }
+
+                Divider().background(Color.borderHairline)
+
+                // Multi-Item Selector
+                if info.items.count > 1 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("SELECT MEDIA ITEM")
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .foregroundColor(.textTertiary)
+                            .tracking(0.8)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(0..<info.items.count, id: \.self) { index in
+                                    let item = info.items[index]
+                                    Button(action: {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            selectedTwitterIndex = index
+                                        }
+                                    }) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: item.type.systemIcon)
+                                                .font(.system(size: 10, weight: .bold))
+
+                                            Text("Item \(index + 1)")
+                                                .font(.system(size: 11, weight: .bold))
+                                        }
+                                        .foregroundColor(selectedTwitterIndex == index ? .white : .textSecondary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 7)
+                                        .background(selectedTwitterIndex == index ? AnyView(twitterGradient) : AnyView(Color.elevatedSurface))
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule().stroke(Color.borderHairline, lineWidth: 1)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Active Item Preview / Details
+                let activeIndex = min(selectedTwitterIndex, max(0, info.items.count - 1))
+                if activeIndex < info.items.count {
+                    let activeItem = info.items[activeIndex]
+
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.elevatedSurface)
+                                .frame(width: 48, height: 48)
+
+                            Image(systemName: activeItem.type.systemIcon)
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(activeItem.type == .photo ? .pinkAccent : .skyAccent)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(activeItem.displayLabel)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.textPrimary)
+
+                            Text(activeItem.type == .video ? "Original High-Definition MP4" : (activeItem.type == .gif ? "Looping MP4 Animation" : "Full-Resolution Image"))
+                                .font(.system(size: 11))
+                                .foregroundColor(.emeraldAccent)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(10)
+                    .background(Color.elevatedSurface.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    // Action buttons
+                    VStack(spacing: 8) {
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                engine.startDownload(urlString: activeItem.downloadUrl, customFilename: activeItem.filename)
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.down.circle.fill")
+                                    .font(.system(size: 15, weight: .bold))
+
+                                Text(activeItem.type == .photo ? "Save Photo ➔ Camera Roll" : "Download Video ➔ Camera Roll")
+                                    .font(.system(size: 13.5, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(twitterGradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .shadow(color: Color(hex: "1D9BF0").opacity(0.3), radius: 8, y: 3)
+                        }
+                        .disabled(engine.isDownloading || twitterEngine.isBatchDownloading)
+
+                        // Batch Save if multi-items
+                        if info.items.count > 1 {
+                            Button(action: {
+                                Task {
+                                    await twitterEngine.downloadAllItems(items: info.items, with: engine)
+                                }
+                            }) {
+                                HStack(spacing: 8) {
+                                    if twitterEngine.isBatchDownloading {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .emeraldAccent))
+                                            .scaleEffect(0.8)
+                                        Text(twitterEngine.batchStatusMessage)
+                                            .font(.system(size: 12.5, weight: .bold))
+                                            .foregroundColor(.emeraldAccent)
+                                    } else {
+                                        Image(systemName: "square.and.arrow.down.on.square.fill")
+                                            .font(.system(size: 13, weight: .bold))
+                                        Text("Download All \(info.items.count) Items to Photos")
+                                            .font(.system(size: 13, weight: .bold))
+                                    }
+                                }
+                                .foregroundColor(.emeraldAccent)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 42)
+                                .background(Color.emeraldAccent.opacity(0.14))
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(Color.emeraldAccent.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                            .disabled(engine.isDownloading || twitterEngine.isBatchDownloading)
                         }
                     }
                 }
