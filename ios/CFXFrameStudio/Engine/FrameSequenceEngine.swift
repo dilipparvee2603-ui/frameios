@@ -142,7 +142,7 @@ final class FrameSequenceEngine {
         // Enable progress callback
         FFmpegKitConfig.enableStatisticsCallback { stats in
             guard let stats = stats else { return }
-            let videoFrameNumber = stats.getVideoFrameNumber()
+            let videoFrameNumber = Int(stats.getVideoFrameNumber())
             let progress = min(1.0, max(0.0, Float(videoFrameNumber) / Float(expectedFrames)))
             DispatchQueue.main.async {
                 onProgress(progress, videoFrameNumber)
