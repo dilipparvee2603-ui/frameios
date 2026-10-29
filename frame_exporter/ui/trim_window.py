@@ -1290,25 +1290,56 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
 
         self.btn_group_format = QButtonGroup(self)
 
+        pill_style = """
+            QRadioButton {
+                background: #1A1A22;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: #CBD5E1;
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QRadioButton:hover {
+                background: #242430;
+                color: #FFFFFF;
+                border-color: rgba(255, 255, 255, 0.25);
+            }
+            QRadioButton:checked {
+                background: #0284C7;
+                border: 1px solid #38BDF8;
+                color: #FFFFFF;
+                font-weight: bold;
+            }
+            QRadioButton::indicator {
+                width: 0px;
+                height: 0px;
+            }
+        """
+
         self.radio_copy = QRadioButton("⚡ Lossless (Fast)")
         self.radio_copy.setChecked(True)
+        self.radio_copy.setCursor(Qt.PointingHandCursor)
         self.radio_copy.setToolTip("Instant stream copy with 0s re-encode and bit-exact original quality")
-        self.radio_copy.setStyleSheet("color: #CBD5E1; font-size: 11px;")
+        self.radio_copy.setStyleSheet(pill_style)
         self.btn_group_format.addButton(self.radio_copy)
         row_trim.addWidget(self.radio_copy)
 
         self.radio_h264 = QRadioButton("🎬 MP4 (H.264)")
+        self.radio_h264.setCursor(Qt.PointingHandCursor)
         self.radio_h264.setToolTip("Universally compatible H.264/AAC MP4 - plays flawlessly on iPhone, iPad, Windows, Mac, web & editors")
-        self.radio_h264.setStyleSheet("color: #CBD5E1; font-size: 11px;")
+        self.radio_h264.setStyleSheet(pill_style)
         self.btn_group_format.addButton(self.radio_h264)
         row_trim.addWidget(self.radio_h264)
 
         self.radio_h265 = QRadioButton("🚀 MP4 (H.265 / HEVC)")
+        self.radio_h265.setCursor(Qt.PointingHandCursor)
         self.radio_h265.setToolTip("High-efficiency HEVC export tagged with hvc1 for Apple devices and stereo AAC audio")
-        self.radio_h265.setStyleSheet("color: #CBD5E1; font-size: 11px;")
+        self.radio_h265.setStyleSheet(pill_style)
         self.btn_group_format.addButton(self.radio_h265)
         row_trim.addWidget(self.radio_h265)
 
+        self.radio_copy.toggled.connect(self._on_export_format_toggled)
         self.radio_h264.toggled.connect(self._on_export_format_toggled)
         self.radio_h265.toggled.connect(self._on_export_format_toggled)
 
@@ -1388,10 +1419,17 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
         # Format Extension Selector
         self.combo_ext = QComboBox()
         self.combo_ext.setFixedHeight(28)
-        self.combo_ext.setMinimumWidth(85)
+        self.combo_ext.setMinimumWidth(185)
         self.combo_ext.setView(QListView())
-        self.combo_ext.addItems([".mp4", ".mov", ".mkv", ".webm"])
-        self.combo_ext.setToolTip("Select container format (.mp4 is recommended for maximum compatibility)")
+        self.combo_ext.setCursor(Qt.PointingHandCursor)
+        self.combo_ext.addItem("⚡ MP4 (Lossless Fast)", (".mp4", "copy"))
+        self.combo_ext.addItem("🎬 MP4 (H.264 Universal)", (".mp4", "h264"))
+        self.combo_ext.addItem("🚀 MP4 (H.265 / HEVC)", (".mp4", "h265"))
+        self.combo_ext.addItem("⚡ MKV (Lossless Fast)", (".mkv", "copy"))
+        self.combo_ext.addItem("⚡ MOV (Lossless Fast)", (".mov", "copy"))
+        self.combo_ext.addItem("⚡ WebM (Lossless Fast)", (".webm", "copy"))
+        self.combo_ext.setCurrentIndex(0)
+        self.combo_ext.setToolTip("Select video codec & container format")
         self.combo_ext.setStyleSheet("""
             QComboBox {
                 background: #15151A;
@@ -1400,7 +1438,7 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
                 font-family: 'Consolas', monospace;
                 font-size: 11px;
                 font-weight: bold;
-                padding: 2px 20px 2px 8px;
+                padding: 2px 24px 2px 10px;
                 border-radius: 6px;
             }
             QComboBox:hover {
@@ -1410,18 +1448,18 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
-                width: 18px;
+                width: 20px;
                 border-left: 1px solid rgba(255, 255, 255, 0.08);
             }
             QComboBox QAbstractItemView {
                 background: #1A1A22;
                 color: #FFFFFF;
                 border: 1px solid #38BDF8;
-                selection-background-color: #C0000A;
+                selection-background-color: #0284C7;
                 padding: 4px;
             }
         """)
-        self.combo_ext.currentIndexChanged.connect(self._update_file_status)
+        self.combo_ext.currentIndexChanged.connect(self._on_combo_format_changed)
         row_dest.addWidget(self.combo_ext)
 
         # File Availability / Overwrite Warning Badge
@@ -1656,18 +1694,19 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
 
         # Match extension to source container
         src_ext = Path(file_path).suffix.lower()
-        if src_ext in [".mp4", ".mov", ".mkv", ".webm"]:
-            idx = self.combo_ext.findText(src_ext)
-            if idx >= 0:
-                self.combo_ext.setCurrentIndex(idx)
-            else:
-                self.combo_ext.setCurrentIndex(0)
-        else:
+        matched = False
+        for i in range(self.combo_ext.count()):
+            d = self.combo_ext.itemData(i)
+            if d and isinstance(d, (tuple, list)) and d[0] == src_ext and d[1] == "copy":
+                self.combo_ext.setCurrentIndex(i)
+                matched = True
+                break
+        if not matched:
             self.combo_ext.setCurrentIndex(0)
 
         # Propose unique initial filename to prevent overwriting
         stem = Path(file_path).stem
-        ext = self.combo_ext.currentText().strip()
+        ext = self._get_selected_extension()
         unique_full = self._generate_unique_filename(default_dir, f"{stem}_trim", ext)
         self.txt_filename.setText(Path(unique_full).stem)
         self._update_file_status()
@@ -1737,7 +1776,7 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
 
         folder = self.txt_output_dir.text().strip()
         name = self.txt_filename.text().strip()
-        ext = self.combo_ext.currentText().strip() if hasattr(self, 'combo_ext') else ".mp4"
+        ext = self._get_selected_extension()
 
         if not folder or not name:
             self.lbl_file_status.setText("")
@@ -2051,12 +2090,62 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
         if target != self.current_frame_idx:
             self.seek_to_frame(target, immediate=True)
 
+    def _get_selected_extension(self) -> str:
+        data = self.combo_ext.currentData() if hasattr(self, 'combo_ext') else None
+        if data and isinstance(data, (tuple, list)):
+            return data[0]
+        text = self.combo_ext.currentText().strip() if hasattr(self, 'combo_ext') else ".mp4"
+        for candidate in (".mp4", ".mov", ".mkv", ".webm"):
+            if candidate in text.lower():
+                return candidate
+        return ".mp4"
+
+    def _get_selected_mode(self) -> str:
+        if hasattr(self, 'radio_h264') and self.radio_h264.isChecked():
+            return "h264"
+        elif hasattr(self, 'radio_h265') and self.radio_h265.isChecked():
+            return "h265"
+        elif hasattr(self, 'radio_copy') and self.radio_copy.isChecked():
+            return "copy"
+        data = self.combo_ext.currentData() if hasattr(self, 'combo_ext') else None
+        if data and isinstance(data, (tuple, list)):
+            return data[1]
+        return "copy"
+
+    def _on_combo_format_changed(self, index: int):
+        data = self.combo_ext.currentData()
+        if data and isinstance(data, (tuple, list)):
+            ext, mode = data
+            self.radio_copy.blockSignals(True)
+            self.radio_h264.blockSignals(True)
+            self.radio_h265.blockSignals(True)
+            if mode == "h264":
+                self.radio_h264.setChecked(True)
+            elif mode == "h265":
+                self.radio_h265.setChecked(True)
+            else:
+                self.radio_copy.setChecked(True)
+            self.radio_copy.blockSignals(False)
+            self.radio_h264.blockSignals(False)
+            self.radio_h265.blockSignals(False)
+        self._update_file_status()
+
     def _on_export_format_toggled(self):
-        """Automatically switch file extension to .mp4 when H.264 or H.265 export is selected."""
-        if self.radio_h264.isChecked() or self.radio_h265.isChecked():
-            idx = self.combo_ext.findText(".mp4")
-            if idx >= 0 and self.combo_ext.currentIndex() != idx:
-                self.combo_ext.setCurrentIndex(idx)
+        target_mode = "copy"
+        if self.radio_h264.isChecked():
+            target_mode = "h264"
+        elif self.radio_h265.isChecked():
+            target_mode = "h265"
+
+        for i in range(self.combo_ext.count()):
+            d = self.combo_ext.itemData(i)
+            if d and isinstance(d, (tuple, list)) and d[1] == target_mode:
+                if self.combo_ext.currentIndex() != i:
+                    self.combo_ext.blockSignals(True)
+                    self.combo_ext.setCurrentIndex(i)
+                    self.combo_ext.blockSignals(False)
+                break
+        self._update_file_status()
 
     # --- Trimming Export Execution ---
     def start_trim_export(self):
@@ -2080,10 +2169,7 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
             self.txt_filename.setText(clean_filename)
             filename = clean_filename
 
-        ext = self.combo_ext.currentText().strip()
-        if not ext.startswith("."):
-            ext = "." + ext
-
+        ext = self._get_selected_extension()
         target_path = Path(folder) / f"{filename}{ext}"
 
         # -------------------------------------------------------------
@@ -2129,12 +2215,7 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
             return
 
         ff_bin = find_ffmpeg_path()
-        if self.radio_copy.isChecked():
-            mode = "copy"
-        elif self.radio_h264.isChecked():
-            mode = "h264"
-        else:
-            mode = "h265"
+        mode = self._get_selected_mode()
 
         self.btn_export.setEnabled(False)
         self.status_container.show()
@@ -2170,7 +2251,7 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
             try:
                 folder = self.txt_output_dir.text().strip()
                 cur_name = self.txt_filename.text().strip()
-                ext = self.combo_ext.currentText().strip()
+                ext = self._get_selected_extension()
                 next_free = self._generate_unique_filename(folder, cur_name, ext)
                 self.txt_filename.setText(Path(next_free).stem)
                 self._update_file_status()

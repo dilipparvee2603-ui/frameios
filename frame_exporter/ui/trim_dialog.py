@@ -805,19 +805,52 @@ class VideoTrimDialog(DarkModalDialog):
 
         self.btn_group_format = QButtonGroup(self)
 
+        pill_style = """
+            QRadioButton {
+                background: #1A1A22;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: #CBD5E1;
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QRadioButton:hover {
+                background: #242430;
+                color: #FFFFFF;
+                border-color: rgba(255, 255, 255, 0.25);
+            }
+            QRadioButton:checked {
+                background: #0284C7;
+                border: 1px solid #38BDF8;
+                color: #FFFFFF;
+                font-weight: bold;
+            }
+            QRadioButton::indicator {
+                width: 0px;
+                height: 0px;
+            }
+        """
+
         self.radio_copy = QRadioButton("⚡ Lossless (Fast)")
         self.radio_copy.setChecked(True)
+        self.radio_copy.setCursor(Qt.PointingHandCursor)
         self.radio_copy.setToolTip("Cuts instantly without re-encoding. 100% original stream quality and resolution at disk write speed!")
+        self.radio_copy.setStyleSheet(pill_style)
         self.btn_group_format.addButton(self.radio_copy)
         mode_row.addWidget(self.radio_copy)
 
         self.radio_h264 = QRadioButton("🎬 MP4 (H.264 Universal)")
+        self.radio_h264.setCursor(Qt.PointingHandCursor)
         self.radio_h264.setToolTip("Universally compatible H.264/AAC MP4 - plays flawlessly on iPhone, iPad, Windows, Mac, web & editors.")
+        self.radio_h264.setStyleSheet(pill_style)
         self.btn_group_format.addButton(self.radio_h264)
         mode_row.addWidget(self.radio_h264)
 
         self.radio_h265 = QRadioButton("🚀 MP4 (H.265 HEVC)")
+        self.radio_h265.setCursor(Qt.PointingHandCursor)
         self.radio_h265.setToolTip("High-efficiency HEVC export tagged with hvc1 for Apple devices and stereo AAC audio.")
+        self.radio_h265.setStyleSheet(pill_style)
         self.btn_group_format.addButton(self.radio_h265)
         mode_row.addWidget(self.radio_h265)
         mode_row.addStretch()
