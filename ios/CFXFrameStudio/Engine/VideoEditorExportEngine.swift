@@ -167,34 +167,37 @@ final class VideoEditorExportEngine {
                 vFilters.append("vflip")
             }
 
-            // B. Zoom / Scale
-            let zoom = max(0.5, min(4.0, clip.transform.scale))
-            if abs(zoom - 1.0) > 0.01 {
-                vFilters.append("scale=iw*\(String(format: "%.2f", zoom)):-2")
-            }
-
-            // C. Color grading
+            // B. Color grading
             if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
                 vFilters.append("eq=contrast=\(String(format: "%.2f", clip.color.contrast)):brightness=\(String(format: "%.2f", clip.color.brightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
             }
 
-            // D. Pad & Conform to target canvas aspect ratio
-            vFilters.append("scale=\(targetW):\(targetH):force_original_aspect_ratio=decrease")
-            vFilters.append("pad=\(targetW):\(targetH):(ow-iw)/2:(oh-ih)/2:black")
-            vFilters.append("setsar=1")
-            vFilters.append("fps=\(config.targetFps)")
+            // C. Conform & Scale with Zoom and Pan Offset onto canvas using overlay on black background
+            let zoom = max(0.2, min(4.0, clip.transform.scale))
+            // Scale offset from preview coordinate system (~200pt wide) to export target resolution
+            let scaleMultiplier = Double(targetW) / 200.0
+            let padX = Int(round(clip.transform.offsetX * scaleMultiplier))
+            let padY = Int(round(clip.transform.offsetY * scaleMultiplier))
+            let clipDurationSec = max(0.1, Double(clip.timelineDurationMs) / 1000.0)
 
+            vFilters.append("scale=\(targetW):\(targetH):force_original_aspect_ratio=decrease")
+            vFilters.append("scale=w='trunc(iw*\(String(format: "%.2f", zoom))/2)*2':h='trunc(ih*\(String(format: "%.2f", zoom))/2)*2'")
             let vFilterStr = vFilters.joined(separator: ",")
-            filterComplexParts.append("[\(idx):v]\(vFilterStr)[v\(idx)]")
+
+            let xExpr = padX != 0 ? "(W-w)/2+(\(padX))" : "(W-w)/2"
+            let yExpr = padY != 0 ? "(H-h)/2+(\(padY))" : "(H-h)/2"
+
+            filterComplexParts.append("color=c=black:s=\(targetW)x\(targetH):d=\(String(format: "%.3f", clipDurationSec)):r=\(config.targetFps)[bg\(idx)]")
+            filterComplexParts.append("[\(idx):v]\(vFilterStr)[fg\(idx)]")
+            filterComplexParts.append("[bg\(idx)][fg\(idx)]overlay=x='\(xExpr)':y='\(yExpr)':shortest=1,setsar=1,fps=\(config.targetFps)[v\(idx)]")
 
             // 2. Audio Filters
-            let clipDurationSec = max(0.1, Double(clip.timelineDurationMs) / 1000.0)
             if hasAudioTrack && !clip.isMuted {
                 let vol = String(format: "%.2f", clip.volume)
                 filterComplexParts.append("[\(idx):a]volume=\(vol),aformat=sample_rates=48000:channel_layouts=stereo[a\(idx)]")
             } else {
                 // Generate silent audio of exact duration so multi-clip concat never fails
-                filterComplexParts.append("aevalsrc=0:d=\(String(format: "%.3f", clipDurationSec)):s=48000:cl=stereo[a\(idx)]")
+                filterComplexParts.append("aevalsrc=0:d=\(String(format: "%.3f", clipDurationSec)):s=48000:c=stereo[a\(idx)]")
             }
 
             concatStreams += "[v\(idx)][a\(idx)]"

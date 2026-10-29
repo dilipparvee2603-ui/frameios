@@ -10,6 +10,7 @@ final class PlayerModel: ObservableObject {
     @Published var currentPositionTime: CMTime = .zero
     @Published var playbackFailed: Bool = false
     @Published var playbackErrorMessage: String? = nil
+    var onDidPlayToEnd: (() -> Void)? = nil
 
     private var timeObserverToken: Any? = nil
     private var endObserverToken: Any? = nil
@@ -38,15 +39,19 @@ final class PlayerModel: ObservableObject {
         player.isMuted = isMuted
         player.actionAtItemEnd = .none
 
-        // Loop / reset to start when reaching end of video
+        // Loop / reset or trigger continuous project playback
         endObserverToken = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
             queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
-            self.pause()
-            self.seek(to: Int64(0))
+            if let customHandler = self.onDidPlayToEnd {
+                customHandler()
+            } else {
+                self.pause()
+                self.seek(to: Int64(0))
+            }
         }
 
         statusObserverToken = playerItem.observe(\.status, options: [.new, .initial]) { [weak self] item, _ in

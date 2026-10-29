@@ -37,6 +37,7 @@ struct VideoEditorView: View {
     @State private var playheadMs: Int64 = 0
     @State private var timelineZoom: Double = 1.0 // 1.0 = normal, 2.0 = zoomed in
     @State private var activeToolPanel: EditorToolPanel? = nil
+    @State private var isAdvancingClip: Bool = false
 
     // Import State
     @State private var selectedPhotosItem: PhotosPickerItem? = nil
@@ -213,12 +214,12 @@ struct VideoEditorView: View {
                         .lineLimit(1)
                 }
                 .foregroundColor(.skyAccent)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 9)
                 .padding(.vertical, 6)
                 .background(Color.skyAccent.opacity(0.14))
                 .clipShape(Capsule())
             }
-            .fixedSize()
+            .fixedSize(horizontal: true, vertical: true)
             .layoutPriority(1)
 
             // Undo Button
@@ -245,21 +246,21 @@ struct VideoEditorView: View {
 
             // Export Button
             Button(action: { startProjectExport() }) {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                     Text("Export")
-                        .font(.system(size: 11, weight: .heavy))
+                        .font(.system(size: 12, weight: .heavy))
                         .lineLimit(1)
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 11)
+                .padding(.horizontal, 13)
                 .padding(.vertical, 7)
                 .background(LinearGradient.brandGradient)
                 .clipShape(Capsule())
             }
-            .fixedSize()
-            .layoutPriority(2)
+            .fixedSize(horizontal: true, vertical: true)
+            .layoutPriority(10)
             .disabled(project.clips.isEmpty || isExporting)
         }
         .padding(.horizontal, 14)
@@ -291,11 +292,20 @@ struct VideoEditorView: View {
 
                         VideoPlayerView(player: playerModel.player)
                             .scaleEffect(clip.transform.scale)
+                            .offset(x: clip.transform.offsetX, y: clip.transform.offsetY)
                             .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue)))
                             .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
                     }
                     .frame(width: canvasSize.width, height: canvasSize.height)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture()
+                            .onChanged { val in
+                                project.clips[selectedClipIndex].transform.offsetX += val.translation.width * 0.12
+                                project.clips[selectedClipIndex].transform.offsetY += val.translation.height * 0.12
+                            }
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
                             .stroke(Color.skyAccent.opacity(0.55), lineWidth: 1.5)
@@ -394,10 +404,18 @@ struct VideoEditorView: View {
     @ViewBuilder
     private var transportBar: some View {
         HStack(spacing: 10) {
-            // Jump to Start
+            // Jump to Start or Previous Clip
             Button(action: {
-                playheadMs = 0
-                syncPlayheadToPlayer()
+                let curClipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+                if playheadMs > curClipStart + 400 {
+                    playheadMs = curClipStart
+                } else if selectedClipIndex > 0 {
+                    selectedClipIndex -= 1
+                    playheadMs = project.timelineStartTime(forClipIndex: selectedClipIndex)
+                } else {
+                    playheadMs = 0
+                }
+                syncPlayheadToPlayer(preservePlayback: playerModel.isPlaying)
             }) {
                 Image(systemName: "backward.end.fill")
                     .font(.system(size: 13))
@@ -409,6 +427,12 @@ struct VideoEditorView: View {
                 if playerModel.isPlaying {
                     playerModel.pause()
                 } else {
+                    // Loop back to start if at the end of the project timeline
+                    if playheadMs >= project.totalTimelineDurationMs - 50 {
+                        selectedClipIndex = 0
+                        playheadMs = 0
+                        syncPlayheadToPlayer(preservePlayback: false)
+                    }
                     let speed = Float(selectedClip?.speedConfig.speedMultiplier ?? 1.0)
                     playerModel.play(rate: speed)
                 }
@@ -422,10 +446,15 @@ struct VideoEditorView: View {
                     .overlay(Circle().stroke(Color.borderHairline, lineWidth: 1))
             }
 
-            // Jump to End
+            // Jump to Next Clip or End of Timeline
             Button(action: {
-                playheadMs = project.totalTimelineDurationMs
-                syncPlayheadToPlayer()
+                if selectedClipIndex + 1 < project.clips.count {
+                    selectedClipIndex += 1
+                    playheadMs = project.timelineStartTime(forClipIndex: selectedClipIndex)
+                } else {
+                    playheadMs = project.totalTimelineDurationMs
+                }
+                syncPlayheadToPlayer(preservePlayback: playerModel.isPlaying)
             }) {
                 Image(systemName: "forward.end.fill")
                     .font(.system(size: 13))
@@ -604,7 +633,12 @@ struct VideoEditorView: View {
                                             let clampedX = max(leadPad, rawX)
                                             let newMs = Int64(round(Double(clampedX - leadPad) / Double(pointsPerSecond) * 1000.0))
                                             playheadMs = max(0, min(project.totalTimelineDurationMs, newMs))
-                                            syncPlayheadToPlayer()
+
+                                            // Dynamically switch active clip if scrubbing crosses clip boundaries
+                                            if let activeIdx = project.clipIndex(at: playheadMs), activeIdx != selectedClipIndex {
+                                                selectedClipIndex = activeIdx
+                                            }
+                                            syncPlayheadToPlayer(preservePlayback: playerModel.isPlaying)
                                         }
                                 )
 
@@ -1050,14 +1084,14 @@ struct VideoEditorView: View {
                         get: { project.clips[selectedClipIndex].transform.scale },
                         set: { project.clips[selectedClipIndex].transform.scale = $0 }
                     ),
-                    in: 0.5...3.0,
+                    in: 0.3...3.5,
                     step: 0.05
                 )
                 .accentColor(.brandAccent)
 
                 // Quick zoom presets
                 HStack(spacing: 6) {
-                    ForEach([0.8, 1.0, 1.25, 1.5, 2.0], id: \.self) { z in
+                    ForEach([0.5, 0.8, 1.0, 1.25, 1.5, 2.0], id: \.self) { z in
                         let isCur = abs(clip.transform.scale - z) < 0.04
                         Button(action: {
                             recordUndo()
@@ -1077,7 +1111,115 @@ struct VideoEditorView: View {
 
             Divider().background(Color.borderHairline)
 
-            // 3. Rotation & Flip Controls
+            // 3. Position / Move Controls (D-Pad Up, Down, Left, Right)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("POSITION / MOVE")
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundColor(.textTertiary)
+                    Spacer()
+                    Text("X: \(Int(round(clip.transform.offsetX))) pt  |  Y: \(Int(round(clip.transform.offsetY))) pt")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.skyAccent)
+
+                    Button("Center") {
+                        recordUndo()
+                        project.clips[selectedClipIndex].transform.offsetX = 0.0
+                        project.clips[selectedClipIndex].transform.offsetY = 0.0
+                    }
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.textMuted)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.elevatedSurface)
+                    .clipShape(Capsule())
+                }
+
+                HStack(spacing: 16) {
+                    // D-Pad Directional Arrows
+                    VStack(spacing: 4) {
+                        // UP
+                        Button(action: {
+                            recordUndo()
+                            project.clips[selectedClipIndex].transform.offsetY -= 10.0
+                        }) {
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 12, weight: .black))
+                                .foregroundColor(.textPrimary)
+                                .frame(width: 38, height: 28)
+                                .background(Color.elevatedSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+
+                        // LEFT - CENTER - RIGHT
+                        HStack(spacing: 4) {
+                            Button(action: {
+                                recordUndo()
+                                project.clips[selectedClipIndex].transform.offsetX -= 10.0
+                            }) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 12, weight: .black))
+                                    .foregroundColor(.textPrimary)
+                                    .frame(width: 38, height: 28)
+                                    .background(Color.elevatedSurface)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+
+                            Button(action: {
+                                recordUndo()
+                                project.clips[selectedClipIndex].transform.offsetX = 0.0
+                                project.clips[selectedClipIndex].transform.offsetY = 0.0
+                            }) {
+                                Image(systemName: "circle.grid.cross.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.skyAccent)
+                                    .frame(width: 28, height: 28)
+                                    .background(Color.skyAccent.opacity(0.15))
+                                    .clipShape(Circle())
+                            }
+
+                            Button(action: {
+                                recordUndo()
+                                project.clips[selectedClipIndex].transform.offsetX += 10.0
+                            }) {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .black))
+                                    .foregroundColor(.textPrimary)
+                                    .frame(width: 38, height: 28)
+                                    .background(Color.elevatedSurface)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                        }
+
+                        // DOWN
+                        Button(action: {
+                            recordUndo()
+                            project.clips[selectedClipIndex].transform.offsetY += 10.0
+                        }) {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 12, weight: .black))
+                                .foregroundColor(.textPrimary)
+                                .frame(width: 38, height: 28)
+                                .background(Color.elevatedSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Touch & Drag Canvas")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                        Text("Pan video directly on the preview monitor with your finger, or use the D-pad arrows to nudge by 10pt.")
+                            .font(.system(size: 9.5))
+                            .foregroundColor(.textTertiary)
+                            .lineLimit(3)
+                    }
+                }
+            }
+
+            Divider().background(Color.borderHairline)
+
+            // 4. Rotation & Flip Controls
             HStack(spacing: 10) {
                 Button(action: {
                     recordUndo()
@@ -1115,6 +1257,19 @@ struct VideoEditorView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(clip.transform.flipV ? Color.emeraldAccent.opacity(0.15) : Color.elevatedSurface)
+                        .clipShape(Capsule())
+                }
+
+                Button(action: {
+                    recordUndo()
+                    project.clips[selectedClipIndex].transform = .identity
+                }) {
+                    Text("Reset All")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.textTertiary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color.elevatedSurface)
                         .clipShape(Capsule())
                 }
             }
@@ -1189,6 +1344,9 @@ struct VideoEditorView: View {
                 _ = playerModel
                 self.updatePlayheadFromPlayback(sourceMs: curMs)
             }
+            playerModel.onDidPlayToEnd = { [weak self] in
+                self?.advanceToNextClipAndContinue()
+            }
         }
     }
 
@@ -1201,21 +1359,51 @@ struct VideoEditorView: View {
         DispatchQueue.main.async {
             self.playheadMs = newPlayhead
 
-            // Auto-advance to next clip if this clip finishes
-            if timelineOffset >= clip.timelineDurationMs - 60 {
-                if selectedClipIndex + 1 < project.clips.count {
-                    selectedClipIndex += 1
-                    syncPlayheadToPlayer()
-                    let speed = Float(selectedClip?.speedConfig.speedMultiplier ?? 1.0)
-                    playerModel.play(rate: speed)
-                } else {
-                    playerModel.pause()
-                }
+            // Seamless continuous advance to next clip when clip ends
+            if timelineOffset >= clip.timelineDurationMs - 45 {
+                self.advanceToNextClipAndContinue()
             }
         }
     }
 
-    private func syncPlayheadToPlayer() {
+    private func advanceToNextClipAndContinue() {
+        guard !isAdvancingClip else { return }
+        isAdvancingClip = true
+
+        DispatchQueue.main.async {
+            defer {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    self.isAdvancingClip = false
+                }
+            }
+
+            if self.selectedClipIndex + 1 < self.project.clips.count {
+                self.selectedClipIndex += 1
+                let nextClip = self.project.clips[self.selectedClipIndex]
+                let startMs = self.project.timelineStartTime(forClipIndex: self.selectedClipIndex)
+                self.playheadMs = startMs
+
+                self.playerModel.setup(with: nextClip.sourceUrl) { [weak playerModel] curMs in
+                    _ = playerModel
+                    self.updatePlayheadFromPlayback(sourceMs: curMs)
+                }
+                self.playerModel.onDidPlayToEnd = { [weak self] in
+                    self?.advanceToNextClipAndContinue()
+                }
+
+                let speed = Float(nextClip.speedConfig.speedMultiplier)
+                self.playerModel.seek(to: nextClip.sourceInPointMs, preservePlaybackState: true) {
+                    self.playerModel.play(rate: speed)
+                }
+            } else {
+                // End of entire project timeline reached
+                self.playerModel.pause()
+                self.playheadMs = self.project.totalTimelineDurationMs
+            }
+        }
+    }
+
+    private func syncPlayheadToPlayer(preservePlayback: Bool = false) {
         guard let clip = selectedClip else { return }
         let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
         let offsetMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
@@ -1227,8 +1415,11 @@ struct VideoEditorView: View {
                 _ = playerModel
                 self.updatePlayheadFromPlayback(sourceMs: curMs)
             }
+            playerModel.onDidPlayToEnd = { [weak self] in
+                self?.advanceToNextClipAndContinue()
+            }
         }
-        playerModel.seek(to: sourceMs)
+        playerModel.seek(to: sourceMs, preservePlaybackState: preservePlayback)
     }
 
     private func performSplitAtPlayhead() {
