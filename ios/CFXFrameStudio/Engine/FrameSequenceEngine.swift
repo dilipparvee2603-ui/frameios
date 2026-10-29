@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
+import UIKit
 import Photos
-import ffmpegkit
 
 // MARK: - Sequence Format
 enum SequenceFormat: String, CaseIterable, Identifiable {
@@ -65,13 +65,15 @@ struct SequenceExportResult {
 final class FrameSequenceEngine {
     static let shared = FrameSequenceEngine()
 
+    private var isCancelled: Bool = false
+
     private init() {}
 
     func cancel() {
-        FFmpegKit.cancel()
+        isCancelled = true
     }
 
-    // Export frame sequence
+    // Export frame sequence using Apple Metal/AVFoundation hardware
     func exportSequence(
         srcUrl: URL,
         startMs: Int64,
@@ -81,6 +83,8 @@ final class FrameSequenceEngine {
         destination: SequenceDestination,
         onProgress: @escaping (Float, Int) -> Void
     ) async -> SequenceExportResult {
+        isCancelled = false
+
         let tempDir = FileManager.default.temporaryDirectory
         let timestamp = Int(Date().timeIntervalSince1970 * 1000)
         let outputFolder = tempDir.appendingPathComponent("CFX_Sequence_\(timestamp)", isDirectory: true)
@@ -105,57 +109,52 @@ final class FrameSequenceEngine {
             }
         }
 
-        let effectiveFps = fpsMode.numericValue ?? sourceFps
+        let effectiveFps = max(1.0, fpsMode.numericValue ?? sourceFps)
         let expectedFrames = max(1, Int(targetDuration * effectiveFps))
+        let frameInterval = 1.0 / effectiveFps
 
-        // Build FFmpeg command
-        var args: [String] = []
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
 
-        if clampedStartMs > 0 {
-            args += ["-ss", String(format: "%.3f", startSec)]
-        }
+        var extractedCount = 0
 
-        args += ["-i", srcUrl.path]
+        for i in 0..<expectedFrames {
+            if isCancelled { break }
 
-        if clampedEndMs > clampedStartMs {
-            args += ["-t", String(format: "%.3f", targetDuration)]
-        }
+            let frameTimeSec = startSec + (Double(i) * frameInterval)
+            let cmTime = CMTime(seconds: frameTimeSec, preferredTimescale: 60000)
 
-        // FPS filter
-        if let fpsVal = fpsMode.numericValue {
-            args += ["-vf", "fps=\(fpsVal)"]
-        }
+            do {
+                var actualTime = CMTime.zero
+                let cgImage = try generator.copyCGImage(at: cmTime, actualTime: &actualTime)
+                let uiImage = UIImage(cgImage: cgImage)
 
-        // Quality / Codec settings
-        switch format {
-        case .png:
-            args += ["-c:v", "png"]
-        case .jpeg:
-            args += ["-q:v", "2"]
-        case .tiff:
-            args += ["-c:v", "tiff"]
-        }
+                let fileData: Data?
+                switch format {
+                case .png:
+                    fileData = uiImage.pngData()
+                case .jpeg:
+                    fileData = uiImage.jpegData(compressionQuality: 0.95)
+                case .tiff:
+                    fileData = encodeTiff(cgImage: cgImage) ?? uiImage.pngData()
+                }
 
-        let framePattern = outputFolder.appendingPathComponent("frame_%04d.\(format.fileExtension)").path
-        args += ["-y", framePattern]
+                if let data = fileData {
+                    let filename = String(format: "frame_%04d.%@", i + 1, format.fileExtension)
+                    let fileUrl = outputFolder.appendingPathComponent(filename)
+                    try data.write(to: fileUrl)
+                    extractedCount += 1
+                }
 
-        // Enable progress callback
-        FFmpegKitConfig.enableStatisticsCallback { stats in
-            guard let stats = stats else { return }
-            let videoFrameNumber = Int(stats.getVideoFrameNumber())
-            let progress = min(1.0, max(0.0, Float(videoFrameNumber) / Float(expectedFrames)))
-            DispatchQueue.main.async {
-                onProgress(progress, videoFrameNumber)
+                let progress = Float(i + 1) / Float(expectedFrames)
+                DispatchQueue.main.async {
+                    onProgress(progress, i + 1)
+                }
+            } catch {
+                AppLogger.shared.error(tag: "SEQUENCE", message: "Frame \(i + 1) error: \(error.localizedDescription)")
             }
-        }
-
-        let session = FFmpegKit.execute(withArguments: args)
-        FFmpegKitConfig.enableStatisticsCallback(nil)
-
-        guard let returnCode = session?.getReturnCode(), returnCode.isValueSuccess() else {
-            let logs = session?.getAllLogsAsString() ?? "Extraction failed"
-            AppLogger.shared.error(tag: "SEQUENCE", message: logs)
-            return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, errorMessage: logs)
         }
 
         // Count generated frames and size
@@ -170,7 +169,9 @@ final class FrameSequenceEngine {
         }
 
         guard actualFrameCount > 0 else {
-            return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, errorMessage: "No frames extracted")
+            let msg = "No frames extracted"
+            AppLogger.shared.error(tag: "SEQUENCE", message: msg)
+            return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, errorMessage: msg)
         }
 
         // Process based on destination
@@ -199,7 +200,9 @@ final class FrameSequenceEngine {
                 let zipSize = (try? finalZip.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? Int(totalBytes)
                 return SequenceExportResult(success: true, outputUrl: finalZip, frameCount: actualFrameCount, totalSizeBytes: Int64(zipSize), errorMessage: nil)
             } else {
-                return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, errorMessage: "Failed to compress ZIP archive")
+                let msg = "Failed to compress ZIP archive"
+                AppLogger.shared.error(tag: "SEQUENCE", message: msg)
+                return SequenceExportResult(success: false, outputUrl: nil, frameCount: 0, totalSizeBytes: 0, errorMessage: msg)
             }
 
         case .filesFolder:
@@ -210,6 +213,18 @@ final class FrameSequenceEngine {
             await saveFramesToPhotosAlbum(files: files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }))
             return SequenceExportResult(success: true, outputUrl: outputFolder, frameCount: actualFrameCount, totalSizeBytes: totalBytes, errorMessage: nil)
         }
+    }
+
+    private func encodeTiff(cgImage: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, "public.tiff" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        if CGImageDestinationFinalize(destination) {
+            return data as Data
+        }
+        return nil
     }
 
     private func saveFramesToPhotosAlbum(files: [URL]) async {

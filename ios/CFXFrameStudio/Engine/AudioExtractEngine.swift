@@ -208,6 +208,21 @@ final class AudioExtractEngine {
                 if let fbCode = fbSession?.getReturnCode(), fbCode.isValueSuccess() && FileManager.default.fileExists(atPath: outputUrl.path) {
                     return AudioExtractResult(success: true, outputUrl: outputUrl, errorMessage: nil, durationSeconds: targetDuration)
                 }
+
+                // Tier 3: Native AVAssetExportSession fallback (Apple AVFoundation hardware)
+                if let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) {
+                    exportSession.outputURL = outputUrl
+                    exportSession.outputFileType = .m4a
+                    if clampedEndMs > clampedStartMs {
+                        let startTime = CMTime(seconds: startSec, preferredTimescale: 60000)
+                        let duration = CMTime(seconds: targetDuration, preferredTimescale: 60000)
+                        exportSession.timeRange = CMTimeRange(start: startTime, duration: duration)
+                    }
+                    await exportSession.export()
+                    if exportSession.status == .completed && FileManager.default.fileExists(atPath: outputUrl.path) {
+                        return AudioExtractResult(success: true, outputUrl: outputUrl, errorMessage: nil, durationSeconds: targetDuration)
+                    }
+                }
             }
 
             let logs = session?.getAllLogsAsString() ?? "Unknown error"
