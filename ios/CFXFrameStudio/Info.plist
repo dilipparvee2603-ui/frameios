@@ -50,6 +50,8 @@
 	<string>CFX FrameStudio needs access to your Photo Library to load videos and photos for lossless precision editing and cropping.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>CFX FrameStudio needs permission to save trimmed videos, converted media, and lossless cropped images directly to your Camera Roll.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>CFX FrameStudio uses your local Wi-Fi to transfer videos and frames between your iPhone and PC without cables or iTunes.</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
