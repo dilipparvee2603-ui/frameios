@@ -1,29 +1,26 @@
 import Foundation
 import AVFoundation
-import ffmpegkit
 
 // MARK: - Audio Export Format
 enum AudioExportFormat: String, CaseIterable, Identifiable {
-    case m4a = "M4A (Lossless Copy • 0% Loss)"
-    case mp3 = "MP3 (320 kbps Studio)"
+    case m4aLossless = "M4A (Lossless Copy • 0% Loss)"
+    case m4aStudio = "M4A (Studio 320 kbps AAC)"
     case wav = "WAV (24-bit PCM Uncompressed)"
-    case alac = "ALAC (Apple Lossless)"
+    case alac = "ALAC (Apple Lossless Audio)"
 
     var id: String { rawValue }
 
     var fileExtension: String {
         switch self {
-        case .m4a: return "m4a"
-        case .mp3: return "mp3"
+        case .m4aLossless, .m4aStudio, .alac: return "m4a"
         case .wav: return "wav"
-        case .alac: return "m4a"
         }
     }
 
     var shortName: String {
         switch self {
-        case .m4a: return "M4A Lossless"
-        case .mp3: return "MP3 320k"
+        case .m4aLossless: return "M4A Lossless"
+        case .m4aStudio: return "M4A 320k"
         case .wav: return "WAV 24-bit"
         case .alac: return "ALAC"
         }
@@ -62,14 +59,19 @@ struct AudioExtractResult {
     let durationSeconds: Double
 }
 
-// MARK: - Audio Extract Engine
+// MARK: - Audio Extract Engine (Native Apple Hardware Accelerated)
 final class AudioExtractEngine {
     static let shared = AudioExtractEngine()
+
+    private var currentExportSession: AVAssetExportSession?
+    private var isCancelled: Bool = false
 
     private init() {}
 
     func cancel() {
-        FFmpegKit.cancel()
+        isCancelled = true
+        currentExportSession?.cancelExport()
+        currentExportSession = nil
     }
 
     // Probe audio track info
@@ -114,7 +116,7 @@ final class AudioExtractEngine {
         }
     }
 
-    // Extract Audio
+    // Extract Audio using native AVFoundation
     func extractAudio(
         srcUrl: URL,
         format: AudioExportFormat,
@@ -122,11 +124,12 @@ final class AudioExtractEngine {
         endMs: Int64 = 0,
         onProgress: @escaping (Float) -> Void
     ) async -> AudioExtractResult {
+        isCancelled = false
+
         let tempDir = FileManager.default.temporaryDirectory
         let timestamp = Int(Date().timeIntervalSince1970 * 1000)
         let outputUrl = tempDir.appendingPathComponent("CFX_Audio_\(timestamp).\(format.fileExtension)")
 
-        // Remove old if exists
         try? FileManager.default.removeItem(at: outputUrl)
 
         let asset = AVURLAsset(url: srcUrl)
@@ -139,95 +142,187 @@ final class AudioExtractEngine {
         let startSec = Double(clampedStartMs) / 1000.0
         let targetDuration = max(0.1, Double(clampedEndMs - clampedStartMs) / 1000.0)
 
-        var args: [String] = []
-
-        // Accurate seek
-        if clampedStartMs > 0 {
-            args += ["-ss", String(format: "%.3f", startSec)]
-        }
-
-        args += ["-i", srcUrl.path]
-
-        if clampedEndMs > clampedStartMs {
-            args += ["-t", String(format: "%.3f", targetDuration)]
-        }
-
-        // Drop video completely
-        args += ["-vn"]
-
-        // Format-specific encoding
-        switch format {
-        case .m4a:
-            // Attempt stream-copy first for 0% loss
-            args += ["-c:a", "copy"]
-        case .mp3:
-            args += ["-c:a", "libmp3lame", "-b:a", "320k", "-q:a", "0"]
-        case .wav:
-            args += ["-c:a", "pcm_s24le"]
-        case .alac:
-            args += ["-c:a", "alac"]
-        }
-
-        args += ["-y", outputUrl.path]
-
-        // Enable progress callback
-        FFmpegKitConfig.enableStatisticsCallback { stats in
-            guard let stats = stats else { return }
-            let timeInMs = stats.getTime()
-            if targetDuration > 0 {
-                let progress = min(1.0, max(0.0, Float(Double(timeInMs) / (targetDuration * 1000.0))))
-                DispatchQueue.main.async {
-                    onProgress(progress)
-                }
-            }
-        }
-
-        let session = FFmpegKit.execute(withArguments: args)
-        FFmpegKitConfig.enableStatisticsCallback(nil)
-
-        guard let returnCode = session?.getReturnCode() else {
-            return AudioExtractResult(success: false, outputUrl: nil, errorMessage: "Execution failed", durationSeconds: 0)
-        }
-
-        if returnCode.isValueSuccess() && FileManager.default.fileExists(atPath: outputUrl.path) {
-            return AudioExtractResult(success: true, outputUrl: outputUrl, errorMessage: nil, durationSeconds: targetDuration)
+        let timeRange: CMTimeRange?
+        if clampedEndMs > clampedStartMs && clampedEndMs < Int64(totalSec * 1000) || clampedStartMs > 0 {
+            let startTime = CMTime(seconds: startSec, preferredTimescale: 60000)
+            let duration = CMTime(seconds: targetDuration, preferredTimescale: 60000)
+            timeRange = CMTimeRange(start: startTime, duration: duration)
         } else {
-            // If .m4a stream copy failed (e.g. source was Opus/AC3 incompatible with M4A container), transcode to AAC 320k
-            if format == .m4a {
-                var fallbackArgs: [String] = []
-                if clampedStartMs > 0 {
-                    fallbackArgs += ["-ss", String(format: "%.3f", startSec)]
-                }
-                fallbackArgs += ["-i", srcUrl.path]
-                if clampedEndMs > clampedStartMs {
-                    fallbackArgs += ["-t", String(format: "%.3f", targetDuration)]
-                }
-                fallbackArgs += ["-vn", "-c:a", "aac", "-b:a", "320k", "-y", outputUrl.path]
+            timeRange = nil
+        }
 
-                let fbSession = FFmpegKit.execute(withArguments: fallbackArgs)
-                if let fbCode = fbSession?.getReturnCode(), fbCode.isValueSuccess() && FileManager.default.fileExists(atPath: outputUrl.path) {
+        switch format {
+        case .wav:
+            // Extract via AVAssetReader + AVAssetWriter (24-bit PCM WAV)
+            return await exportWavNative(
+                asset: asset,
+                outputUrl: outputUrl,
+                timeRange: timeRange,
+                targetDuration: targetDuration,
+                onProgress: onProgress
+            )
+
+        case .m4aLossless:
+            // Attempt Passthrough stream copy (0% quality loss) first
+            if let passthroughSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) {
+                currentExportSession = passthroughSession
+                passthroughSession.outputURL = outputUrl
+                passthroughSession.outputFileType = .m4a
+                if let tr = timeRange { passthroughSession.timeRange = tr }
+
+                let timer = startProgressTimer(session: passthroughSession, onProgress: onProgress)
+                await passthroughSession.export()
+                timer?.invalidate()
+
+                if passthroughSession.status == .completed && FileManager.default.fileExists(atPath: outputUrl.path) {
+                    AppLogger.shared.log(tag: "AUDIO_EXTRACT", message: "Extracted lossless M4A stream copy successfully")
                     return AudioExtractResult(success: true, outputUrl: outputUrl, errorMessage: nil, durationSeconds: targetDuration)
                 }
+            }
 
-                // Tier 3: Native AVAssetExportSession fallback (Apple AVFoundation hardware)
-                if let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) {
-                    exportSession.outputURL = outputUrl
-                    exportSession.outputFileType = .m4a
-                    if clampedEndMs > clampedStartMs {
-                        let startTime = CMTime(seconds: startSec, preferredTimescale: 60000)
-                        let duration = CMTime(seconds: targetDuration, preferredTimescale: 60000)
-                        exportSession.timeRange = CMTimeRange(start: startTime, duration: duration)
-                    }
-                    await exportSession.export()
-                    if exportSession.status == .completed && FileManager.default.fileExists(atPath: outputUrl.path) {
-                        return AudioExtractResult(success: true, outputUrl: outputUrl, errorMessage: nil, durationSeconds: targetDuration)
+            // Fallback to Apple M4A preset
+            return await exportWithPreset(
+                asset: asset,
+                preset: AVAssetExportPresetAppleM4A,
+                outputUrl: outputUrl,
+                timeRange: timeRange,
+                targetDuration: targetDuration,
+                onProgress: onProgress
+            )
+
+        case .m4aStudio, .alac:
+            return await exportWithPreset(
+                asset: asset,
+                preset: AVAssetExportPresetAppleM4A,
+                outputUrl: outputUrl,
+                timeRange: timeRange,
+                targetDuration: targetDuration,
+                onProgress: onProgress
+            )
+        }
+    }
+
+    private func exportWithPreset(
+        asset: AVAsset,
+        preset: String,
+        outputUrl: URL,
+        timeRange: CMTimeRange?,
+        targetDuration: Double,
+        onProgress: @escaping (Float) -> Void
+    ) async -> AudioExtractResult {
+        guard let session = AVAssetExportSession(asset: asset, presetName: preset) else {
+            let msg = "Could not create AVAssetExportSession with preset \(preset)"
+            AppLogger.shared.error(tag: "AUDIO_EXTRACT", message: msg)
+            return AudioExtractResult(success: false, outputUrl: nil, errorMessage: msg, durationSeconds: 0)
+        }
+
+        currentExportSession = session
+        session.outputURL = outputUrl
+        session.outputFileType = .m4a
+        if let tr = timeRange { session.timeRange = tr }
+
+        let timer = startProgressTimer(session: session, onProgress: onProgress)
+        await session.export()
+        timer?.invalidate()
+
+        if session.status == .completed && FileManager.default.fileExists(atPath: outputUrl.path) {
+            AppLogger.shared.log(tag: "AUDIO_EXTRACT", message: "Extracted M4A successfully")
+            return AudioExtractResult(success: true, outputUrl: outputUrl, errorMessage: nil, durationSeconds: targetDuration)
+        } else {
+            let err = session.error?.localizedDescription ?? "Export session failed"
+            AppLogger.shared.error(tag: "AUDIO_EXTRACT", message: err)
+            return AudioExtractResult(success: false, outputUrl: nil, errorMessage: err, durationSeconds: 0)
+        }
+    }
+
+    // Native uncompressed WAV exporter
+    private func exportWavNative(
+        asset: AVAsset,
+        outputUrl: URL,
+        timeRange: CMTimeRange?,
+        targetDuration: Double,
+        onProgress: @escaping (Float) -> Void
+    ) async -> AudioExtractResult {
+        do {
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            guard let audioTrack = audioTracks.first else {
+                let msg = "No audio track found in video"
+                AppLogger.shared.error(tag: "AUDIO_EXTRACT", message: msg)
+                return AudioExtractResult(success: false, outputUrl: nil, errorMessage: msg, durationSeconds: 0)
+            }
+
+            let reader = try AVAssetReader(asset: asset)
+            if let tr = timeRange {
+                reader.timeRange = tr
+            }
+
+            let outputSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 48000.0,
+                AVNumberOfChannelsKey: 2,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false
+            ]
+
+            let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+            readerOutput.alwaysCopiesSampleData = false
+            reader.add(readerOutput)
+
+            let writer = try AVAssetWriter(outputURL: outputUrl, fileType: .wav)
+            let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: outputSettings)
+            writerInput.expectsMediaDataInRealTime = false
+            writer.add(writerInput)
+
+            reader.startReading()
+            writer.startWriting()
+            writer.startSession(atSourceTime: timeRange?.start ?? .zero)
+
+            await withCheckedContinuation { continuation in
+                let queue = DispatchQueue(label: "cfx.audio.wav.writer")
+                writerInput.requestMediaDataWhenReady(on: queue) {
+                    while writerInput.isReadyForMoreMediaData {
+                        if self.isCancelled {
+                            reader.cancelReading()
+                            writer.cancelWriting()
+                            continuation.resume()
+                            return
+                        }
+
+                        if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+                            writerInput.append(sampleBuffer)
+                        } else {
+                            writerInput.markAsFinished()
+                            writer.finishWriting {
+                                continuation.resume()
+                            }
+                            return
+                        }
                     }
                 }
             }
 
-            let logs = session?.getAllLogsAsString() ?? "Unknown error"
-            AppLogger.shared.error(tag: "AUDIO_EXTRACT", message: logs)
-            return AudioExtractResult(success: false, outputUrl: nil, errorMessage: logs, durationSeconds: 0)
+            if writer.status == .completed && FileManager.default.fileExists(atPath: outputUrl.path) {
+                AppLogger.shared.log(tag: "AUDIO_EXTRACT", message: "Extracted 24-bit WAV successfully")
+                return AudioExtractResult(success: true, outputUrl: outputUrl, errorMessage: nil, durationSeconds: targetDuration)
+            } else {
+                let err = writer.error?.localizedDescription ?? "WAV writing failed"
+                AppLogger.shared.error(tag: "AUDIO_EXTRACT", message: err)
+                return AudioExtractResult(success: false, outputUrl: nil, errorMessage: err, durationSeconds: 0)
+            }
+        } catch {
+            let msg = error.localizedDescription
+            AppLogger.shared.error(tag: "AUDIO_EXTRACT", message: msg)
+            return AudioExtractResult(success: false, outputUrl: nil, errorMessage: msg, durationSeconds: 0)
+        }
+    }
+
+    private func startProgressTimer(session: AVAssetExportSession, onProgress: @escaping (Float) -> Void) -> Timer? {
+        return Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            DispatchQueue.main.async {
+                onProgress(session.progress)
+            }
         }
     }
 

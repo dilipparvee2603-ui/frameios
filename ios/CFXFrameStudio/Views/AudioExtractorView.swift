@@ -12,7 +12,7 @@ struct AudioExtractorView: View {
     @State private var videoUrl: URL? = nil
     @State private var trackInfo: AudioTrackInfo? = nil
 
-    @State private var selectedFormat: AudioExportFormat = .m4a
+    @State private var selectedFormat: AudioExportFormat = .m4aLossless
     @State private var trimRangeEnabled: Bool = false
     @State private var startMs: Int64 = 0
     @State private var endMs: Int64 = 0
@@ -465,7 +465,7 @@ struct AudioExtractorView: View {
 
                                 Spacer()
 
-                                if fmt == .m4a {
+                                if fmt == .m4aLossless {
                                     Text("RECOMMENDED")
                                         .font(.system(size: 8, weight: .heavy))
                                         .foregroundColor(.emeraldAccent)
