@@ -167,24 +167,18 @@ final class VideoEditorExportEngine {
                 vFilters.append("vflip")
             }
 
-            // B. Color grading (with dynamic keyframe animation support)
-            let kfBrightness = clip.keyframes(for: .brightness)
-            let kfContrast = clip.keyframes(for: .contrast)
-            let kfSaturation = clip.keyframes(for: .saturation)
-            if !kfBrightness.isEmpty || !kfContrast.isEmpty || !kfSaturation.isEmpty {
-                let cExpr = buildFFmpegTimeExpression(keyframes: kfContrast, defaultValue: clip.color.contrast)
-                let bExpr = buildFFmpegTimeExpression(keyframes: kfBrightness, defaultValue: clip.color.brightness)
-                let sExpr = buildFFmpegTimeExpression(keyframes: kfSaturation, defaultValue: clip.color.saturation)
-                vFilters.append("eq=contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(sExpr)'")
-            } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
+            // B. Color grading
+            if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
                 vFilters.append("eq=contrast=\(String(format: "%.2f", clip.color.contrast)):brightness=\(String(format: "%.2f", clip.color.brightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
             }
 
             // Opacity keyframe support
-            let kfOpacity = clip.keyframes(for: .opacity)
-            if !kfOpacity.isEmpty {
-                let alphaExpr = buildFFmpegTimeExpression(keyframes: kfOpacity, defaultValue: 1.0)
+            if clip.hasKeyframes() {
+                let opPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity) }
+                let alphaExpr = buildFFmpegTimeExpression(points: opPoints, defaultValue: 1.0)
                 vFilters.append("format=yuva420p,colorchannelmixer=aa='\(alphaExpr)'")
+            } else if clip.transform.opacity < 0.999 {
+                vFilters.append("format=yuva420p,colorchannelmixer=aa=\(String(format: "%.3f", clip.transform.opacity))")
             }
 
             // C. Conform & Scale with Zoom and Pan Offset onto canvas using overlay on black background
@@ -192,29 +186,31 @@ final class VideoEditorExportEngine {
             // Scale offset from preview coordinate system (~200pt wide) to export target resolution
             let scaleMultiplier = Double(targetW) / 200.0
 
-            let kfPosX = clip.keyframes(for: .positionX)
-            let kfPosY = clip.keyframes(for: .positionY)
-
             let xOffsetExpr: String
-            if !kfPosX.isEmpty {
-                xOffsetExpr = buildFFmpegTimeExpression(keyframes: kfPosX, defaultValue: clip.transform.offsetX, multiplier: scaleMultiplier)
+            let yOffsetExpr: String
+
+            if clip.hasKeyframes() {
+                let xPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.positionX) }
+                let yPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.positionY) }
+                xOffsetExpr = buildFFmpegTimeExpression(points: xPoints, defaultValue: clip.transform.offsetX, multiplier: scaleMultiplier)
+                yOffsetExpr = buildFFmpegTimeExpression(points: yPoints, defaultValue: clip.transform.offsetY, multiplier: scaleMultiplier)
             } else {
                 let padX = Int(round(clip.transform.offsetX * scaleMultiplier))
-                xOffsetExpr = "\(padX)"
-            }
-
-            let yOffsetExpr: String
-            if !kfPosY.isEmpty {
-                yOffsetExpr = buildFFmpegTimeExpression(keyframes: kfPosY, defaultValue: clip.transform.offsetY, multiplier: scaleMultiplier)
-            } else {
                 let padY = Int(round(clip.transform.offsetY * scaleMultiplier))
+                xOffsetExpr = "\(padX)"
                 yOffsetExpr = "\(padY)"
             }
 
             let clipDurationSec = max(0.1, Double(clip.timelineDurationMs) / 1000.0)
 
             vFilters.append("scale=\(targetW):\(targetH):force_original_aspect_ratio=decrease")
-            vFilters.append("scale=w='trunc(iw*\(String(format: "%.2f", zoom))/2)*2':h='trunc(ih*\(String(format: "%.2f", zoom))/2)*2'")
+            if clip.hasKeyframes() {
+                let scalePoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.scale) }
+                let zoomExpr = buildFFmpegTimeExpression(points: scalePoints, defaultValue: clip.transform.scale)
+                vFilters.append("scale=eval=frame:w='trunc(iw*(\(zoomExpr))/2)*2':h='trunc(ih*(\(zoomExpr))/2)*2'")
+            } else {
+                vFilters.append("scale=w='trunc(iw*\(String(format: "%.2f", zoom))/2)*2':h='trunc(ih*\(String(format: "%.2f", zoom))/2)*2'")
+            }
             let vFilterStr = vFilters.joined(separator: ",")
 
             let xExpr = "(W-w)/2+(\(xOffsetExpr))"
@@ -294,11 +290,11 @@ final class VideoEditorExportEngine {
 
     /// Evaluates piecewise linear keyframe interpolation expression over time `t` (seconds) for FFmpeg filtergraphs
     private func buildFFmpegTimeExpression(
-        keyframes: [ClipKeyframe],
+        points: [(timeMs: Int64, value: Double)],
         defaultValue: Double,
         multiplier: Double = 1.0
     ) -> String {
-        let sorted = keyframes.sorted { $0.timeMs < $1.timeMs }
+        let sorted = points.sorted { $0.timeMs < $1.timeMs }
         guard !sorted.isEmpty else {
             return String(format: "%.2f", defaultValue * multiplier)
         }

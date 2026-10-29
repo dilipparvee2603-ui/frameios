@@ -79,6 +79,7 @@ struct TransformGeometry: Codable, Equatable {
     var scale: Double = 1.0
     var offsetX: Double = 0.0
     var offsetY: Double = 0.0
+    var opacity: Double = 1.0
     var fitMode: FitMode = .fit
 
     static let identity = TransformGeometry()
@@ -174,8 +175,11 @@ enum KeyframeEasing: String, CaseIterable, Identifiable, Codable {
 struct ClipKeyframe: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var timeMs: Int64              // Clip-local presentation timestamp in ms (0 ... clip.timelineDurationMs)
-    var property: KeyframeProperty
-    var value: Double
+    var positionX: Double = 0.0    // Canvas offset X in pt
+    var positionY: Double = 0.0    // Canvas offset Y in pt
+    var scale: Double = 1.0        // Zoom scale (1.0 = normal)
+    var rotationDegrees: Double = 0.0 // Rotation angle in degrees
+    var opacity: Double = 1.0      // Opacity (0.0 ... 1.0)
     var easing: KeyframeEasing = .easeInOut
 }
 
@@ -271,101 +275,129 @@ struct EditorClip: Identifiable, Codable, Equatable {
     var transitionOut: TransitionType = .cut
     var transitionDurationMs: Int64 = 500
 
-    // MARK: - Keyframe Animation Evaluation
-    func keyframes(for property: KeyframeProperty) -> [ClipKeyframe] {
-        keyframes.filter { $0.property == property }.sorted { $0.timeMs < $1.timeMs }
+    // MARK: - InShot-Style Keyframe Animation System
+    func hasKeyframes() -> Bool {
+        !keyframes.isEmpty
     }
 
-    func hasKeyframes(for property: KeyframeProperty? = nil) -> Bool {
-        if let p = property {
-            return keyframes.contains { $0.property == p }
+    var sortedKeyframes: [ClipKeyframe] {
+        keyframes.sorted { $0.timeMs < $1.timeMs }
+    }
+
+    func keyframe(near timeMs: Int64, toleranceMs: Int64 = 60) -> ClipKeyframe? {
+        keyframes.first { abs($0.timeMs - timeMs) <= toleranceMs }
+    }
+
+    func keyframeIndex(near timeMs: Int64, toleranceMs: Int64 = 60) -> Int? {
+        keyframes.firstIndex { abs($0.timeMs - timeMs) <= toleranceMs }
+    }
+
+    @discardableResult
+    mutating func addOrUpdateKeyframe(
+        at timeMs: Int64,
+        positionX: Double? = nil,
+        positionY: Double? = nil,
+        scale: Double? = nil,
+        rotationDegrees: Double? = nil,
+        opacity: Double? = nil,
+        easing: KeyframeEasing? = nil
+    ) -> ClipKeyframe {
+        let clampedTime = max(0, min(timelineDurationMs, timeMs))
+        let cur = evaluatedTransform(at: clampedTime)
+
+        if let idx = keyframeIndex(near: clampedTime, toleranceMs: 60) {
+            if let px = positionX { keyframes[idx].positionX = px }
+            if let py = positionY { keyframes[idx].positionY = py }
+            if let sc = scale { keyframes[idx].scale = max(0.1, sc) }
+            if let rot = rotationDegrees { keyframes[idx].rotationDegrees = rot }
+            if let op = opacity { keyframes[idx].opacity = max(0.0, min(1.0, op)) }
+            if let es = easing { keyframes[idx].easing = es }
+            keyframes[idx].timeMs = clampedTime
+            return keyframes[idx]
+        } else {
+            let newKf = ClipKeyframe(
+                timeMs: clampedTime,
+                positionX: positionX ?? cur.offsetX,
+                positionY: positionY ?? cur.offsetY,
+                scale: scale ?? cur.scale,
+                rotationDegrees: rotationDegrees ?? cur.rotationDegrees,
+                opacity: opacity ?? cur.opacity,
+                easing: easing ?? .easeInOut
+            )
+            keyframes.append(newKf)
+            keyframes.sort { $0.timeMs < $1.timeMs }
+            return newKf
         }
-        return !keyframes.isEmpty
     }
 
-    /// Evaluates property value at clip-local presentation timestamp in ms
-    func evaluate(property: KeyframeProperty, at timeMs: Int64, defaultValue: Double) -> Double {
-        let propertyKeyframes = keyframes(for: property)
-        guard !propertyKeyframes.isEmpty else { return defaultValue }
+    mutating func removeKeyframe(near timeMs: Int64, toleranceMs: Int64 = 60) {
+        keyframes.removeAll { abs($0.timeMs - timeMs) <= toleranceMs }
+    }
+
+    func previousKeyframeTime(from timeMs: Int64) -> Int64? {
+        sortedKeyframes.filter { $0.timeMs < timeMs - 40 }.last?.timeMs
+    }
+
+    func nextKeyframeTime(from timeMs: Int64) -> Int64? {
+        sortedKeyframes.filter { $0.timeMs > timeMs + 40 }.first?.timeMs
+    }
+
+    func allKeyframeTimes() -> [Int64] {
+        sortedKeyframes.map { $0.timeMs }
+    }
+
+    /// Evaluates complete transform at clip-local presentation timestamp in ms
+    func evaluatedTransform(at timeMs: Int64) -> (scale: Double, offsetX: Double, offsetY: Double, rotationDegrees: Double, opacity: Double) {
+        let sorted = sortedKeyframes
+        guard !sorted.isEmpty else {
+            return (
+                max(0.1, transform.scale),
+                transform.offsetX,
+                transform.offsetY,
+                Double(transform.rotation.rawValue),
+                max(0.0, min(1.0, transform.opacity))
+            )
+        }
 
         let clampedTime = max(0, min(timelineDurationMs, timeMs))
-        if clampedTime <= propertyKeyframes.first!.timeMs {
-            return propertyKeyframes.first!.value
-        }
-        if clampedTime >= propertyKeyframes.last!.timeMs {
-            return propertyKeyframes.last!.value
+
+        // Before first keyframe: hold first keyframe state
+        if clampedTime <= sorted.first!.timeMs {
+            let k0 = sorted.first!
+            return (max(0.1, k0.scale), k0.positionX, k0.positionY, k0.rotationDegrees, max(0.0, min(1.0, k0.opacity)))
         }
 
-        for i in 0..<(propertyKeyframes.count - 1) {
-            let k0 = propertyKeyframes[i]
-            let k1 = propertyKeyframes[i + 1]
+        // After last keyframe: hold last keyframe state
+        if clampedTime >= sorted.last!.timeMs {
+            let kLast = sorted.last!
+            return (max(0.1, kLast.scale), kLast.positionX, kLast.positionY, kLast.rotationDegrees, max(0.0, min(1.0, kLast.opacity)))
+        }
+
+        // Between two keyframes: smooth interpolation
+        for i in 0..<(sorted.count - 1) {
+            let k0 = sorted[i]
+            let k1 = sorted[i + 1]
             if clampedTime >= k0.timeMs && clampedTime <= k1.timeMs {
                 let span = Double(k1.timeMs - k0.timeMs)
-                guard span > 0.001 else { return k0.value }
+                guard span > 0.001 else {
+                    return (max(0.1, k0.scale), k0.positionX, k0.positionY, k0.rotationDegrees, max(0.0, min(1.0, k0.opacity)))
+                }
                 let t = Double(clampedTime - k0.timeMs) / span
-                return k0.easing.interpolate(from: k0.value, to: k1.value, progress: t)
+                let s = k0.easing.interpolate(from: k0.scale, to: k1.scale, progress: t)
+                let x = k0.easing.interpolate(from: k0.positionX, to: k1.positionX, progress: t)
+                let y = k0.easing.interpolate(from: k0.positionY, to: k1.positionY, progress: t)
+                let r = k0.easing.interpolate(from: k0.rotationDegrees, to: k1.rotationDegrees, progress: t)
+                let o = k0.easing.interpolate(from: k0.opacity, to: k1.opacity, progress: t)
+                return (max(0.1, s), x, y, r, max(0.0, min(1.0, o)))
             }
         }
-        return defaultValue
-    }
 
-    /// Evaluates all dynamic transform parameters at a clip-local presentation time (ms)
-    func evaluatedTransform(at timeMs: Int64) -> (scale: Double, offsetX: Double, offsetY: Double, rotationDegrees: Double, opacity: Double) {
-        let scaleVal = evaluate(property: .scale, at: timeMs, defaultValue: transform.scale)
-        let offX = evaluate(property: .positionX, at: timeMs, defaultValue: transform.offsetX)
-        let offY = evaluate(property: .positionY, at: timeMs, defaultValue: transform.offsetY)
-        let rot = evaluate(property: .rotation, at: timeMs, defaultValue: Double(transform.rotation.rawValue))
-        let op = evaluate(property: .opacity, at: timeMs, defaultValue: 1.0)
-        return (max(0.1, scaleVal), offX, offY, rot, max(0.0, min(1.0, op)))
+        return (transform.scale, transform.offsetX, transform.offsetY, Double(transform.rotation.rawValue), max(0.0, min(1.0, transform.opacity)))
     }
 
     /// Evaluates color adjustments at a clip-local presentation time (ms)
     func evaluatedColor(at timeMs: Int64) -> ColorAdjustments {
-        var adj = color
-        adj.brightness = evaluate(property: .brightness, at: timeMs, defaultValue: color.brightness)
-        adj.contrast = evaluate(property: .contrast, at: timeMs, defaultValue: color.contrast)
-        adj.saturation = evaluate(property: .saturation, at: timeMs, defaultValue: color.saturation)
-        return adj
-    }
-
-    /// Adds or updates a keyframe for the specified property at the given clip-local timestamp
-    mutating func addOrUpdateKeyframe(property: KeyframeProperty, timeMs: Int64, value: Double, easing: KeyframeEasing = .easeInOut) {
-        let clampedTime = max(0, min(timelineDurationMs, timeMs))
-        if let existingIdx = keyframes.firstIndex(where: { $0.property == property && abs($0.timeMs - clampedTime) <= 40 }) {
-            keyframes[existingIdx].value = value
-            keyframes[existingIdx].timeMs = clampedTime
-            keyframes[existingIdx].easing = easing
-        } else {
-            keyframes.append(ClipKeyframe(timeMs: clampedTime, property: property, value: value, easing: easing))
-            keyframes.sort { $0.timeMs < $1.timeMs }
-        }
-    }
-
-    /// Removes keyframe for property near specified timestamp
-    mutating func removeKeyframe(property: KeyframeProperty, timeMs: Int64, toleranceMs: Int64 = 60) {
-        keyframes.removeAll { $0.property == property && abs($0.timeMs - timeMs) <= toleranceMs }
-    }
-
-    /// Retrieves keyframe for property near specified timestamp
-    func keyframe(property: KeyframeProperty, near timeMs: Int64, toleranceMs: Int64 = 60) -> ClipKeyframe? {
-        keyframes.first { $0.property == property && abs($0.timeMs - timeMs) <= toleranceMs }
-    }
-
-    /// Previous keyframe timestamp before given time
-    func previousKeyframeTime(from timeMs: Int64, property: KeyframeProperty? = nil) -> Int64? {
-        let list = (property != nil ? keyframes(for: property!) : keyframes.sorted { $0.timeMs < $1.timeMs })
-        return list.filter { $0.timeMs < timeMs - 40 }.last?.timeMs
-    }
-
-    /// Next keyframe timestamp after given time
-    func nextKeyframeTime(from timeMs: Int64, property: KeyframeProperty? = nil) -> Int64? {
-        let list = (property != nil ? keyframes(for: property!) : keyframes.sorted { $0.timeMs < $1.timeMs })
-        return list.filter { $0.timeMs > timeMs + 40 }.first?.timeMs
-    }
-
-    /// All unique keyframe timestamps on this clip
-    func allKeyframeTimes() -> [Int64] {
-        Array(Set(keyframes.map { $0.timeMs })).sorted()
+        return color
     }
 
     // MARK: - Computed Durations
@@ -503,24 +535,41 @@ struct VideoProject: Identifiable, Codable, Equatable {
         var firstKeyframes: [ClipKeyframe] = []
         var secondKeyframes: [ClipKeyframe] = []
 
-        for prop in KeyframeProperty.allCases {
-            let propKfs = clip.keyframes(for: prop)
-            if !propKfs.isEmpty {
-                let midVal = clip.evaluate(property: prop, at: offsetMs, defaultValue: prop.defaultVal)
-                // First clip keyframes
-                for kf in propKfs where kf.timeMs < offsetMs {
-                    firstKeyframes.append(kf)
-                }
-                firstKeyframes.append(ClipKeyframe(timeMs: offsetMs, property: prop, value: midVal, easing: .easeInOut))
+        if !clip.keyframes.isEmpty {
+            let midTransform = clip.evaluatedTransform(at: offsetMs)
 
-                // Second clip keyframes
-                secondKeyframes.append(ClipKeyframe(timeMs: 0, property: prop, value: midVal, easing: .easeInOut))
-                for kf in propKfs where kf.timeMs > offsetMs {
-                    var shifted = kf
-                    shifted.id = UUID()
-                    shifted.timeMs = kf.timeMs - offsetMs
-                    secondKeyframes.append(shifted)
-                }
+            // First clip keyframes
+            for kf in clip.sortedKeyframes where kf.timeMs < offsetMs {
+                firstKeyframes.append(kf)
+            }
+            // Boundary keyframe at end of clip 1
+            firstKeyframes.append(ClipKeyframe(
+                timeMs: offsetMs,
+                positionX: midTransform.offsetX,
+                positionY: midTransform.offsetY,
+                scale: midTransform.scale,
+                rotationDegrees: midTransform.rotationDegrees,
+                opacity: midTransform.opacity,
+                easing: .easeInOut
+            ))
+
+            // Boundary keyframe at start of clip 2 (time 0)
+            secondKeyframes.append(ClipKeyframe(
+                timeMs: 0,
+                positionX: midTransform.offsetX,
+                positionY: midTransform.offsetY,
+                scale: midTransform.scale,
+                rotationDegrees: midTransform.rotationDegrees,
+                opacity: midTransform.opacity,
+                easing: .easeInOut
+            ))
+
+            // Shifted keyframes for clip 2
+            for kf in clip.sortedKeyframes where kf.timeMs > offsetMs {
+                var shifted = kf
+                shifted.id = UUID()
+                shifted.timeMs = kf.timeMs - offsetMs
+                secondKeyframes.append(shifted)
             }
         }
 
