@@ -10,7 +10,8 @@ final class PlayerModel: ObservableObject {
     @Published var currentPositionTime: CMTime = .zero
     @Published var playbackFailed: Bool = false
     @Published var playbackErrorMessage: String? = nil
-    var onDidPlayToEnd: (() -> Void)? = nil
+    @Published var didReachEndTime: Bool = false
+    var loopOnEnd: Bool = false
 
     private var timeObserverToken: Any? = nil
     private var endObserverToken: Any? = nil
@@ -30,6 +31,7 @@ final class PlayerModel: ObservableObject {
     func setup(with url: URL, onTick: ((Int64) -> Void)? = nil) {
         cleanup()
         configureAudioSession()
+        didReachEndTime = false
 
         let playerItem = AVPlayerItem(url: url)
         // High quality pitch algorithm prevents distortion during slow or retimed playback
@@ -39,18 +41,18 @@ final class PlayerModel: ObservableObject {
         player.isMuted = isMuted
         player.actionAtItemEnd = .none
 
-        // Loop / reset or trigger continuous project playback
+        // Loop / reset or notify continuous project playback
         endObserverToken = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
             queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
-            if let customHandler = self.onDidPlayToEnd {
-                customHandler()
-            } else {
-                self.pause()
-                self.seek(to: Int64(0))
+            self.didReachEndTime = true
+            if self.loopOnEnd {
+                self.seek(to: Int64(0)) {
+                    self.play()
+                }
             }
         }
 

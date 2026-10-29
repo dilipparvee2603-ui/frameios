@@ -134,6 +134,11 @@ struct VideoEditorView: View {
                 ShareActivityView(activityItems: [url])
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notif in
+            if let curItem = playerModel.player.currentItem, (notif.object as? AVPlayerItem) == curItem {
+                advanceToNextClipAndContinue()
+            }
+        }
         .photosPicker(isPresented: $showPhotosPicker, selection: $selectedPhotosItem, matching: .videos)
         .onChange(of: selectedPhotosItem) { newItem in
             guard let item = newItem else { return }
@@ -1344,9 +1349,6 @@ struct VideoEditorView: View {
                 _ = playerModel
                 self.updatePlayheadFromPlayback(sourceMs: curMs)
             }
-            playerModel.onDidPlayToEnd = { [weak self] in
-                self?.advanceToNextClipAndContinue()
-            }
         }
     }
 
@@ -1387,9 +1389,6 @@ struct VideoEditorView: View {
                     _ = playerModel
                     self.updatePlayheadFromPlayback(sourceMs: curMs)
                 }
-                self.playerModel.onDidPlayToEnd = { [weak self] in
-                    self?.advanceToNextClipAndContinue()
-                }
 
                 let speed = Float(nextClip.speedConfig.speedMultiplier)
                 self.playerModel.seek(to: nextClip.sourceInPointMs, preservePlaybackState: true) {
@@ -1414,9 +1413,6 @@ struct VideoEditorView: View {
             playerModel.setup(with: clip.sourceUrl) { [weak playerModel] curMs in
                 _ = playerModel
                 self.updatePlayheadFromPlayback(sourceMs: curMs)
-            }
-            playerModel.onDidPlayToEnd = { [weak self] in
-                self?.advanceToNextClipAndContinue()
             }
         }
         playerModel.seek(to: sourceMs, preservePlaybackState: preservePlayback)
