@@ -74,12 +74,15 @@ final class WiFiTransferServer: ObservableObject {
                     case .ready:
                         self?.isRunning = true
                         self?.statusMessage = "Server Active on Wi-Fi"
+                        UIApplication.shared.isIdleTimerDisabled = true
                     case .failed(let error):
                         self?.isRunning = false
                         self?.statusMessage = "Failed: \(error.localizedDescription)"
+                        UIApplication.shared.isIdleTimerDisabled = false
                     case .cancelled:
                         self?.isRunning = false
                         self?.statusMessage = "Server Stopped"
+                        UIApplication.shared.isIdleTimerDisabled = false
                     default:
                         break
                     }
@@ -110,6 +113,7 @@ final class WiFiTransferServer: ObservableObject {
             self.isRunning = false
             self.activeConnections = 0
             self.statusMessage = "Offline"
+            UIApplication.shared.isIdleTimerDisabled = false
         }
     }
 
