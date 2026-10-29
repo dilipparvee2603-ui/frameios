@@ -1321,7 +1321,7 @@ struct VideoEditorView: View {
                         Image(systemName: "rhombus.fill")
                             .font(.system(size: 9, weight: .bold))
                     }
-                    .foregroundColor(prevMs != nil ? .textPrimary : .textDisabled)
+                    .foregroundColor(prevMs != nil ? .textPrimary : .textMuted)
                     .frame(width: 32, height: 26)
                     .background(Color.surfaceCard)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -1374,7 +1374,7 @@ struct VideoEditorView: View {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 8, weight: .bold))
                     }
-                    .foregroundColor(nextMs != nil ? .textPrimary : .textDisabled)
+                    .foregroundColor(nextMs != nil ? .textPrimary : .textMuted)
                     .frame(width: 32, height: 26)
                     .background(Color.surfaceCard)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -1758,10 +1758,10 @@ struct VideoEditorView: View {
                 }) {
                     Text("Reset All")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.roseAccent)
+                        .foregroundColor(.textTertiary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color.roseAccent.opacity(0.15))
+                        .background(Color.elevatedSurface)
                         .clipShape(Capsule())
                 }
             }
