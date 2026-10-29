@@ -142,7 +142,8 @@ final class VideoEditorExportEngine {
 
             // Check if audio track exists on this clip
             let clipAsset = AVURLAsset(url: clipUrl)
-            let hasAudioTrack = (try? clipAsset.loadTracks(withMediaType: .audio).isEmpty == false) ?? false
+            let audioTracks = (try? await clipAsset.loadTracks(withMediaType: .audio)) ?? []
+            let hasAudioTrack = !audioTracks.isEmpty
 
             // 1. Video Filters
             var vFilters: [String] = []

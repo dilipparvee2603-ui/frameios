@@ -283,20 +283,7 @@ struct VideoEditorView: View {
 
                 if let clip = selectedClip {
                     let ratio: CGFloat = project.canvasAspectRatio.ratioValue ?? (9.0 / 16.0)
-                    let maxH = max(80, availH - 16)
-                    let maxW = max(80, availW - 16)
-
-                    let (canvasW, canvasH): (CGFloat, CGFloat) = {
-                        if ratio < 1.0 {
-                            let h = maxH
-                            let w = min(maxW, h * ratio)
-                            return (w, h)
-                        } else {
-                            let w = min(maxW, maxH * ratio)
-                            let h = min(maxH, w / ratio)
-                            return (w, h)
-                        }
-                    }()
+                    let canvasSize = computeCanvasDimensions(ratio: ratio, maxW: max(80, availW - 16), maxH: max(80, availH - 16))
 
                     // Canvas Container Box (Accurately sized to chosen Aspect Ratio)
                     ZStack {
@@ -307,7 +294,7 @@ struct VideoEditorView: View {
                             .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue)))
                             .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
                     }
-                    .frame(width: canvasW, height: canvasH)
+                    .frame(width: canvasSize.width, height: canvasSize.height)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
@@ -1489,6 +1476,18 @@ struct VideoEditorView: View {
         let m = sec / 60
         let s = sec % 60
         return String(format: "%02d:%02d", m, s)
+    }
+
+    private func computeCanvasDimensions(ratio: CGFloat, maxW: CGFloat, maxH: CGFloat) -> CGSize {
+        if ratio < 1.0 {
+            let h = maxH
+            let w = min(maxW, h * ratio)
+            return CGSize(width: w, height: h)
+        } else {
+            let w = min(maxW, maxH * ratio)
+            let h = min(maxH, w / ratio)
+            return CGSize(width: w, height: h)
+        }
     }
 }
 
