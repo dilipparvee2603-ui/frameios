@@ -219,6 +219,7 @@ final class MKVRemuxEngine {
             args += [
                 "-map", "0:a:0?",
                 "-c:a", "aac",
+                "-ac", "2",
                 "-b:a", "256k"
             ]
         } else {
@@ -632,7 +633,7 @@ final class MKVRemuxEngine {
             }
 
             if finalInfo.needsAudioTranscode {
-                tier1Arguments += ["-c:a", "aac", "-b:a", "256k"]
+                tier1Arguments += ["-c:a", "aac", "-ac", "2", "-b:a", "256k"]
             } else {
                 tier1Arguments += ["-c:a", "copy"]
             }
@@ -682,6 +683,7 @@ final class MKVRemuxEngine {
 
             tier2Arguments += [
                 "-c:a", "aac",
+                "-ac", "2",
                 "-b:a", "192k",
                 "-movflags", "+faststart",
                 outputUrl.path

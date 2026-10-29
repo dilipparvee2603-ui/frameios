@@ -217,7 +217,7 @@ final class VideoTrimEngine {
         ]
 
         if includeAudio {
-            args += ["-map", "0:a:0?", "-c:a", "aac", "-b:a", "192k"]
+            args += ["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "192k"]
         } else {
             args += ["-an"]
         }
