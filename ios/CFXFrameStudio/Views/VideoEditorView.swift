@@ -41,6 +41,8 @@ struct VideoEditorView: View {
     @State private var activeToolPanel: EditorToolPanel? = nil
     @State private var isAdvancingClip: Bool = false
     @State private var dragInitialOffset: CGSize? = nil
+    @State private var dragTrimInitialInMs: Int64? = nil
+    @State private var dragTrimInitialOutMs: Int64? = nil
     @State private var selectedKeyframeProperty: KeyframeProperty = .scale
     @State private var selectedKeyframeEasing: KeyframeEasing = .easeInOut
 
@@ -128,6 +130,9 @@ struct VideoEditorView: View {
         }
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            playerModel.periodicTickHandler = { curMs in
+                self.updatePlayheadFromPlayback(sourceMs: curMs)
+            }
             setupInitialProject()
         }
         .onDisappear {
@@ -792,30 +797,87 @@ struct VideoEditorView: View {
                 }
             }
 
-            // Visual Trim Handles when selected
+            // Interactive Draggable Trim Handles when selected
             if isSelected {
-                HStack {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.brandAccent)
-                        .frame(width: 8, height: 42)
-                        .overlay(
-                            Image(systemName: "chevron.compact.left")
-                                .font(.system(size: 8, weight: .heavy))
-                                .foregroundColor(.white)
-                        )
+                HStack(spacing: 0) {
+                    // Left Trim Handle (In-Point)
+                    HStack(spacing: 0) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.brandAccent)
+                            .frame(width: 8, height: 46)
+                            .overlay(
+                                Image(systemName: "chevron.compact.left")
+                                    .font(.system(size: 8, weight: .heavy))
+                                    .foregroundColor(.white)
+                            )
+                        Spacer()
+                    }
+                    .frame(width: 24, height: 58)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { val in
+                                if dragTrimInitialInMs == nil {
+                                    dragTrimInitialInMs = clip.sourceInPointMs
+                                    playerModel.pause()
+                                }
+                                if let initialIn = dragTrimInitialInMs {
+                                    let deltaMs = Int64(round(Double(val.translation.width) / Double(pointsPerSecond) * 1000.0 * clip.speedConfig.speedMultiplier))
+                                    let newInMs = max(0, min(clip.sourceOutPointMs - 100, initialIn + deltaMs))
+                                    project.clips[index].sourceInPointMs = newInMs
+                                    playerModel.setPlaybackBounds(inMs: newInMs, outMs: clip.sourceOutPointMs)
+                                    playerModel.seek(to: newInMs, preservePlaybackState: false)
+                                    let clipStart = project.timelineStartTime(forClipIndex: index)
+                                    playheadMs = clipStart
+                                }
+                            }
+                            .onEnded { _ in
+                                recordUndo()
+                                dragTrimInitialInMs = nil
+                                ProjectStorageManager.shared.saveProject(project)
+                            }
+                    )
 
                     Spacer()
 
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.brandAccent)
-                        .frame(width: 8, height: 42)
-                        .overlay(
-                            Image(systemName: "chevron.compact.right")
-                                .font(.system(size: 8, weight: .heavy))
-                                .foregroundColor(.white)
-                        )
+                    // Right Trim Handle (Out-Point)
+                    HStack(spacing: 0) {
+                        Spacer()
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.brandAccent)
+                            .frame(width: 8, height: 46)
+                            .overlay(
+                                Image(systemName: "chevron.compact.right")
+                                    .font(.system(size: 8, weight: .heavy))
+                                    .foregroundColor(.white)
+                            )
+                    }
+                    .frame(width: 24, height: 58)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { val in
+                                if dragTrimInitialOutMs == nil {
+                                    dragTrimInitialOutMs = clip.sourceOutPointMs
+                                    playerModel.pause()
+                                }
+                                if let initialOut = dragTrimInitialOutMs {
+                                    let deltaMs = Int64(round(Double(val.translation.width) / Double(pointsPerSecond) * 1000.0 * clip.speedConfig.speedMultiplier))
+                                    let newOutMs = max(clip.sourceInPointMs + 100, min(clip.sourceDurationMs, initialOut + deltaMs))
+                                    project.clips[index].sourceOutPointMs = newOutMs
+                                    playerModel.setPlaybackBounds(inMs: clip.sourceInPointMs, outMs: newOutMs)
+                                    playerModel.seek(to: newOutMs, preservePlaybackState: false)
+                                    let clipStart = project.timelineStartTime(forClipIndex: index)
+                                    playheadMs = clipStart + project.clips[index].timelineDurationMs
+                                }
+                            }
+                            .onEnded { _ in
+                                recordUndo()
+                                dragTrimInitialOutMs = nil
+                                ProjectStorageManager.shared.saveProject(project)
+                            }
+                    )
                 }
-                .padding(.horizontal, 2)
             }
 
             // Clip metadata overlay
@@ -1793,8 +1855,13 @@ struct VideoEditorView: View {
 
     // MARK: - Logic Actions
     private func setupInitialProject() {
+        playerModel.periodicTickHandler = { curMs in
+            self.updatePlayheadFromPlayback(sourceMs: curMs)
+        }
+
         if let clip = project.clips.first {
             playerModel.player.isMuted = clip.isMuted
+            playerModel.setPlaybackBounds(inMs: clip.sourceInPointMs, outMs: clip.sourceOutPointMs)
             playerModel.setup(with: clip.sourceUrl) { [weak playerModel] curMs in
                 _ = playerModel
                 self.updatePlayheadFromPlayback(sourceMs: curMs)
@@ -1808,15 +1875,15 @@ struct VideoEditorView: View {
     private func updatePlayheadFromPlayback(sourceMs: Int64) {
         guard let clip = selectedClip else { return }
 
-        // If player is playing before the trimmed in-point, seek it immediately to in-point
-        if sourceMs < clip.sourceInPointMs - 50 {
-            playerModel.seek(to: clip.sourceInPointMs, preservePlaybackState: true)
+        // Hard boundary clamp: if player reaches or passes trimmed out-point, advance immediately!
+        if sourceMs >= clip.sourceOutPointMs - 25 {
+            self.advanceToNextClipAndContinue()
             return
         }
 
-        // If player has reached or passed the trimmed out-point, advance immediately!
-        if sourceMs >= clip.sourceOutPointMs - 30 {
-            self.advanceToNextClipAndContinue()
+        // Hard boundary clamp: if player is playing before trimmed in-point, seek to in-point
+        if sourceMs < clip.sourceInPointMs - 40 {
+            playerModel.seek(to: clip.sourceInPointMs, preservePlaybackState: true)
             return
         }
 
@@ -1840,10 +1907,13 @@ struct VideoEditorView: View {
             playheadMs = startMs
 
             playerModel.player.isMuted = nextClip.isMuted
+            playerModel.setPlaybackBounds(inMs: nextClip.sourceInPointMs, outMs: nextClip.sourceOutPointMs)
             let speed = Float(nextClip.speedConfig.speedMultiplier)
             playerModel.transitionTo(
                 url: nextClip.sourceUrl,
                 startMs: nextClip.sourceInPointMs,
+                inMs: nextClip.sourceInPointMs,
+                outMs: nextClip.sourceOutPointMs,
                 playRate: speed,
                 autoPlay: true
             ) {
@@ -1864,6 +1934,7 @@ struct VideoEditorView: View {
         let sourceMs = max(clip.sourceInPointMs, min(clip.sourceOutPointMs, clip.mapTimelineOffsetToSourceMs(offsetMs)))
 
         playerModel.player.isMuted = clip.isMuted
+        playerModel.setPlaybackBounds(inMs: clip.sourceInPointMs, outMs: clip.sourceOutPointMs)
 
         let isCurrentUrl = (playerModel.player.currentItem?.asset as? AVURLAsset)?.url == clip.sourceUrl
         if !isCurrentUrl {
@@ -1871,6 +1942,8 @@ struct VideoEditorView: View {
             playerModel.transitionTo(
                 url: clip.sourceUrl,
                 startMs: sourceMs,
+                inMs: clip.sourceInPointMs,
+                outMs: clip.sourceOutPointMs,
                 playRate: speed,
                 autoPlay: preservePlayback
             )

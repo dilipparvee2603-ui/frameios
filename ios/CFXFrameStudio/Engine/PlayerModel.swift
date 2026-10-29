@@ -11,6 +11,9 @@ final class PlayerModel: ObservableObject {
     @Published var playbackFailed: Bool = false
     @Published var playbackErrorMessage: String? = nil
     @Published var didReachEndTime: Bool = false
+    @Published var trimInMs: Int64 = 0
+    @Published var trimOutMs: Int64 = .max
+
     var loopOnEnd: Bool = false
     var periodicTickHandler: ((Int64) -> Void)? = nil
 
@@ -29,6 +32,20 @@ final class PlayerModel: ObservableObject {
         }
     }
 
+    /// Sets strict playback range boundaries on the current AVPlayerItem
+    func setPlaybackBounds(inMs: Int64, outMs: Int64) {
+        self.trimInMs = max(0, inMs)
+        self.trimOutMs = max(self.trimInMs + 50, outMs)
+        applyPlaybackBounds()
+    }
+
+    private func applyPlaybackBounds() {
+        guard let item = player.currentItem else { return }
+        let outSec = Double(trimOutMs) / 1000.0
+        let outCm = CMTime(seconds: outSec, preferredTimescale: 60000)
+        item.forwardPlaybackEndTime = outCm
+    }
+
     func setup(with url: URL, onTick: ((Int64) -> Void)? = nil) {
         cleanup()
         configureAudioSession()
@@ -40,6 +57,9 @@ final class PlayerModel: ObservableObject {
         let playerItem = AVPlayerItem(url: url)
         // High quality pitch algorithm prevents distortion during slow or retimed playback
         playerItem.audioTimePitchAlgorithm = .timeDomain
+        let outSec = Double(trimOutMs) / 1000.0
+        playerItem.forwardPlaybackEndTime = CMTime(seconds: outSec, preferredTimescale: 60000)
+
         player = AVPlayer(playerItem: playerItem)
         player.automaticallyWaitsToMinimizeStalling = false
         player.isMuted = isMuted
@@ -48,15 +68,17 @@ final class PlayerModel: ObservableObject {
         // Loop / reset or notify continuous project playback
         endObserverToken = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
-            object: playerItem,
+            object: nil,
             queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
             self.didReachEndTime = true
             if self.loopOnEnd {
-                self.seek(to: Int64(0)) {
+                self.seek(to: self.trimInMs) {
                     self.play()
                 }
+            } else if self.isPlaying {
+                self.periodicTickHandler?(self.trimOutMs)
             }
         }
 
@@ -81,7 +103,13 @@ final class PlayerModel: ObservableObject {
             let ms = Int64(CMTimeGetSeconds(time) * 1000.0)
             self.currentPositionMs = ms
             if self.isPlaying {
-                self.periodicTickHandler?(ms)
+                if ms >= self.trimOutMs - 25 {
+                    self.periodicTickHandler?(self.trimOutMs)
+                } else if ms < self.trimInMs - 50 {
+                    self.seek(to: self.trimInMs, preservePlaybackState: true)
+                } else {
+                    self.periodicTickHandler?(ms)
+                }
             }
         }
     }
@@ -110,18 +138,32 @@ final class PlayerModel: ObservableObject {
         isPlaying = false
     }
 
-    func transitionTo(url: URL, startMs: Int64 = 0, playRate: Float = 1.0, autoPlay: Bool = true, completion: (() -> Void)? = nil) {
+    func transitionTo(
+        url: URL,
+        startMs: Int64 = 0,
+        inMs: Int64? = nil,
+        outMs: Int64? = nil,
+        playRate: Float = 1.0,
+        autoPlay: Bool = true,
+        completion: (() -> Void)? = nil
+    ) {
         didReachEndTime = false
+        if let inMs = inMs { self.trimInMs = max(0, inMs) }
+        if let outMs = outMs { self.trimOutMs = max(self.trimInMs + 50, outMs) }
+
         let safeRate = max(0.01, playRate)
-        let targetSec = Double(max(0, startMs)) / 1000.0
+        let effectiveStartMs = max(self.trimInMs, startMs)
+        let targetSec = Double(effectiveStartMs) / 1000.0
         let targetCm = CMTime(seconds: targetSec, preferredTimescale: 60000)
 
         // Case A: Same source asset (e.g. split clip, trimmed segment, duplicate) - zero latency seek
-        if (player.currentItem?.asset as? AVURLAsset)?.url == url, player.currentItem != nil {
+        if (player.currentItem?.asset as? AVURLAsset)?.url == url, let curItem = player.currentItem {
+            let outSec = Double(self.trimOutMs) / 1000.0
+            curItem.forwardPlaybackEndTime = CMTime(seconds: outSec, preferredTimescale: 60000)
             player.seek(to: targetCm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
                 guard let self = self else { return }
                 self.currentPositionTime = targetCm
-                self.currentPositionMs = startMs
+                self.currentPositionMs = effectiveStartMs
                 if autoPlay {
                     self.player.playImmediately(atRate: safeRate)
                     self.isPlaying = true
@@ -134,6 +176,8 @@ final class PlayerModel: ObservableObject {
         // Case B: Different source asset -> reuse existing AVPlayer with replaceCurrentItem (never destroy AVPlayerLayer)
         let playerItem = AVPlayerItem(url: url)
         playerItem.audioTimePitchAlgorithm = .timeDomain
+        let outSec = Double(self.trimOutMs) / 1000.0
+        playerItem.forwardPlaybackEndTime = CMTime(seconds: outSec, preferredTimescale: 60000)
 
         if let token = endObserverToken {
             NotificationCenter.default.removeObserver(token)
@@ -141,34 +185,26 @@ final class PlayerModel: ObservableObject {
         }
         endObserverToken = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
-            object: playerItem,
+            object: nil,
             queue: .main
         ) { [weak self] _ in
             guard let self = self else { return }
             self.didReachEndTime = true
             if self.loopOnEnd {
-                self.seek(to: Int64(0)) {
+                self.seek(to: self.trimInMs) {
                     self.play()
                 }
+            } else if self.isPlaying {
+                self.periodicTickHandler?(self.trimOutMs)
             }
         }
 
         player.replaceCurrentItem(with: playerItem)
 
-        if startMs > 0 {
-            player.seek(to: targetCm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                guard let self = self else { return }
-                self.currentPositionTime = targetCm
-                self.currentPositionMs = startMs
-                if autoPlay {
-                    self.player.playImmediately(atRate: safeRate)
-                    self.isPlaying = true
-                }
-                completion?()
-            }
-        } else {
-            self.currentPositionTime = .zero
-            self.currentPositionMs = 0
+        player.seek(to: targetCm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            guard let self = self else { return }
+            self.currentPositionTime = targetCm
+            self.currentPositionMs = effectiveStartMs
             if autoPlay {
                 self.player.playImmediately(atRate: safeRate)
                 self.isPlaying = true
@@ -180,13 +216,21 @@ final class PlayerModel: ObservableObject {
     func play(rate: Float = 1.0) {
         configureAudioSession()
         let safeRate = max(0.01, rate)
-        if let currentItem = player.currentItem, currentItem.duration.isValid {
-            let dur = CMTimeGetSeconds(currentItem.duration)
-            let cur = CMTimeGetSeconds(player.currentTime())
-            if dur > 0 && cur >= dur - 0.05 {
-                player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+        applyPlaybackBounds()
+
+        let curSec = CMTimeGetSeconds(player.currentTime())
+        let curMs = Int64(round(curSec * 1000.0))
+
+        // If currently at or past the trimmed out boundary, wrap to in-point
+        if curMs >= trimOutMs - 35 || curMs < trimInMs - 50 {
+            seek(to: trimInMs, preservePlaybackState: true) { [weak self] in
+                guard let self = self else { return }
+                self.player.playImmediately(atRate: safeRate)
+                self.isPlaying = true
             }
+            return
         }
+
         player.playImmediately(atRate: safeRate)
         isPlaying = true
     }
