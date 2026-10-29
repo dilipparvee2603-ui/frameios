@@ -88,9 +88,9 @@ struct VideoEditorView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
 
-                // 4. Horizontal Multi-Clip Timeline
+                // 4. Horizontal Multi-Clip Timeline (Video + Audio Tracks)
                 timelineSection
-                    .frame(height: 120)
+                    .frame(height: 148)
                     .background(Color.surfaceCard.opacity(0.85))
 
                 Spacer(minLength: 4)
@@ -332,7 +332,7 @@ struct VideoEditorView: View {
                     )
                     .shadow(color: Color.black.opacity(0.6), radius: 6)
 
-                    // Canvas Aspect Ratio Indicator Tag
+                    // Canvas Overlays (Aspect Ratio + Quick Mute Button on Video Player)
                     VStack {
                         HStack {
                             Text(project.canvasAspectRatio.badgeText)
@@ -342,9 +342,33 @@ struct VideoEditorView: View {
                                 .padding(.vertical, 3)
                                 .background(Color.black.opacity(0.75))
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                                .padding(10)
+
                             Spacer()
+
+                            // Quick Mute Button directly on the Video Player
+                            Button(action: {
+                                recordUndo()
+                                project.clips[selectedClipIndex].isMuted.toggle()
+                                playerModel.player.isMuted = project.clips[selectedClipIndex].isMuted
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: clip.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                        .font(.system(size: 10, weight: .bold))
+                                    Text(clip.isMuted ? "MUTED" : "MUTE")
+                                        .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                                }
+                                .foregroundColor(clip.isMuted ? .brandAccent : .emeraldAccent)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.black.opacity(0.8))
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule().stroke(clip.isMuted ? Color.brandAccent.opacity(0.7) : Color.emeraldAccent.opacity(0.7), lineWidth: 1)
+                                )
+                            }
                         }
+                        .padding(10)
+
                         Spacer()
                     }
                 } else {
@@ -447,13 +471,28 @@ struct VideoEditorView: View {
                 if playerModel.isPlaying {
                     playerModel.pause()
                 } else {
+                    guard let clip = selectedClip else { return }
+                    let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+
                     // Loop back to start if at the end of the project timeline
                     if playheadMs >= project.totalTimelineDurationMs - 50 {
                         selectedClipIndex = 0
                         playheadMs = 0
                         syncPlayheadToPlayer(preservePlayback: false)
+                    } else {
+                        // Ensure player is accurately located within trimmed bounds
+                        let offsetMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
+                        let curSrcMs = clip.mapTimelineOffsetToSourceMs(offsetMs)
+                        if curSrcMs < clip.sourceInPointMs || curSrcMs >= clip.sourceOutPointMs - 40 {
+                            playheadMs = clipStart
+                            playerModel.seek(to: clip.sourceInPointMs, preservePlaybackState: true)
+                        } else {
+                            playerModel.seek(to: curSrcMs, preservePlaybackState: true)
+                        }
                     }
-                    let speed = Float(selectedClip?.speedConfig.speedMultiplier ?? 1.0)
+
+                    playerModel.player.isMuted = clip.isMuted
+                    let speed = Float(clip.speedConfig.speedMultiplier)
                     playerModel.play(rate: speed)
                 }
             }) {
@@ -615,7 +654,7 @@ struct VideoEditorView: View {
                             }
                             .padding(.leading, leadPad)
 
-                            // Clips Horizontal Row
+                            // Track 1: Clips Horizontal Row
                             HStack(spacing: 4) {
                                 ForEach(0..<project.clips.count, id: \.self) { idx in
                                     let clip = project.clips[idx]
@@ -626,6 +665,21 @@ struct VideoEditorView: View {
                                 }
 
                                 // Trailing spacer allowing playback to scroll past end
+                                Spacer()
+                                    .frame(width: 240)
+                            }
+                            .padding(.leading, leadPad)
+
+                            // Track 2: Dedicated Audio Layer Row
+                            HStack(spacing: 4) {
+                                ForEach(0..<project.clips.count, id: \.self) { idx in
+                                    let clip = project.clips[idx]
+                                    let isSelected = idx == selectedClipIndex
+                                    let clipWidth = max(60, (CGFloat(clip.timelineDurationMs) / 1000.0) * pointsPerSecond)
+
+                                    audioTrackItem(clip: clip, index: idx, isSelected: isSelected, width: clipWidth)
+                                }
+
                                 Spacer()
                                     .frame(width: 240)
                             }
@@ -662,16 +716,16 @@ struct VideoEditorView: View {
                                         }
                                 )
 
-                            // Vertical Needle Line (allowsHitTesting false so touches pass through to clips)
+                            // Vertical Needle Line (covers both video and audio tracks)
                             Rectangle()
                                 .fill(Color.brandAccent)
-                                .frame(width: 2, height: 86)
+                                .frame(width: 2, height: 120)
                                 .shadow(color: Color.brandAccent.opacity(0.4), radius: 2)
                                 .allowsHitTesting(false)
                         }
                         .offset(x: playheadX - 7, y: 2)
                     }
-                    .frame(height: 120)
+                    .frame(height: 148)
                 }
             }
         }
@@ -773,6 +827,86 @@ struct VideoEditorView: View {
             playheadMs = startMs
             syncPlayheadToPlayer()
         }
+    }
+
+    @ViewBuilder
+    private func audioTrackItem(clip: EditorClip, index: Int, isSelected: Bool, width: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            // Mute / Unmute Quick Tap Icon
+            Button(action: {
+                recordUndo()
+                project.clips[index].isMuted.toggle()
+                if index == selectedClipIndex {
+                    playerModel.player.isMuted = project.clips[index].isMuted
+                }
+            }) {
+                Image(systemName: clip.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundColor(clip.isMuted ? .brandAccent : .emeraldAccent)
+                    .frame(width: 18, height: 18)
+                    .background(Color.black.opacity(0.5))
+                    .clipShape(Circle())
+            }
+
+            // Audio Waveform Visualization
+            if clip.isMuted {
+                HStack(spacing: 2) {
+                    Rectangle()
+                        .fill(Color.textTertiary.opacity(0.35))
+                        .frame(height: 1)
+                    Text("MUTED")
+                        .font(.system(size: 7.5, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.textTertiary)
+                    Rectangle()
+                        .fill(Color.textTertiary.opacity(0.35))
+                        .frame(height: 1)
+                }
+            } else {
+                HStack(spacing: 2) {
+                    let barCount = max(4, Int(width / 6.0))
+                    ForEach(0..<barCount, id: \.self) { i in
+                        let h = waveformBarHeight(index: i, count: barCount)
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(isSelected ? Color.emeraldAccent : Color.emeraldAccent.opacity(0.7))
+                            .frame(width: 2, height: CGFloat(h))
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            // Volume indicator badge
+            Text("\(Int(round(clip.volume * 100)))%")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundColor(clip.isMuted ? .textTertiary : .emeraldAccent)
+                .padding(.trailing, 2)
+        }
+        .padding(.horizontal, 4)
+        .frame(width: width, height: 26)
+        .background(
+            isSelected
+                ? Color.emeraldAccent.opacity(0.18)
+                : Color.surfaceCard.opacity(0.9)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.emeraldAccent : Color.borderHairline, lineWidth: isSelected ? 1.5 : 0.8)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedClipIndex = index
+            activeToolPanel = .audio
+            let startMs = project.timelineStartTime(forClipIndex: index)
+            playheadMs = startMs
+            syncPlayheadToPlayer(preservePlayback: playerModel.isPlaying)
+        }
+    }
+
+    private func waveformBarHeight(index: Int, count: Int) -> Double {
+        let wave = sin(Double(index) * 0.45) * cos(Double(index) * 0.25)
+        let normalized = (wave + 1.0) / 2.0
+        return 4.0 + (normalized * 12.0)
     }
 
     // MARK: - 5. Bottom Contextual Editing Dock
@@ -889,9 +1023,13 @@ struct VideoEditorView: View {
             HStack(spacing: 12) {
                 Button(action: {
                     recordUndo()
-                    let curSrcMs = clip.mapTimelineOffsetToSourceMs(playheadMs - project.timelineStartTime(forClipIndex: selectedClipIndex))
+                    let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+                    let curSrcMs = clip.mapTimelineOffsetToSourceMs(playheadMs - clipStart)
                     if curSrcMs < clip.sourceOutPointMs - 100 {
-                        project.clips[selectedClipIndex].sourceInPointMs = curSrcMs
+                        project.clips[selectedClipIndex].sourceInPointMs = max(0, curSrcMs)
+                        playheadMs = clipStart
+                        syncPlayheadToPlayer(preservePlayback: false)
+                        ProjectStorageManager.shared.saveProject(project)
                     }
                 }) {
                     Text("Set Start to Playhead")
@@ -905,9 +1043,13 @@ struct VideoEditorView: View {
 
                 Button(action: {
                     recordUndo()
-                    let curSrcMs = clip.mapTimelineOffsetToSourceMs(playheadMs - project.timelineStartTime(forClipIndex: selectedClipIndex))
+                    let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+                    let curSrcMs = clip.mapTimelineOffsetToSourceMs(playheadMs - clipStart)
                     if curSrcMs > clip.sourceInPointMs + 100 {
-                        project.clips[selectedClipIndex].sourceOutPointMs = curSrcMs
+                        project.clips[selectedClipIndex].sourceOutPointMs = min(clip.sourceDurationMs, curSrcMs)
+                        playheadMs = clipStart
+                        syncPlayheadToPlayer(preservePlayback: false)
+                        ProjectStorageManager.shared.saveProject(project)
                     }
                 }) {
                     Text("Set End to Playhead")
@@ -921,8 +1063,12 @@ struct VideoEditorView: View {
 
                 Button(action: {
                     recordUndo()
+                    let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
                     project.clips[selectedClipIndex].sourceInPointMs = 0
                     project.clips[selectedClipIndex].sourceOutPointMs = clip.sourceDurationMs
+                    playheadMs = clipStart
+                    syncPlayheadToPlayer(preservePlayback: false)
+                    ProjectStorageManager.shared.saveProject(project)
                 }) {
                     Text("Reset")
                         .font(.system(size: 11, weight: .bold))
@@ -1360,26 +1506,38 @@ struct VideoEditorView: View {
     // MARK: - Logic Actions
     private func setupInitialProject() {
         if let clip = project.clips.first {
+            playerModel.player.isMuted = clip.isMuted
             playerModel.setup(with: clip.sourceUrl) { [weak playerModel] curMs in
                 _ = playerModel
                 self.updatePlayheadFromPlayback(sourceMs: curMs)
+            }
+            if clip.sourceInPointMs > 0 {
+                playerModel.seek(to: clip.sourceInPointMs)
             }
         }
     }
 
     private func updatePlayheadFromPlayback(sourceMs: Int64) {
         guard let clip = selectedClip else { return }
+
+        // If player is playing before the trimmed in-point, seek it immediately to in-point
+        if sourceMs < clip.sourceInPointMs - 50 {
+            playerModel.seek(to: clip.sourceInPointMs, preservePlaybackState: true)
+            return
+        }
+
+        // If player has reached or passed the trimmed out-point, advance immediately!
+        if sourceMs >= clip.sourceOutPointMs - 30 {
+            self.advanceToNextClipAndContinue()
+            return
+        }
+
         let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
         let timelineOffset = clip.mapSourceMsToTimelineOffset(sourceMs)
         let newPlayhead = clipStart + timelineOffset
 
         DispatchQueue.main.async {
             self.playheadMs = newPlayhead
-
-            // Seamless continuous advance to next clip when clip ends
-            if timelineOffset >= clip.timelineDurationMs - 20 {
-                self.advanceToNextClipAndContinue()
-            }
         }
     }
 
@@ -1393,6 +1551,7 @@ struct VideoEditorView: View {
             let startMs = project.timelineStartTime(forClipIndex: selectedClipIndex)
             playheadMs = startMs
 
+            playerModel.player.isMuted = nextClip.isMuted
             let speed = Float(nextClip.speedConfig.speedMultiplier)
             playerModel.transitionTo(
                 url: nextClip.sourceUrl,
@@ -1414,7 +1573,9 @@ struct VideoEditorView: View {
         guard let clip = selectedClip else { return }
         let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
         let offsetMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
-        let sourceMs = clip.mapTimelineOffsetToSourceMs(offsetMs)
+        let sourceMs = max(clip.sourceInPointMs, min(clip.sourceOutPointMs, clip.mapTimelineOffsetToSourceMs(offsetMs)))
+
+        playerModel.player.isMuted = clip.isMuted
 
         let isCurrentUrl = (playerModel.player.currentItem?.asset as? AVURLAsset)?.url == clip.sourceUrl
         if !isCurrentUrl {

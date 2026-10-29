@@ -12,6 +12,7 @@ final class PlayerModel: ObservableObject {
     @Published var playbackErrorMessage: String? = nil
     @Published var didReachEndTime: Bool = false
     var loopOnEnd: Bool = false
+    var periodicTickHandler: ((Int64) -> Void)? = nil
 
     private var timeObserverToken: Any? = nil
     private var endObserverToken: Any? = nil
@@ -32,6 +33,9 @@ final class PlayerModel: ObservableObject {
         cleanup()
         configureAudioSession()
         didReachEndTime = false
+        if let tick = onTick {
+            periodicTickHandler = tick
+        }
 
         let playerItem = AVPlayerItem(url: url)
         // High quality pitch algorithm prevents distortion during slow or retimed playback
@@ -77,7 +81,7 @@ final class PlayerModel: ObservableObject {
             let ms = Int64(CMTimeGetSeconds(time) * 1000.0)
             self.currentPositionMs = ms
             if self.isPlaying {
-                onTick?(ms)
+                self.periodicTickHandler?(ms)
             }
         }
     }
