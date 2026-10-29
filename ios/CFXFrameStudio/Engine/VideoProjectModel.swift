@@ -105,6 +105,80 @@ struct ColorAdjustments: Codable, Equatable {
     }
 }
 
+// MARK: - Keyframe Animation System
+enum KeyframeProperty: String, CaseIterable, Identifiable, Codable {
+    case positionX = "Position X"
+    case positionY = "Position Y"
+    case scale = "Zoom / Scale"
+    case rotation = "Rotation"
+    case opacity = "Opacity"
+    case brightness = "Brightness"
+    case contrast = "Contrast"
+    case saturation = "Saturation"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .positionX, .positionY: return "arrow.up.and.down.and.arrow.left.and.right"
+        case .scale: return "arrow.up.left.and.down.right.and.arrow.up.right.and.down.left"
+        case .rotation: return "rotate.right"
+        case .opacity: return "circle.lefthalf.filled"
+        case .brightness: return "sun.max.fill"
+        case .contrast: return "circle.righthalf.filled"
+        case .saturation: return "paintpalette.fill"
+        }
+    }
+
+    var defaultVal: Double {
+        switch self {
+        case .positionX, .positionY: return 0.0
+        case .scale: return 1.0
+        case .rotation: return 0.0
+        case .opacity: return 1.0
+        case .brightness: return 0.0
+        case .contrast: return 1.0
+        case .saturation: return 1.0
+        }
+    }
+}
+
+enum KeyframeEasing: String, CaseIterable, Identifiable, Codable {
+    case linear = "Linear"
+    case easeIn = "Ease In"
+    case easeOut = "Ease Out"
+    case easeInOut = "Ease In-Out"
+    case smooth = "Smooth"
+
+    var id: String { rawValue }
+
+    func interpolate(from v0: Double, to v1: Double, progress t: Double) -> Double {
+        let clampedT = max(0.0, min(1.0, t))
+        let easedT: Double
+        switch self {
+        case .linear:
+            easedT = clampedT
+        case .easeIn:
+            easedT = clampedT * clampedT
+        case .easeOut:
+            easedT = clampedT * (2.0 - clampedT)
+        case .easeInOut:
+            easedT = clampedT < 0.5 ? 2.0 * clampedT * clampedT : -1.0 + (4.0 - 2.0 * clampedT) * clampedT
+        case .smooth:
+            easedT = (1.0 - cos(clampedT * .pi)) / 2.0
+        }
+        return v0 + (v1 - v0) * easedT
+    }
+}
+
+struct ClipKeyframe: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var timeMs: Int64              // Clip-local presentation timestamp in ms (0 ... clip.timelineDurationMs)
+    var property: KeyframeProperty
+    var value: Double
+    var easing: KeyframeEasing = .easeInOut
+}
+
 // MARK: - Transitions
 enum TransitionType: String, CaseIterable, Identifiable, Codable {
     case cut = "Direct Cut"
@@ -189,11 +263,110 @@ struct EditorClip: Identifiable, Codable, Equatable {
     var transform: TransformGeometry = TransformGeometry()
     var color: ColorAdjustments = ColorAdjustments()
 
+    var keyframes: [ClipKeyframe] = []
+
     var volume: Double = 1.0 // 0.0 to 2.0
     var isMuted: Bool = false
 
     var transitionOut: TransitionType = .cut
     var transitionDurationMs: Int64 = 500
+
+    // MARK: - Keyframe Animation Evaluation
+    func keyframes(for property: KeyframeProperty) -> [ClipKeyframe] {
+        keyframes.filter { $0.property == property }.sorted { $0.timeMs < $1.timeMs }
+    }
+
+    func hasKeyframes(for property: KeyframeProperty? = nil) -> Bool {
+        if let p = property {
+            return keyframes.contains { $0.property == p }
+        }
+        return !keyframes.isEmpty
+    }
+
+    /// Evaluates property value at clip-local presentation timestamp in ms
+    func evaluate(property: KeyframeProperty, at timeMs: Int64, defaultValue: Double) -> Double {
+        let propertyKeyframes = keyframes(for: property)
+        guard !propertyKeyframes.isEmpty else { return defaultValue }
+
+        let clampedTime = max(0, min(timelineDurationMs, timeMs))
+        if clampedTime <= propertyKeyframes.first!.timeMs {
+            return propertyKeyframes.first!.value
+        }
+        if clampedTime >= propertyKeyframes.last!.timeMs {
+            return propertyKeyframes.last!.value
+        }
+
+        for i in 0..<(propertyKeyframes.count - 1) {
+            let k0 = propertyKeyframes[i]
+            let k1 = propertyKeyframes[i + 1]
+            if clampedTime >= k0.timeMs && clampedTime <= k1.timeMs {
+                let span = Double(k1.timeMs - k0.timeMs)
+                guard span > 0.001 else { return k0.value }
+                let t = Double(clampedTime - k0.timeMs) / span
+                return k0.easing.interpolate(from: k0.value, to: k1.value, progress: t)
+            }
+        }
+        return defaultValue
+    }
+
+    /// Evaluates all dynamic transform parameters at a clip-local presentation time (ms)
+    func evaluatedTransform(at timeMs: Int64) -> (scale: Double, offsetX: Double, offsetY: Double, rotationDegrees: Double, opacity: Double) {
+        let scaleVal = evaluate(property: .scale, at: timeMs, defaultValue: transform.scale)
+        let offX = evaluate(property: .positionX, at: timeMs, defaultValue: transform.offsetX)
+        let offY = evaluate(property: .positionY, at: timeMs, defaultValue: transform.offsetY)
+        let rot = evaluate(property: .rotation, at: timeMs, defaultValue: Double(transform.rotation.rawValue))
+        let op = evaluate(property: .opacity, at: timeMs, defaultValue: 1.0)
+        return (max(0.1, scaleVal), offX, offY, rot, max(0.0, min(1.0, op)))
+    }
+
+    /// Evaluates color adjustments at a clip-local presentation time (ms)
+    func evaluatedColor(at timeMs: Int64) -> ColorAdjustments {
+        var adj = color
+        adj.brightness = evaluate(property: .brightness, at: timeMs, defaultValue: color.brightness)
+        adj.contrast = evaluate(property: .contrast, at: timeMs, defaultValue: color.contrast)
+        adj.saturation = evaluate(property: .saturation, at: timeMs, defaultValue: color.saturation)
+        return adj
+    }
+
+    /// Adds or updates a keyframe for the specified property at the given clip-local timestamp
+    mutating func addOrUpdateKeyframe(property: KeyframeProperty, timeMs: Int64, value: Double, easing: KeyframeEasing = .easeInOut) {
+        let clampedTime = max(0, min(timelineDurationMs, timeMs))
+        if let existingIdx = keyframes.firstIndex(where: { $0.property == property && abs($0.timeMs - clampedTime) <= 40 }) {
+            keyframes[existingIdx].value = value
+            keyframes[existingIdx].timeMs = clampedTime
+            keyframes[existingIdx].easing = easing
+        } else {
+            keyframes.append(ClipKeyframe(timeMs: clampedTime, property: property, value: value, easing: easing))
+            keyframes.sort { $0.timeMs < $1.timeMs }
+        }
+    }
+
+    /// Removes keyframe for property near specified timestamp
+    mutating func removeKeyframe(property: KeyframeProperty, timeMs: Int64, toleranceMs: Int64 = 60) {
+        keyframes.removeAll { $0.property == property && abs($0.timeMs - timeMs) <= toleranceMs }
+    }
+
+    /// Retrieves keyframe for property near specified timestamp
+    func keyframe(property: KeyframeProperty, near timeMs: Int64, toleranceMs: Int64 = 60) -> ClipKeyframe? {
+        keyframes.first { $0.property == property && abs($0.timeMs - timeMs) <= toleranceMs }
+    }
+
+    /// Previous keyframe timestamp before given time
+    func previousKeyframeTime(from timeMs: Int64, property: KeyframeProperty? = nil) -> Int64? {
+        let list = (property != nil ? keyframes(for: property!) : keyframes.sorted { $0.timeMs < $1.timeMs })
+        return list.filter { $0.timeMs < timeMs - 40 }.last?.timeMs
+    }
+
+    /// Next keyframe timestamp after given time
+    func nextKeyframeTime(from timeMs: Int64, property: KeyframeProperty? = nil) -> Int64? {
+        let list = (property != nil ? keyframes(for: property!) : keyframes.sorted { $0.timeMs < $1.timeMs })
+        return list.filter { $0.timeMs > timeMs + 40 }.first?.timeMs
+    }
+
+    /// All unique keyframe timestamps on this clip
+    func allKeyframeTimes() -> [Int64] {
+        Array(Set(keyframes.map { $0.timeMs })).sorted()
+    }
 
     // MARK: - Computed Durations
     /// Raw un-stretched source media trimmed duration in ms
@@ -312,7 +485,7 @@ struct VideoProject: Identifiable, Codable, Equatable {
         return clips.count - 1
     }
 
-    /// Splits a clip at given timeline position, returning an updated project
+    /// Splits a clip at given timeline position, maintaining keyframe animation continuity across both segments
     mutating func splitClip(at timelineMs: Int64) -> Bool {
         guard let index = clipIndex(at: timelineMs) else { return false }
         let clip = clips[index]
@@ -326,13 +499,40 @@ struct VideoProject: Identifiable, Codable, Equatable {
 
         let splitSourceMs = clip.mapTimelineOffsetToSourceMs(offsetMs)
 
+        // Split keyframes with boundary continuity
+        var firstKeyframes: [ClipKeyframe] = []
+        var secondKeyframes: [ClipKeyframe] = []
+
+        for prop in KeyframeProperty.allCases {
+            let propKfs = clip.keyframes(for: prop)
+            if !propKfs.isEmpty {
+                let midVal = clip.evaluate(property: prop, at: offsetMs, defaultValue: prop.defaultVal)
+                // First clip keyframes
+                for kf in propKfs where kf.timeMs < offsetMs {
+                    firstKeyframes.append(kf)
+                }
+                firstKeyframes.append(ClipKeyframe(timeMs: offsetMs, property: prop, value: midVal, easing: .easeInOut))
+
+                // Second clip keyframes
+                secondKeyframes.append(ClipKeyframe(timeMs: 0, property: prop, value: midVal, easing: .easeInOut))
+                for kf in propKfs where kf.timeMs > offsetMs {
+                    var shifted = kf
+                    shifted.id = UUID()
+                    shifted.timeMs = kf.timeMs - offsetMs
+                    secondKeyframes.append(shifted)
+                }
+            }
+        }
+
         var firstClip = clip
         firstClip.id = UUID()
         firstClip.sourceOutPointMs = splitSourceMs
+        firstClip.keyframes = firstKeyframes
 
         var secondClip = clip
         secondClip.id = UUID()
         secondClip.sourceInPointMs = splitSourceMs
+        secondClip.keyframes = secondKeyframes
 
         clips.remove(at: index)
         clips.insert(secondClip, at: index)

@@ -7,8 +7,9 @@ import UniformTypeIdentifiers
 enum EditorToolPanel: String, CaseIterable, Identifiable {
     case trim = "Trim"
     case speed = "Speed"
-    case color = "Color"
+    case keyframes = "Keyframes"
     case transform = "Transform"
+    case color = "Color"
     case audio = "Audio"
     var id: String { rawValue }
 
@@ -16,8 +17,9 @@ enum EditorToolPanel: String, CaseIterable, Identifiable {
         switch self {
         case .trim: return "arrow.left.and.right.righttriangle.left.righttriangle.right.fill"
         case .speed: return "gauge.with.dots.needle.bottom.0percent"
-        case .color: return "slider.horizontal.3"
+        case .keyframes: return "rhombus.fill"
         case .transform: return "crop.rotate"
+        case .color: return "slider.horizontal.3"
         case .audio: return "speaker.wave.2.fill"
         }
     }
@@ -39,6 +41,8 @@ struct VideoEditorView: View {
     @State private var activeToolPanel: EditorToolPanel? = nil
     @State private var isAdvancingClip: Bool = false
     @State private var dragInitialOffset: CGSize? = nil
+    @State private var selectedKeyframeProperty: KeyframeProperty = .scale
+    @State private var selectedKeyframeEasing: KeyframeEasing = .easeInOut
 
     // Import State
     @State private var selectedPhotosItem: PhotosPickerItem? = nil
@@ -162,7 +166,7 @@ struct VideoEditorView: View {
     // MARK: - 1. Top Bar
     @ViewBuilder
     private var topBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Button(action: {
                 ProjectStorageManager.shared.saveProject(project)
                 dismiss()
@@ -180,17 +184,17 @@ struct VideoEditorView: View {
                 editedTitle = project.title
                 showTitleEditor = true
             }) {
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Text(project.title)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundColor(.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Image(systemName: "pencil")
-                        .font(.system(size: 10))
+                        .font(.system(size: 9))
                         .foregroundColor(.textTertiary)
                 }
-                .frame(maxWidth: 88, alignment: .leading)
+                .frame(maxWidth: 80, alignment: .leading)
             }
 
             Spacer(minLength: 2)
@@ -220,13 +224,13 @@ struct VideoEditorView: View {
                         .lineLimit(1)
                 }
                 .foregroundColor(.skyAccent)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .frame(height: 32)
                 .background(Color.skyAccent.opacity(0.14))
                 .clipShape(Capsule())
             }
-            .fixedSize(horizontal: true, vertical: true)
-            .layoutPriority(1)
+            .fixedSize()
+            .layoutPriority(2)
 
             // Undo Button
             Button(action: { performUndo() }) {
@@ -250,26 +254,29 @@ struct VideoEditorView: View {
             }
             .disabled(!undoManager.canRedo)
 
-            // Export Button
+            // Export Button (Fixed non-wrapping capsule)
             Button(action: { startProjectExport() }) {
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                     Text("Export")
-                        .font(.system(size: 12, weight: .heavy))
+                        .font(.system(size: 11, weight: .heavy))
                         .lineLimit(1)
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
-                .background(LinearGradient.brandGradient)
+                .padding(.horizontal, 11)
+                .frame(height: 32)
+                .background(project.clips.isEmpty ? AnyView(Color.surfaceCard) : AnyView(LinearGradient.brandGradient))
                 .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(project.clips.isEmpty ? Color.borderHairline : Color.clear, lineWidth: 1)
+                )
             }
-            .fixedSize(horizontal: true, vertical: true)
+            .fixedSize()
             .layoutPriority(10)
             .disabled(project.clips.isEmpty || isExporting)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 10)
         .padding(.vertical, 6)
     }
 
@@ -289,6 +296,11 @@ struct VideoEditorView: View {
                     )
 
                 if let clip = selectedClip {
+                    let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+                    let clipLocalMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
+                    let animTransform = clip.evaluatedTransform(at: clipLocalMs)
+                    let animColor = clip.evaluatedColor(at: clipLocalMs)
+
                     let ratio: CGFloat = project.canvasAspectRatio.ratioValue ?? (9.0 / 16.0)
                     let canvasSize = computeCanvasDimensions(ratio: ratio, maxW: max(80, availW - 16), maxH: max(80, availH - 16))
 
@@ -297,10 +309,14 @@ struct VideoEditorView: View {
                         Color.black
 
                         VideoPlayerView(player: playerModel.player)
-                            .scaleEffect(clip.transform.scale)
-                            .offset(x: clip.transform.offsetX, y: clip.transform.offsetY)
-                            .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue)))
+                            .scaleEffect(animTransform.scale)
+                            .offset(x: animTransform.offsetX, y: animTransform.offsetY)
+                            .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue) + animTransform.rotationDegrees))
                             .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
+                            .opacity(animTransform.opacity)
+                            .brightness(animColor.brightness)
+                            .contrast(animColor.contrast)
+                            .saturation(animColor.saturation)
                     }
                     .frame(width: canvasSize.width, height: canvasSize.height)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -311,13 +327,20 @@ struct VideoEditorView: View {
                                 guard selectedClipIndex < project.clips.count else { return }
                                 if dragInitialOffset == nil {
                                     dragInitialOffset = CGSize(
-                                        width: project.clips[selectedClipIndex].transform.offsetX,
-                                        height: project.clips[selectedClipIndex].transform.offsetY
+                                        width: animTransform.offsetX,
+                                        height: animTransform.offsetY
                                     )
                                 }
                                 if let initial = dragInitialOffset {
-                                    project.clips[selectedClipIndex].transform.offsetX = initial.width + val.translation.width
-                                    project.clips[selectedClipIndex].transform.offsetY = initial.height + val.translation.height
+                                    let newX = initial.width + val.translation.width
+                                    let newY = initial.height + val.translation.height
+                                    if clip.hasKeyframes(for: .positionX) || clip.hasKeyframes(for: .positionY) {
+                                        project.clips[selectedClipIndex].addOrUpdateKeyframe(property: .positionX, timeMs: clipLocalMs, value: newX, easing: selectedKeyframeEasing)
+                                        project.clips[selectedClipIndex].addOrUpdateKeyframe(property: .positionY, timeMs: clipLocalMs, value: newY, easing: selectedKeyframeEasing)
+                                    } else {
+                                        project.clips[selectedClipIndex].transform.offsetX = newX
+                                        project.clips[selectedClipIndex].transform.offsetY = newY
+                                    }
                                 }
                             }
                             .onEnded { _ in
@@ -751,6 +774,24 @@ struct VideoEditorView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isSelected ? Color.brandAccent : Color.borderHairline, lineWidth: isSelected ? 2.5 : 1)
 
+            // Diamond Keyframe Markers overlay on clip track
+            if !clip.keyframes.isEmpty {
+                ZStack(alignment: .leading) {
+                    ForEach(clip.keyframes) { kf in
+                        let kfRatio = CGFloat(max(0, min(clip.timelineDurationMs, kf.timeMs))) / CGFloat(max(1, clip.timelineDurationMs))
+                        let markerX = max(4, min(width - 12, kfRatio * width - 4))
+                        let clipStart = project.timelineStartTime(forClipIndex: index)
+                        let isNearPlayhead = abs((clipStart + kf.timeMs) - playheadMs) < 60
+
+                        Image(systemName: "rhombus.fill")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(isNearPlayhead ? Color.amberAccent : Color.white.opacity(0.85))
+                            .shadow(color: Color.black, radius: 2)
+                            .offset(x: markerX, y: 16)
+                    }
+                }
+            }
+
             // Visual Trim Handles when selected
             if isSelected {
                 HStack {
@@ -994,6 +1035,8 @@ struct VideoEditorView: View {
                     trimInspector(clip: clip)
                 case .speed:
                     speedInspector(clip: clip)
+                case .keyframes:
+                    keyframesInspector(clip: clip)
                 case .color:
                     colorInspector(clip: clip)
                 case .transform:
@@ -1135,6 +1178,251 @@ struct VideoEditorView: View {
                 .pickerStyle(MenuPickerStyle())
                 .font(.system(size: 10, weight: .bold))
             }
+        }
+    }
+
+    // MARK: - Keyframes Inspector
+    @ViewBuilder
+    private func keyframesInspector(clip: EditorClip) -> some View {
+        let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+        let clipLocalMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
+        let prop = selectedKeyframeProperty
+        let currentKeyframe = clip.keyframe(property: prop, near: clipLocalMs, toleranceMs: 60)
+        let curVal = clip.evaluate(property: prop, at: clipLocalMs, defaultValue: prop.defaultVal)
+
+        VStack(alignment: .leading, spacing: 10) {
+            // 1. Header & Summary
+            HStack {
+                HStack(spacing: 5) {
+                    Image(systemName: "rhombus.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.amberAccent)
+                    Text("KEYFRAME ANIMATION")
+                        .font(.system(size: 11, weight: .heavy))
+                        .foregroundColor(.amberAccent)
+                }
+
+                Spacer()
+
+                Text("\(clip.keyframes.count) Keyframes")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.textTertiary)
+            }
+
+            // 2. Property Selector Strip
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(KeyframeProperty.allCases) { property in
+                        let isSelected = selectedKeyframeProperty == property
+                        let count = clip.keyframes(for: property).count
+                        Button(action: {
+                            selectedKeyframeProperty = property
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: property.icon)
+                                    .font(.system(size: 9, weight: .bold))
+                                Text(property.rawValue)
+                                    .font(.system(size: 10, weight: .bold))
+                                if count > 0 {
+                                    Text("\(count)")
+                                        .font(.system(size: 8, weight: .heavy))
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Color.amberAccent.opacity(0.3))
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            .foregroundColor(isSelected ? .white : .textSecondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(isSelected ? Color.amberAccent : Color.surfaceCard)
+                            .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+
+            Divider().background(Color.borderHairline)
+
+            // 3. Keyframe Transport & Add/Remove Action Strip
+            HStack(spacing: 8) {
+                // Prev Keyframe
+                Button(action: {
+                    if let prevMs = clip.previousKeyframeTime(from: clipLocalMs, property: prop) {
+                        playheadMs = clipStart + prevMs
+                        syncPlayheadToPlayer()
+                    }
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                        Image(systemName: "rhombus.fill")
+                    }
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.skyAccent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.skyAccent.opacity(0.15))
+                    .clipShape(Capsule())
+                }
+                .disabled(clip.previousKeyframeTime(from: clipLocalMs, property: prop) == nil)
+
+                // Add or Remove Keyframe at Playhead
+                Button(action: {
+                    recordUndo()
+                    if currentKeyframe != nil {
+                        project.clips[selectedClipIndex].removeKeyframe(property: prop, timeMs: clipLocalMs)
+                    } else {
+                        project.clips[selectedClipIndex].addOrUpdateKeyframe(
+                            property: prop,
+                            timeMs: clipLocalMs,
+                            value: curVal,
+                            easing: selectedKeyframeEasing
+                        )
+                    }
+                    ProjectStorageManager.shared.saveProject(project)
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: currentKeyframe != nil ? "minus.diamond.fill" : "plus.diamond.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(currentKeyframe != nil ? "Remove ◆" : "Add ◆")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(currentKeyframe != nil ? Color.brandAccent : Color.emeraldAccent)
+                    .clipShape(Capsule())
+                }
+
+                // Next Keyframe
+                Button(action: {
+                    if let nextMs = clip.nextKeyframeTime(from: clipLocalMs, property: prop) {
+                        playheadMs = clipStart + nextMs
+                        syncPlayheadToPlayer()
+                    }
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "rhombus.fill")
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.skyAccent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.skyAccent.opacity(0.15))
+                    .clipShape(Capsule())
+                }
+                .disabled(clip.nextKeyframeTime(from: clipLocalMs, property: prop) == nil)
+
+                Spacer()
+
+                // Reset Property Animation
+                if clip.hasKeyframes(for: prop) {
+                    Button("Reset") {
+                        recordUndo()
+                        project.clips[selectedClipIndex].keyframes.removeAll { $0.property == prop }
+                        ProjectStorageManager.shared.saveProject(project)
+                    }
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.textMuted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.elevatedSurface)
+                    .clipShape(Capsule())
+                }
+            }
+
+            // 4. Value Slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(prop.rawValue)
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundColor(.textTertiary)
+                    Spacer()
+                    Text(formatPropertyValue(prop: prop, value: curVal))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(.amberAccent)
+                }
+
+                propertySlider(property: prop, currentValue: curVal, clipLocalMs: clipLocalMs)
+            }
+
+            // 5. Easing Curve Selector
+            HStack(spacing: 6) {
+                Text("Easing:")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.textTertiary)
+
+                ForEach(KeyframeEasing.allCases) { easing in
+                    let isCur = (currentKeyframe?.easing ?? selectedKeyframeEasing) == easing
+                    Button(action: {
+                        selectedKeyframeEasing = easing
+                        if currentKeyframe != nil {
+                            recordUndo()
+                            project.clips[selectedClipIndex].addOrUpdateKeyframe(
+                                property: prop,
+                                timeMs: clipLocalMs,
+                                value: curVal,
+                                easing: easing
+                            )
+                        }
+                    }) {
+                        Text(easing.rawValue)
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(isCur ? .white : .textSecondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(isCur ? Color.amberAccent : Color.elevatedSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func propertySlider(property: KeyframeProperty, currentValue: Double, clipLocalMs: Int64) -> some View {
+        let range: ClosedRange<Double> = {
+            switch property {
+            case .positionX, .positionY: return -300.0...300.0
+            case .scale: return 0.2...3.5
+            case .rotation: return -180.0...180.0
+            case .opacity: return 0.0...1.0
+            case .brightness: return -0.5...0.5
+            case .contrast: return 0.5...1.8
+            case .saturation: return 0.0...2.0
+            }
+        }()
+
+        Slider(
+            value: Binding(
+                get: { currentValue },
+                set: { newVal in
+                    project.clips[selectedClipIndex].addOrUpdateKeyframe(
+                        property: property,
+                        timeMs: clipLocalMs,
+                        value: newVal,
+                        easing: selectedKeyframeEasing
+                    )
+                }
+            ),
+            in: range
+        )
+        .accentColor(.amberAccent)
+    }
+
+    private func formatPropertyValue(prop: KeyframeProperty, value: Double) -> String {
+        switch prop {
+        case .positionX, .positionY:
+            return "\(Int(round(value))) pt"
+        case .scale:
+            return String(format: "%.2fx", value)
+        case .rotation:
+            return "\(Int(round(value)))°"
+        case .opacity, .contrast, .saturation:
+            return String(format: "%.2f", value)
+        case .brightness:
+            return String(format: "%+.2f", value)
         }
     }
 
