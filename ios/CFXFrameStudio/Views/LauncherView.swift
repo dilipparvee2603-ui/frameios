@@ -31,20 +31,21 @@ struct LauncherView: View {
                     // Bento Grid Scroll View
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 12) {
-                            // 2-Column Grid (8 Core Tools)
-                            LazyVGrid(columns: columns, spacing: 12) {
-                                // 1. Lossless Trimmer
-                                NavigationLink(destination: VideoTrimmerView()) {
-                                    bentoCard(
-                                        title: "Video Trimmer",
-                                        badge: "0% LOSS",
-                                        icon: "scissors",
-                                        accentColor: .brandAccent,
-                                        footerTag: "STREAM COPY"
-                                    )
-                                }
-                                .buttonStyle(BentoButtonStyle())
+                            // 1. Hero Featured Tool: Lossless Video Trimmer (Full Width)
+                            NavigationLink(destination: VideoTrimmerView()) {
+                                heroBentoCard(
+                                    title: "Video Trimmer",
+                                    badge: "0% LOSS",
+                                    icon: "scissors",
+                                    accentColor: .brandAccent,
+                                    gradient: LinearGradient.brandGradient,
+                                    footerTag: "KEYFRAME STREAM COPY"
+                                )
+                            }
+                            .buttonStyle(BentoButtonStyle())
 
+                            // 2-Column Grid (6 Core Tools)
+                            LazyVGrid(columns: columns, spacing: 12) {
                                 // 2. Video Stitcher
                                 NavigationLink(destination: VideoStitcherView()) {
                                     bentoCard(
@@ -52,7 +53,6 @@ struct LauncherView: View {
                                         badge: "0% LOSS",
                                         icon: "film.stack",
                                         accentColor: .brandAccent,
-                                        gradient: LinearGradient.brandGradient,
                                         footerTag: "MERGE CLIPS"
                                     )
                                 }
@@ -111,24 +111,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 7. Wi-Fi PC Sync (New!)
-                                NavigationLink(destination: WiFiTransferView()) {
-                                    bentoCard(
-                                        title: "Wi-Fi PC Sync",
-                                        badge: "NO ITUNES",
-                                        icon: "wifi",
-                                        accentColor: .skyAccent,
-                                        gradient: LinearGradient(
-                                            colors: [Color(hex: "00B4DB"), Color(hex: "0083B0")],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        ),
-                                        footerTag: "WIRELESS TRANSFER"
-                                    )
-                                }
-                                .buttonStyle(BentoButtonStyle())
-
-                                // 8. Direct Downloader
+                                // 7. Direct Downloader
                                 NavigationLink(destination: DirectDownloaderView()) {
                                     bentoCard(
                                         title: "Downloader",
@@ -195,6 +178,81 @@ struct LauncherView: View {
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 12)
+    }
+
+    // MARK: - Hero Full-Width Bento Card
+    private func heroBentoCard(
+        title: String,
+        badge: String,
+        icon: String,
+        accentColor: Color,
+        gradient: LinearGradient? = nil,
+        footerTag: String
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.surfaceCard)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.borderHairline, lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
+
+            HStack(spacing: 14) {
+                ZStack {
+                    if let grad = gradient {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(grad)
+                            .frame(width: 44, height: 44)
+                    } else {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(accentColor.opacity(0.14))
+                            .frame(width: 44, height: 44)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(accentColor.opacity(0.3), lineWidth: 1)
+                            )
+                    }
+
+                    Image(systemName: icon)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(gradient == nil ? accentColor : .white)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.textPrimary)
+
+                        Spacer()
+
+                        Text(badge)
+                            .font(.system(size: 8.5, weight: .heavy))
+                            .tracking(0.5)
+                            .foregroundColor(accentColor)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(accentColor.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+
+                    HStack {
+                        Text(footerTag)
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(.textTertiary)
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textTertiary)
+                    }
+                }
+            }
+            .padding(14)
+        }
+        .frame(height: 76)
     }
 
     // MARK: - Bento 2-Column Card (Clean - Subtexts Removed)
