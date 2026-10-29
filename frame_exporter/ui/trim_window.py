@@ -34,6 +34,38 @@ from ..utils import (
 )
 
 
+def is_hevc_video(video_path: str) -> bool:
+    """Fast binary probe to detect if video contains HEVC / H.265 (hev1/hvc1)."""
+    try:
+        with open(video_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(0)
+            head = f.read(1024 * 1024)
+            f.seek(max(0, size - 4 * 1024 * 1024))
+            tail = f.read()
+            combined = head + tail
+            return b"hev1" in combined or b"hvc1" in combined
+    except Exception:
+        return False
+
+
+def needs_audio_downmix(video_path: str) -> bool:
+    """Fast binary probe to detect multi-channel Dolby Atmos / AC-3 / DTS tracks."""
+    try:
+        with open(video_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(0)
+            head = f.read(1024 * 1024)
+            f.seek(max(0, size - 4 * 1024 * 1024))
+            tail = f.read()
+            combined = head + tail
+            return b"ec-3" in combined or b"ac-3" in combined or b"dts" in combined
+    except Exception:
+        return False
+
+
 class VideoTrimWorker(QThread):
     """
     Background worker that runs FFmpeg to export the trimmed video segment
@@ -76,6 +108,7 @@ class VideoTrimWorker(QThread):
             return
 
         ext = Path(self.output_path).suffix.lower()
+        is_mp4 = ext in (".mp4", ".m4v", ".mov")
 
         def _build_cmd(include_subs: bool = True):
             cmd = [self.ffmpeg_path, "-y"]
@@ -89,32 +122,51 @@ class VideoTrimWorker(QThread):
             if self.mode == "copy":
                 # Instant Lossless Stream Copy:
                 cmd.extend([
-                    "-c", "copy",
                     "-avoid_negative_ts", "make_zero",
-                    "-map", "0:v",
-                    "-map", "0:a?"
+                    "-map", "0:v:0",
+                    "-c:v", "copy"
                 ])
+                if is_hevc_video(self.video_path) and is_mp4:
+                    cmd.extend(["-tag:v", "hvc1"])
+
+                if needs_audio_downmix(self.video_path) and is_mp4:
+                    # Transcode 5.1/7.1 Dolby/DTS to pristine stereo AAC so iPhone/Apple TV/Windows never freeze
+                    cmd.extend(["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "256k"])
+                else:
+                    cmd.extend(["-map", "0:a?", "-c:a", "copy"])
+
                 if include_subs:
-                    if ext in (".mp4", ".m4v", ".mov"):
+                    if is_mp4:
                         cmd.extend(["-map", "0:s?", "-c:s", "mov_text"])
                     else:
                         cmd.extend(["-map", "0:s?"])
+
+                if is_mp4:
+                    cmd.extend(["-movflags", "+faststart"])
             else:
                 # Frame-Accurate Cut at 100% Original Resolution:
                 cmd.extend([
+                    "-avoid_negative_ts", "make_zero",
                     "-c:v", "libx264",
                     "-crf", "17",
                     "-preset", "fast",
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "copy",
-                    "-map", "0:v:0",
-                    "-map", "0:a?"
+                    "-pix_fmt", "yuv420p"
                 ])
+                if needs_audio_downmix(self.video_path) or is_mp4:
+                    cmd.extend(["-map", "0:a:0?", "-c:a", "aac", "-ac", "2", "-b:a", "256k"])
+                else:
+                    cmd.extend(["-map", "0:a?", "-c:a", "copy"])
+
+                cmd.extend(["-map", "0:v:0"])
+
                 if include_subs:
-                    if ext in (".mp4", ".m4v", ".mov"):
+                    if is_mp4:
                         cmd.extend(["-map", "0:s?", "-c:s", "mov_text"])
                     else:
                         cmd.extend(["-map", "0:s?"])
+
+                if is_mp4:
+                    cmd.extend(["-movflags", "+faststart"])
 
             cmd.extend(["-progress", "pipe:1", self.output_path])
             return cmd
