@@ -612,7 +612,7 @@ struct VideoTrimmerView: View {
                                     .font(.system(size: 20, weight: .bold))
                                     .foregroundColor(.brandAccent)
 
-                                Text("Remuxing MKV Movie")
+                                Text("Optimizing Video for iOS")
                                     .font(.system(size: 15, weight: .bold))
                                     .foregroundColor(.textPrimary)
 
@@ -638,13 +638,13 @@ struct VideoTrimmerView: View {
                             .frame(height: 8)
 
                             HStack {
-                                Text(remuxSpeedText.isEmpty ? "Losslessly repackaging to MP4..." : "Stream Copying @ \(remuxSpeedText)")
+                                Text(remuxSpeedText.isEmpty ? "Direct Stream Copying..." : remuxSpeedText)
                                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                     .foregroundColor(.emeraldAccent)
 
                                 Spacer()
 
-                                Text("0% Quality Loss")
+                                Text("100% Original Quality")
                                     .font(.system(size: 10, weight: .bold))
                                     .foregroundColor(.textMuted)
                                     .padding(.horizontal, 6)
@@ -660,7 +660,7 @@ struct VideoTrimmerView: View {
                             }) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "xmark.circle.fill")
-                                    Text("Cancel Remux")
+                                    Text("Cancel Optimization")
                                 }
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundColor(.white)
@@ -723,7 +723,33 @@ struct VideoTrimmerView: View {
     private func loadVideo(from item: PhotosPickerItem) async {
         do {
             if let movie = try await item.loadTransferable(type: MovieTransferable.self) {
-                let url = movie.url
+                var url = movie.url
+                if await MKVRemuxEngine.shared.requiresRemuxing(url: url) {
+                    await MainActor.run {
+                        self.isRemuxing = true
+                        self.remuxProgress = 0.0
+                        self.remuxSpeedText = "Optimizing for iOS playback..."
+                    }
+                    do {
+                        url = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { progress, speed in
+                            Task { @MainActor in
+                                self.remuxProgress = progress
+                                self.remuxSpeedText = speed
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.isRemuxing = false
+                            self.alertMessage = "Failed to optimize video: \(error.localizedDescription)"
+                            self.showAlert = true
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        self.isRemuxing = false
+                    }
+                }
+
                 let info = try await VideoEngine.shared.extractVideoInfo(from: url)
                 await MainActor.run {
                     self.videoUrl = url
@@ -756,7 +782,7 @@ struct VideoTrimmerView: View {
 
             var workingUrl: URL
 
-            if MKVRemuxEngine.shared.isMatroska(url: url) {
+            if await MKVRemuxEngine.shared.requiresRemuxing(url: url) {
                 await MainActor.run {
                     self.isRemuxing = true
                     self.remuxProgress = 0.0
@@ -772,7 +798,7 @@ struct VideoTrimmerView: View {
                 } catch {
                     await MainActor.run {
                         self.isRemuxing = false
-                        self.alertMessage = "Failed to remux Matroska movie: \(error.localizedDescription)"
+                        self.alertMessage = "Failed to optimize video: \(error.localizedDescription)"
                         self.showAlert = true
                     }
                     return

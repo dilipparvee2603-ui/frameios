@@ -1035,11 +1035,11 @@ struct SlowMoView: View {
                     .scaleEffect(1.4)
                     .tint(.brandAccent)
 
-                Text("Preparing Matroska Media")
+                Text("Optimizing Media for iOS")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.textPrimary)
 
-                Text("Remuxing stream data losslessly to MP4 for iOS hardware decoding...")
+                Text("Stream copying and preparing video for Apple iOS playback...")
                     .font(.system(size: 12))
                     .foregroundColor(.textMuted)
                     .multilineTextAlignment(.center)
@@ -1057,7 +1057,7 @@ struct SlowMoView: View {
                 }) {
                     HStack(spacing: 5) {
                         Image(systemName: "xmark.circle.fill")
-                        Text("Cancel Remux")
+                        Text("Cancel Optimization")
                     }
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(.white)
@@ -1174,7 +1174,33 @@ struct SlowMoView: View {
     private func loadVideo(from item: PhotosPickerItem) async {
         do {
             if let movie = try await item.loadTransferable(type: MovieTransferable.self) {
-                let url = movie.url
+                var url = movie.url
+                if await MKVRemuxEngine.shared.requiresRemuxing(url: url) {
+                    await MainActor.run {
+                        self.isRemuxing = true
+                        self.remuxProgress = 0.0
+                        self.remuxSpeedText = "Optimizing for iOS playback..."
+                    }
+                    do {
+                        url = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { progress, speed in
+                            Task { @MainActor in
+                                self.remuxProgress = progress
+                                self.remuxSpeedText = speed
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.isRemuxing = false
+                            self.alertMessage = "Failed to optimize video: \(error.localizedDescription)"
+                            self.showAlert = true
+                        }
+                        return
+                    }
+                    await MainActor.run {
+                        self.isRemuxing = false
+                    }
+                }
+
                 let info = try await VideoEngine.shared.extractVideoInfo(from: url)
                 await MainActor.run {
                     self.sourceVideoUrl = url
@@ -1206,7 +1232,7 @@ struct SlowMoView: View {
 
             var workingUrl: URL
 
-            if MKVRemuxEngine.shared.isMatroska(url: url) {
+            if await MKVRemuxEngine.shared.requiresRemuxing(url: url) {
                 await MainActor.run {
                     self.isRemuxing = true
                     self.remuxProgress = 0.0
@@ -1222,7 +1248,7 @@ struct SlowMoView: View {
                 } catch {
                     await MainActor.run {
                         self.isRemuxing = false
-                        self.alertMessage = "Failed to remux Matroska movie: \(error.localizedDescription)"
+                        self.alertMessage = "Failed to optimize video: \(error.localizedDescription)"
                         self.showAlert = true
                     }
                     return

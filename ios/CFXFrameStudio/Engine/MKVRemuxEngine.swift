@@ -1,5 +1,6 @@
 import Foundation
 import ffmpegkit
+import AVFoundation
 
 /// Probed media metadata extracted before remuxing
 private struct ProbedMediaInfo {
@@ -12,6 +13,8 @@ private struct ProbedMediaInfo {
     var isAV1: Bool = false
     var videoCodec: String = ""
     var audioCodec: String = ""
+    var isHev1Tag: Bool = false
+    var needsAudioTranscode: Bool = false
 }
 
 /// Ultra-fast container remuxer that repackages Matroska (.mkv) and WebM (.webm)
@@ -137,6 +140,74 @@ final class MKVRemuxEngine {
         return ext == "mkv" || ext == "webm"
     }
 
+    /// Checks if a video requires container remuxing or tag normalization
+    /// (e.g. MKV, WebM, HEVC tagged as `hev1`, or MP4 with AC3/EAC3/DTS audio that causes black screens in AVPlayer)
+    func requiresRemuxing(url: URL) async -> Bool {
+        if isMatroska(url: url) {
+            return true
+        }
+
+        // Fast probe via AVURLAsset format descriptions
+        let asset = AVURLAsset(url: url)
+        if let videoTracks = try? await asset.loadTracks(withMediaType: .video), let vTrack = videoTracks.first {
+            if let descs = try? await vTrack.load(.formatDescriptions) {
+                for desc in descs {
+                    let subType = CMFormatDescriptionGetMediaSubType(desc)
+                    let fourCC = fourCharCodeToString(subType).lowercased()
+                    // If video is HEVC with 'hev1' tag, Apple AVPlayer shows a black screen!
+                    if fourCC == "hev1" {
+                        return true
+                    }
+                }
+            }
+        }
+
+        // Check if audio has AC-3, E-AC-3, DTS, TrueHD, Opus, or FLAC which cause AVPlayer / AVAssetExportSession failure in MP4
+        if let audioTracks = try? await asset.loadTracks(withMediaType: .audio) {
+            for aTrack in audioTracks {
+                if let descs = try? await aTrack.load(.formatDescriptions) {
+                    for desc in descs {
+                        let subType = CMFormatDescriptionGetMediaSubType(desc)
+                        let fourCC = fourCharCodeToString(subType).lowercased()
+                        if fourCC.contains("ac-3") || fourCC.contains("ec-3") || fourCC.contains("dts") || fourCC.contains("opus") {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+
+        // Secondary check via FFprobeKit
+        let probeTask = Task.detached(priority: .userInitiated) { () -> Bool in
+            guard let session = FFprobeKit.getMediaInformation(url.path),
+                  let mediaInfo = session.getMediaInformation() else {
+                return false
+            }
+            if let streams = mediaInfo.getStreams() {
+                for case let stream as StreamInformation in streams {
+                    let type = stream.getType()?.lowercased() ?? ""
+                    let codec = stream.getCodec()?.lowercased() ?? ""
+                    let tag = (stream.getProperty("codec_tag_string") as? String)?.lowercased() ?? ""
+                    if type == "video" && (codec.contains("hevc") || codec.contains("h265")) && (tag == "hev1" || tag.contains("hev")) {
+                        return true
+                    }
+                    if type == "audio" {
+                        if codec.contains("ac3") || codec.contains("eac3") || codec.contains("dts") || codec.contains("opus") || codec.contains("vorbis") || codec.contains("flac") || codec.contains("truehd") {
+                            return true
+                        }
+                    }
+                }
+            }
+            return false
+        }
+
+        if let needs = try? await probeTask.value, needs {
+            return true
+        }
+
+        return false
+    }
+
     /// Remuxes an MKV or WebM video file to an Apple-compatible MP4 container.
     ///
     /// - Parameters:
@@ -178,6 +249,10 @@ final class MKVRemuxEngine {
                         if let h = (stream.getHeight() as? NSNumber)?.intValue, h > 0 {
                             info.height = h
                         }
+                        let tag = (stream.getProperty("codec_tag_string") as? String)?.lowercased() ?? ""
+                        if tag == "hev1" || tag.contains("hev") {
+                            info.isHev1Tag = true
+                        }
                         if codec.contains("hevc") || codec.contains("h265") || codec.contains("hev") || codec.contains("hvc") {
                             info.isHEVC = true
                         } else if codec.contains("264") || codec.contains("avc") {
@@ -189,6 +264,10 @@ final class MKVRemuxEngine {
                         }
                     } else if type == "audio" && info.audioCodec.isEmpty {
                         info.audioCodec = codec
+                        let lower = codec.lowercased()
+                        if lower.contains("ac3") || lower.contains("eac3") || lower.contains("dts") || lower.contains("opus") || lower.contains("vorbis") || lower.contains("flac") || lower.contains("truehd") || (!lower.contains("aac") && !lower.contains("mp3") && !lower.contains("alac")) {
+                            info.needsAudioTranscode = true
+                        }
                     }
                 }
             }
@@ -317,7 +396,7 @@ final class MKVRemuxEngine {
                 )
             }
 
-            // Tier 1: Pure Stream Copy (Both video and audio stream copied bit-for-bit).
+            // Tier 1: Pure Stream Copy (Both video and audio stream copied bit-for-bit, or audio transcoded to AAC if incompatible).
             // IMPORTANT: If video is HEVC, tag as `hvc1` so Apple's AVPlayer/AVPlayerLayer can decode it (without this, iOS shows a black screen!).
             // Apply +faststart to move MOOV atom to file beginning for instant playback.
             var tier1Arguments = [
@@ -329,12 +408,17 @@ final class MKVRemuxEngine {
                 "-c:v", "copy"
             ]
 
-            if probedInfo.isHEVC {
+            if probedInfo.isHEVC || probedInfo.isHev1Tag {
                 tier1Arguments += ["-tag:v", "hvc1"]
             }
 
+            if probedInfo.needsAudioTranscode {
+                tier1Arguments += ["-c:a", "aac", "-b:a", "256k"]
+            } else {
+                tier1Arguments += ["-c:a", "copy"]
+            }
+
             tier1Arguments += [
-                "-c:a", "copy",
                 "-movflags", "+faststart",
                 "-strict", "-2",
                 outputUrl.path
@@ -372,7 +456,7 @@ final class MKVRemuxEngine {
                 "-c:v", "copy"
             ]
 
-            if probedInfo.isHEVC {
+            if probedInfo.isHEVC || probedInfo.isHev1Tag {
                 tier2Arguments += ["-tag:v", "hvc1"]
             }
 

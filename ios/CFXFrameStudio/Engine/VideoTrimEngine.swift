@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Photos
+import ffmpegkit
 
 enum TrimPrecisionMode: String, CaseIterable, Identifiable {
     case frameAccurate = "Frame-Accurate (Micro Cut)"
@@ -27,6 +28,7 @@ final class VideoTrimEngine {
         isCancelled = true
         activeSession?.cancelExport()
         activeSession = nil
+        FFmpegKit.cancel()
     }
 
     func trimVideo(
@@ -162,13 +164,99 @@ final class VideoTrimEngine {
                     errorMessage: savedToPhotos ? nil : "NEEDS_SHARE_SHEET"
                 )
             } else {
-                let err = session.error?.localizedDescription ?? "Export failed"
-                try? FileManager.default.removeItem(at: tempOutUrl)
-                return TrimResult(success: false, outputUrl: nil, errorMessage: err)
+                // If AVAssetExportSession failed (e.g. hev1 tag, AC3/EAC3 Dolby audio tracks),
+                // automatically fallback to FFmpeg stream copy trimming
+                return await trimWithFFmpegFallback(
+                    srcUrl: srcUrl,
+                    startMs: clampedStart,
+                    endMs: clampedEnd,
+                    includeAudio: includeAudio,
+                    tempOutUrl: tempOutUrl,
+                    onProgress: onProgress
+                )
             }
         } catch {
+            return await trimWithFFmpegFallback(
+                srcUrl: srcUrl,
+                startMs: startMs,
+                endMs: endMs,
+                includeAudio: includeAudio,
+                tempOutUrl: tempOutUrl,
+                onProgress: onProgress
+            )
+        }
+    }
+
+    /// High-performance FFmpeg stream-copy trim fallback for videos with non-standard tags (hev1) or multi-channel Dolby audio
+    private func trimWithFFmpegFallback(
+        srcUrl: URL,
+        startMs: Int64,
+        endMs: Int64,
+        includeAudio: Bool,
+        tempOutUrl: URL,
+        onProgress: @escaping (Float) -> Void
+    ) async -> TrimResult {
+        if isCancelled {
+            return TrimResult(success: false, outputUrl: nil, errorMessage: "OPERATION_CANCELLED")
+        }
+
+        try? FileManager.default.removeItem(at: tempOutUrl)
+
+        let startSec = Double(max(0, startMs)) / 1000.0
+        let endSec = Double(max(startMs + 100, endMs)) / 1000.0
+
+        var args = [
+            "-threads", "0",
+            "-y",
+            "-ss", String(format: "%.3f", startSec),
+            "-to", String(format: "%.3f", endSec),
+            "-i", srcUrl.path,
+            "-map", "0:v:0",
+            "-c:v", "copy",
+            "-tag:v", "hvc1"
+        ]
+
+        if includeAudio {
+            args += ["-map", "0:a:0?", "-c:a", "aac", "-b:a", "192k"]
+        } else {
+            args += ["-an"]
+        }
+
+        args += [
+            "-movflags", "+faststart",
+            tempOutUrl.path
+        ]
+
+        let session = FFmpegKit.execute(withArguments: args)
+        let code = session?.getReturnCode()
+
+        if isCancelled || ReturnCode.isCancel(code) {
             try? FileManager.default.removeItem(at: tempOutUrl)
-            return TrimResult(success: false, outputUrl: nil, errorMessage: error.localizedDescription)
+            return TrimResult(success: false, outputUrl: nil, errorMessage: "OPERATION_CANCELLED")
+        }
+
+        if ReturnCode.isSuccess(code),
+           FileManager.default.fileExists(atPath: tempOutUrl.path),
+           let attrs = try? FileManager.default.attributesOfItem(atPath: tempOutUrl.path),
+           (attrs[.size] as? Int64 ?? 0) > 1024 {
+
+            var savedToPhotos = false
+            do {
+                savedToPhotos = try await saveVideoToPhotos(fileUrl: tempOutUrl)
+            } catch {
+                savedToPhotos = false
+            }
+
+            return TrimResult(
+                success: true,
+                outputUrl: tempOutUrl,
+                errorMessage: savedToPhotos ? nil : "NEEDS_SHARE_SHEET"
+            )
+        } else {
+            let logs = session?.getAllLogsAsString() ?? session?.getFailStackTrace() ?? "Trimming failed"
+            let lastLines = logs.split(separator: "\n").suffix(4).joined(separator: "\n")
+            try? FileManager.default.removeItem(at: tempOutUrl)
+            return TrimResult(success: false, outputUrl: nil, errorMessage: "Trim error:\n\(lastLines)")
         }
     }
 

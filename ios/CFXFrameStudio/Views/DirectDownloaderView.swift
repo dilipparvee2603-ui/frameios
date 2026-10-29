@@ -522,19 +522,19 @@ struct DirectDownloaderView: View {
                 Divider().background(Color.borderHairline)
 
                 VStack(spacing: 8) {
-                    if MKVRemuxEngine.shared.isMatroska(url: fileUrl) {
+                    if (!inspection.isPhotosCompatible && inspection.isVideo) || MKVRemuxEngine.shared.isMatroska(url: fileUrl) {
                         Button(action: { remuxDownloadedMKV(url: fileUrl) }) {
                             HStack(spacing: 8) {
                                 if isRemuxingDownloadedFile {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                         .scaleEffect(0.8)
-                                    Text("Remuxing to MP4... \(Int(remuxProgress * 100))%")
+                                    Text("Optimizing for iOS... \(Int(remuxProgress * 100))%")
                                         .font(.system(size: 13, weight: .bold))
                                 } else {
                                     Image(systemName: "bolt.fill")
                                         .font(.system(size: 13, weight: .bold))
-                                    Text(fileUrl.pathExtension.lowercased() == "webm" ? "⚡ Convert WebM to MP4 & Save to Photos" : "⚡ Remux MKV to MP4 & Save to Photos")
+                                    Text("⚡ Optimize for iOS & Save to Photos")
                                         .font(.system(size: 13, weight: .bold))
                                 }
                             }
