@@ -1,16 +1,30 @@
 import SwiftUI
 import PhotosUI
 import CoreImage
+import WebKit
+
+// MARK: - Wi-Fi Sync Mode Enum
+enum WiFiSyncMode: String, CaseIterable, Identifiable {
+    case webDrop = "WebDrop P2P"
+    case localServer = "Local IP Server"
+    
+    var id: String { rawValue }
+}
 
 // MARK: - Wi-Fi Transfer View
 struct WiFiTransferView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var server = WiFiTransferServer.shared
 
+    @State private var selectedMode: WiFiSyncMode = .webDrop
     @State private var showPhotosPicker: Bool = false
+    @State private var showWebDropRadarSheet: Bool = false
     @State private var selectedPhotosItems: [PhotosPickerItem] = []
     @State private var copiedToast: Bool = false
+    @State private var copiedToastMessage: String = "Link Copied to Clipboard!"
     @State private var qrImage: UIImage? = nil
+
+    private let webDropURLString = "https://pairdrop.net"
 
     var body: some View {
         ZStack {
@@ -20,30 +34,21 @@ struct WiFiTransferView: View {
                 // Header
                 navigationHeader
 
+                // Mode Segmented Switcher
+                modeSelectorBar
+
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
-                        // Server Status & Power Switch Card
-                        serverControlCard
-
-                        if server.isRunning, let urlStr = server.serverUrlString {
-                            // Active Connection & QR Code Card
-                            activeConnectionCard(urlStr: urlStr)
-
-                            // Telemetry Stats Card
-                            telemetryStatsCard
-
-                            // Quick Settings Card
-                            quickSettingsCard
-
-                            // Files Ready on iPhone Section
-                            filesListSection
+                        if selectedMode == .webDrop {
+                            // P2P WebDrop Section (Default & Recommended)
+                            webDropSection
                         } else {
-                            // Offline Explanation Card
-                            offlineGuideCard
+                            // Local IP Server Section (For Hotspot / Open LAN)
+                            localServerSection
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.top, 12)
                     .padding(.bottom, 40)
                 }
             }
@@ -63,14 +68,19 @@ struct WiFiTransferView: View {
         .onChange(of: selectedPhotosItems) { newItems in
             exportPhotosToDocuments(items: newItems)
         }
+        .sheet(isPresented: $showWebDropRadarSheet) {
+            WebDropSheetView()
+        }
         .onAppear {
-            if !server.isRunning {
-                server.startServer()
-            }
+            updateQrCode()
+        }
+        .onChange(of: selectedMode) { _ in
             updateQrCode()
         }
         .onChange(of: server.localIP) { _ in
-            updateQrCode()
+            if selectedMode == .localServer {
+                updateQrCode()
+            }
         }
     }
 
@@ -91,44 +101,369 @@ struct WiFiTransferView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text("WI-FI PC TRANSFER")
+                    Text("WI-FI PC SYNC")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.textPrimary)
 
-                    Text(server.isRunning ? "ONLINE" : "OFFLINE")
+                    Text(selectedMode == .webDrop ? "P2P WEBRTC" : (server.isRunning ? "ONLINE" : "OFFLINE"))
                         .font(.system(size: 8.5, weight: .heavy))
-                        .foregroundColor(server.isRunning ? .emeraldAccent : .textTertiary)
+                        .foregroundColor(selectedMode == .webDrop || server.isRunning ? .emeraldAccent : .textTertiary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2.5)
-                        .background((server.isRunning ? Color.emeraldAccent : Color.textTertiary).opacity(0.14))
+                        .background((selectedMode == .webDrop || server.isRunning ? Color.emeraldAccent : Color.textTertiary).opacity(0.14))
                         .clipShape(Capsule())
                 }
 
-                Text("Wireless iPhone ↔ PC Sync without iTunes")
+                Text("Fast Wireless Transfer Between iPhone & Windows PC")
                     .font(.system(size: 11))
                     .foregroundColor(.textMuted)
             }
 
             Spacer()
 
-            Button(action: { server.refreshSharedFiles() }) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.textSecondary)
-                    .frame(width: 38, height: 38)
-                    .background(Color.elevatedSurface)
-                    .clipShape(Circle())
-                    .overlay(
-                        Circle().stroke(Color.borderHairline, lineWidth: 1)
-                    )
+            if selectedMode == .localServer {
+                Button(action: { server.refreshSharedFiles() }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.textSecondary)
+                        .frame(width: 38, height: 38)
+                        .background(Color.elevatedSurface)
+                        .clipShape(Circle())
+                        .overlay(
+                            Circle().stroke(Color.borderHairline, lineWidth: 1)
+                        )
+                }
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
-        .padding(.bottom, 12)
+        .padding(.bottom, 10)
     }
 
-    // MARK: - Server Control Card
+    // MARK: - Mode Selector Bar
+    private var modeSelectorBar: some View {
+        HStack(spacing: 6) {
+            ForEach(WiFiSyncMode.allCases) { mode in
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedMode = mode
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode == .webDrop ? "sparkles" : "network")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(mode.rawValue)
+                            .font(.system(size: 12, weight: .bold))
+                        if mode == .webDrop {
+                            Text("FAST")
+                                .font(.system(size: 8, weight: .heavy))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(Color.emeraldAccent.opacity(0.25))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    .foregroundColor(selectedMode == mode ? .white : .textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(
+                        selectedMode == mode ? Color.brandAccent.opacity(0.85) : Color.elevatedSurface
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(selectedMode == mode ? Color.brandAccent : Color.borderHairline, lineWidth: 1)
+                    )
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 6)
+    }
+
+    // MARK: - WebDrop P2P Section
+    private var webDropSection: some View {
+        VStack(spacing: 16) {
+            // Hero Status Card
+            GlassCard(cornerRadius: 18, padding: 16) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.emeraldAccent.opacity(0.14))
+                            .frame(width: 48, height: 48)
+
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.emeraldAccent)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("WebDrop P2P Ready")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.textPrimary)
+
+                        Text("Bypasses Router AP Isolation • Up to 80 MB/s")
+                            .font(.system(size: 11))
+                            .foregroundColor(.emeraldAccent)
+                    }
+
+                    Spacer()
+                }
+            }
+
+            // Quick How-To Steps Card
+            GlassCard(cornerRadius: 18, padding: 18) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("HOW TO CONNECT IN 30 SECONDS")
+                            .font(.system(size: 10.5, weight: .heavy))
+                            .foregroundColor(.skyAccent)
+                            .tracking(0.8)
+
+                        Spacer()
+
+                        Text("ZERO SETUP")
+                            .font(.system(size: 8.5, weight: .heavy))
+                            .foregroundColor(.emeraldAccent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.emeraldAccent.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        instructionStep(
+                            num: "1",
+                            title: "Open on PC Browser",
+                            detail: "On your Windows PC (Chrome, Edge, or Brave), visit pairdrop.net"
+                        )
+
+                        instructionStep(
+                            num: "2",
+                            title: "Launch WebDrop Radar Below",
+                            detail: "Tap the button below. Both devices will appear on radar instantly!"
+                        )
+
+                        instructionStep(
+                            num: "3",
+                            title: "Tap Device & Send Videos",
+                            detail: "Tap your PC on the radar screen to send 4K clips, or drop files on PC to receive."
+                        )
+                    }
+                }
+            }
+
+            // Launch WebDrop Radar Button (Primary Call To Action)
+            Button(action: {
+                showWebDropRadarSheet = true
+            }) {
+                HStack(spacing: 10) {
+                    Image(systemName: "radar")
+                        .font(.system(size: 17, weight: .bold))
+
+                    Text("Launch In-App WebDrop Radar")
+                        .font(.system(size: 15, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    LinearGradient(
+                        colors: [Color.brandAccent, Color(hex: "00B4DB")],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .shadow(color: Color.brandAccent.opacity(0.35), radius: 10, y: 4)
+            }
+
+            // QR Code & PC URL Card
+            GlassCard(cornerRadius: 20, padding: 20) {
+                VStack(spacing: 14) {
+                    Text("PC BROWSER ACCESS LINK")
+                        .font(.system(size: 10.5, weight: .heavy))
+                        .foregroundColor(.skyAccent)
+                        .tracking(0.8)
+
+                    // URL Pill
+                    HStack(spacing: 8) {
+                        Text(webDropURLString)
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundColor(.textPrimary)
+
+                        Spacer()
+
+                        Button(action: {
+                            UIPasteboard.general.string = webDropURLString
+                            triggerToast(message: "pairdrop.net copied to clipboard!")
+                        }) {
+                            Image(systemName: "doc.on.doc.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.skyAccent)
+                                .padding(8)
+                                .background(Color.skyAccent.opacity(0.14))
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color.elevatedSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.borderHairline, lineWidth: 1)
+                    )
+
+                    // QR Code
+                    if let qr = qrImage {
+                        VStack(spacing: 8) {
+                            Image(uiImage: qr)
+                                .interpolation(.none)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 140, height: 140)
+                                .padding(8)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                            Text("Scan with your PC / Laptop camera to open")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(.textTertiary)
+                        }
+                    }
+
+                    // Open in Safari Option
+                    Button(action: {
+                        if let url = URL(string: webDropURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "safari")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Or open in Mobile Safari")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(.textSecondary)
+                        .padding(.top, 4)
+                    }
+                }
+            }
+
+            // Benefits Grid Card
+            GlassCard(cornerRadius: 16, padding: 14) {
+                VStack(spacing: 12) {
+                    benefitRow(
+                        icon: "bolt.fill",
+                        color: .amberAccent,
+                        title: "Full Local Wi-Fi Speeds",
+                        subtitle: "35 – 80 MB/s direct P2P data streaming."
+                    )
+
+                    Divider().background(Color.borderHairline)
+
+                    benefitRow(
+                        icon: "lock.shield.fill",
+                        color: .emeraldAccent,
+                        title: "End-to-End Encrypted",
+                        subtitle: "P2P WebRTC data channels — 0 MB internet quota used."
+                    )
+
+                    Divider().background(Color.borderHairline)
+
+                    benefitRow(
+                        icon: "checkmark.seal.fill",
+                        color: .skyAccent,
+                        title: "100% Lossless Video Transfer",
+                        subtitle: "Preserves original 4K/HDR bitrates & metadata."
+                    )
+                }
+            }
+        }
+    }
+
+    private func instructionStep(num: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(num)
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundColor(.white)
+                .frame(width: 22, height: 22)
+                .background(Color.brandAccent)
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.textPrimary)
+
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundColor(.textMuted)
+                    .lineSpacing(2)
+            }
+        }
+    }
+
+    private func benefitRow(icon: String, color: Color, title: String, subtitle: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(color)
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12.5, weight: .bold))
+                    .foregroundColor(.textPrimary)
+
+                Text(subtitle)
+                    .font(.system(size: 10.5))
+                    .foregroundColor(.textMuted)
+            }
+            Spacer()
+        }
+    }
+
+    // MARK: - Local Server Section
+    private var localServerSection: some View {
+        VStack(spacing: 16) {
+            // Notice about AP Isolation
+            GlassCard(cornerRadius: 14, padding: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundColor(.skyAccent)
+
+                    Text("Best used when connected via iPhone Personal Hotspot or open local networks without router AP isolation.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.textSecondary)
+                }
+            }
+
+            // Server Status & Power Switch Card
+            serverControlCard
+
+            if server.isRunning, let urlStr = server.serverUrlString {
+                // Active Connection & QR Code Card
+                activeConnectionCard(urlStr: urlStr)
+
+                // Telemetry Stats Card
+                telemetryStatsCard
+
+                // Quick Settings Card
+                quickSettingsCard
+
+                // Files Ready on iPhone Section
+                filesListSection
+            } else {
+                // Offline Explanation Card
+                offlineGuideCard
+            }
+        }
+    }
+
+    // MARK: - Local Server Components
     private var serverControlCard: some View {
         GlassCard(cornerRadius: 18, padding: 16) {
             HStack(spacing: 14) {
@@ -174,7 +509,6 @@ struct WiFiTransferView: View {
         }
     }
 
-    // MARK: - Active Connection & QR Card
     private func activeConnectionCard(urlStr: String) -> some View {
         GlassCard(cornerRadius: 20, padding: 20) {
             VStack(spacing: 16) {
@@ -194,10 +528,7 @@ struct WiFiTransferView: View {
 
                     Button(action: {
                         UIPasteboard.general.string = urlStr
-                        withAnimation { copiedToast = true }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation { copiedToast = false }
-                        }
+                        triggerToast(message: "Server URL copied!")
                     }) {
                         Image(systemName: "doc.on.doc.fill")
                             .font(.system(size: 13, weight: .bold))
@@ -228,7 +559,7 @@ struct WiFiTransferView: View {
                             .background(Color.white)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                        Text("Or scan QR code with your laptop / tablet camera")
+                        Text("Scan QR code with your laptop / tablet camera")
                             .font(.system(size: 10.5))
                             .foregroundColor(.textTertiary)
                     }
@@ -237,7 +568,6 @@ struct WiFiTransferView: View {
         }
     }
 
-    // MARK: - Telemetry Stats Card
     private var telemetryStatsCard: some View {
         GlassCard(cornerRadius: 16, padding: 14) {
             HStack(spacing: 0) {
@@ -291,7 +621,6 @@ struct WiFiTransferView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Quick Settings Card
     private var quickSettingsCard: some View {
         GlassCard(cornerRadius: 16, padding: 14) {
             VStack(spacing: 12) {
@@ -330,7 +659,6 @@ struct WiFiTransferView: View {
         }
     }
 
-    // MARK: - Files Ready on iPhone Section
     private var filesListSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -405,7 +733,6 @@ struct WiFiTransferView: View {
         }
     }
 
-    // MARK: - Offline Guide Card
     private var offlineGuideCard: some View {
         GlassCard(cornerRadius: 18, padding: 20) {
             VStack(spacing: 14) {
@@ -414,11 +741,11 @@ struct WiFiTransferView: View {
                     .foregroundColor(.textTertiary)
 
                 VStack(spacing: 6) {
-                    Text("How Wi-Fi Direct Transfer Works")
+                    Text("How Local Server Mode Works")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundColor(.textPrimary)
 
-                    Text("1. Connect your iPhone and PC to the same Wi-Fi network (or turn on iPhone Personal Hotspot).\n2. Tap 'Start' to activate the local web server.\n3. Type the generated IP address into your PC browser (Chrome/Edge).\n4. Drag-and-drop 4K files, download trimmed clips, or send MKVs wirelessly at 100 MB/s.")
+                    Text("1. Turn on iPhone Personal Hotspot or join an open local Wi-Fi.\n2. Tap 'Start' to activate the local web server.\n3. Type the generated IP address into your PC browser (Chrome/Edge).\n4. Drag-and-drop 4K files, download trimmed clips, or send MKVs wirelessly.")
                         .font(.system(size: 11.5))
                         .foregroundColor(.textMuted)
                         .multilineTextAlignment(.leading)
@@ -435,7 +762,7 @@ struct WiFiTransferView: View {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(.emeraldAccent)
-                Text("URL Copied to Clipboard!")
+                Text(copiedToastMessage)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(.textPrimary)
             }
@@ -452,27 +779,42 @@ struct WiFiTransferView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
+    private func triggerToast(message: String) {
+        copiedToastMessage = message
+        withAnimation { copiedToast = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { copiedToast = false }
+        }
+    }
+
     // MARK: - Helpers
     private func updateQrCode() {
-        guard let url = server.serverUrlString else {
-            qrImage = nil
-            return
+        let textToEncode: String
+        if selectedMode == .webDrop {
+            textToEncode = webDropURLString
+        } else {
+            guard let url = server.serverUrlString else {
+                qrImage = nil
+                return
+            }
+            textToEncode = url
         }
-        guard let filter = CIFilter(name: "CIQRCodeGenerator") else {
-            qrImage = nil
-            return
-        }
-        filter.setValue(url.data(using: .ascii), forKey: "inputMessage")
+        qrImage = generateQRCode(from: textToEncode)
+    }
+
+    private func generateQRCode(from string: String) -> UIImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(string.data(using: .utf8), forKey: "inputMessage")
         filter.setValue("M", forKey: "inputCorrectionLevel")
 
-        if let outputImage = filter.outputImage {
-            let transform = CGAffineTransform(scaleX: 8, y: 8)
-            let scaledImage = outputImage.transformed(by: transform)
-            let context = CIContext()
-            if let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) {
-                self.qrImage = UIImage(cgImage: cgImage)
-            }
+        guard let outputImage = filter.outputImage else { return nil }
+        let transform = CGAffineTransform(scaleX: 8, y: 8)
+        let scaledImage = outputImage.transformed(by: transform)
+        let context = CIContext()
+        if let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) {
+            return UIImage(cgImage: cgImage)
         }
+        return nil
     }
 
     private func exportPhotosToDocuments(items: [PhotosPickerItem]) {
@@ -489,6 +831,166 @@ struct WiFiTransferView: View {
             await MainActor.run {
                 self.selectedPhotosItems.removeAll()
                 self.server.refreshSharedFiles()
+            }
+        }
+    }
+}
+
+// MARK: - In-App WebDrop Radar Sheet
+struct WebDropSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var isLoading: Bool = true
+    @State private var reloadToken: UUID = UUID()
+
+    var body: some View {
+        ZStack {
+            Color.voidCanvas.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header Bar
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("WEBDROP P2P RADAR")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.textPrimary)
+
+                            Text("LIVE")
+                                .font(.system(size: 8, weight: .heavy))
+                                .foregroundColor(.emeraldAccent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.emeraldAccent.opacity(0.15))
+                                .clipShape(Capsule())
+                        }
+
+                        Text("Tap PC icon to send clips losslessly")
+                            .font(.system(size: 10.5))
+                            .foregroundColor(.textMuted)
+                    }
+
+                    Spacer()
+
+                    // Reload Button
+                    Button(action: {
+                        reloadToken = UUID()
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textSecondary)
+                            .frame(width: 34, height: 34)
+                            .background(Color.elevatedSurface)
+                            .clipShape(Circle())
+                    }
+
+                    // Open Safari
+                    Button(action: {
+                        if let url = URL(string: "https://pairdrop.net") {
+                            UIApplication.shared.open(url)
+                        }
+                    }) {
+                        Image(systemName: "safari")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.skyAccent)
+                            .frame(width: 34, height: 34)
+                            .background(Color.elevatedSurface)
+                            .clipShape(Circle())
+                    }
+
+                    // Close Button
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                            .frame(width: 34, height: 34)
+                            .background(Color.elevatedSurface)
+                            .clipShape(Circle())
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.surfaceCard)
+
+                Divider().background(Color.borderHairline)
+
+                // Embedded WebRTC Web Drop View
+                ZStack {
+                    WebDropWebView(url: URL(string: "https://pairdrop.net")!, isLoading: $isLoading)
+                        .id(reloadToken)
+
+                    if isLoading {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .tint(Color.emeraldAccent)
+                            Text("Connecting WebRTC P2P Radar...")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.voidCanvas)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - WebDrop Web View (UIViewRepresentable)
+struct WebDropWebView: UIViewRepresentable {
+    let url: URL
+    @Binding var isLoading: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        webView.isOpaque = false
+        webView.backgroundColor = UIColor(red: 10/255, green: 11/255, blue: 14/255, alpha: 1.0)
+        webView.scrollView.backgroundColor = UIColor(red: 10/255, green: 11/255, blue: 14/255, alpha: 1.0)
+        webView.scrollView.bounces = true
+
+        let request = URLRequest(url: url)
+        webView.load(request)
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    class Coordinator: NSObject, WKNavigationDelegate {
+        var parent: WebDropWebView
+
+        init(_ parent: WebDropWebView) {
+            self.parent = parent
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            DispatchQueue.main.async {
+                self.parent.isLoading = true
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            DispatchQueue.main.async {
+                self.parent.isLoading = false
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            DispatchQueue.main.async {
+                self.parent.isLoading = false
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            DispatchQueue.main.async {
+                self.parent.isLoading = false
             }
         }
     }
