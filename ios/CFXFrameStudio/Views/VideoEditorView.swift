@@ -40,6 +40,7 @@ struct VideoEditorView: View {
 
     // Import State
     @State private var selectedPhotosItem: PhotosPickerItem? = nil
+    @State private var showPhotosPicker: Bool = false
     @State private var showFilePicker: Bool = false
 
     // Export State
@@ -74,19 +75,21 @@ struct VideoEditorView: View {
 
                 // 2. Main Video Monitor / Preview Canvas
                 previewMonitor
-                    .frame(maxHeight: 280)
+                    .frame(height: 240)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
 
                 // 3. Playback Transport & Timecode Bar
                 transportBar
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 6)
+                    .padding(.vertical, 6)
 
                 // 4. Horizontal Multi-Clip Timeline
                 timelineSection
-                    .frame(height: 125)
+                    .frame(height: 105)
                     .background(Color.surfaceCard.opacity(0.85))
+
+                Spacer(minLength: 4)
 
                 // 5. Contextual Action Toolbar & Inspector Dock
                 bottomEditingDock
@@ -110,10 +113,7 @@ struct VideoEditorView: View {
                 ShareActivityView(activityItems: [url])
             }
         }
-        .photosPicker(isPresented: .init(
-            get: { selectedPhotosItem != nil },
-            set: { if !$0 { selectedPhotosItem = nil } }
-        ), selection: $selectedPhotosItem, matching: .videos)
+        .photosPicker(isPresented: $showPhotosPicker, selection: $selectedPhotosItem, matching: .videos)
         .onChange(of: selectedPhotosItem) { newItem in
             guard let item = newItem else { return }
             handlePhotosPickerImport(item: item)
@@ -135,15 +135,15 @@ struct VideoEditorView: View {
     // MARK: - 1. Top Bar
     @ViewBuilder
     private var topBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Button(action: {
                 ProjectStorageManager.shared.saveProject(project)
                 dismiss()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundColor(.textPrimary)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 32, height: 32)
                     .background(Color.surfaceCard)
                     .clipShape(Circle())
             }
@@ -153,15 +153,17 @@ struct VideoEditorView: View {
                 editedTitle = project.title
                 showTitleEditor = true
             }) {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     Text(project.title)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.textPrimary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                     Image(systemName: "pencil")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                         .foregroundColor(.textTertiary)
                 }
+                .frame(maxWidth: 100, alignment: .leading)
             }
 
             Spacer()
@@ -185,23 +187,24 @@ struct VideoEditorView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "rectangle.dashed")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                     Text(project.canvasAspectRatio.badgeText)
                         .font(.system(size: 11, weight: .heavy))
                 }
                 .foregroundColor(.skyAccent)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 9)
                 .padding(.vertical, 6)
                 .background(Color.skyAccent.opacity(0.14))
                 .clipShape(Capsule())
+                .fixedSize()
             }
 
             // Undo Button
             Button(action: { performUndo() }) {
                 Image(systemName: "arrow.uturn.backward")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundColor(undoManager.canUndo ? .textPrimary : .textTertiary)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 32, height: 32)
                     .background(Color.surfaceCard)
                     .clipShape(Circle())
             }
@@ -210,9 +213,9 @@ struct VideoEditorView: View {
             // Redo Button
             Button(action: { performRedo() }) {
                 Image(systemName: "arrow.uturn.forward")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundColor(undoManager.canRedo ? .textPrimary : .textTertiary)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 32, height: 32)
                     .background(Color.surfaceCard)
                     .clipShape(Circle())
             }
@@ -220,9 +223,9 @@ struct VideoEditorView: View {
 
             // Export Button
             Button(action: { startProjectExport() }) {
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                     Text("Export")
                         .font(.system(size: 12, weight: .heavy))
                 }
@@ -231,11 +234,12 @@ struct VideoEditorView: View {
                 .padding(.vertical, 7)
                 .background(LinearGradient.brandGradient)
                 .clipShape(Capsule())
+                .fixedSize()
             }
             .disabled(project.clips.isEmpty || isExporting)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
     }
 
     // MARK: - 2. Preview Monitor
@@ -257,16 +261,44 @@ struct VideoEditorView: View {
                     .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue)))
                     .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
             } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "film.stack")
-                        .font(.system(size: 32))
-                        .foregroundColor(.textTertiary)
+                VStack(spacing: 12) {
+                    Image(systemName: "film.stack.fill")
+                        .font(.system(size: 34))
+                        .foregroundColor(.brandAccent)
+
                     Text("No clips in timeline")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.textSecondary)
-                    Text("Tap + below to import video clips")
-                        .font(.system(size: 11))
-                        .foregroundColor(.textTertiary)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.textPrimary)
+
+                    HStack(spacing: 12) {
+                        Button(action: { showPhotosPicker = true }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "photo.on.rectangle")
+                                    .font(.system(size: 12, weight: .bold))
+                                Text("Camera Roll")
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.brandAccent)
+                            .clipShape(Capsule())
+                        }
+
+                        Button(action: { showFilePicker = true }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 12, weight: .bold))
+                                Text("Files")
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .foregroundColor(.textPrimary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.elevatedSurface)
+                            .clipShape(Capsule())
+                        }
+                    }
                 }
             }
 
@@ -291,14 +323,14 @@ struct VideoEditorView: View {
     // MARK: - 3. Transport Bar
     @ViewBuilder
     private var transportBar: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
             // Jump to Start
             Button(action: {
                 playheadMs = 0
                 syncPlayheadToPlayer()
             }) {
                 Image(systemName: "backward.end.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .foregroundColor(.textSecondary)
             }
 
@@ -311,9 +343,9 @@ struct VideoEditorView: View {
                 }
             }) {
                 Image(systemName: playerModel.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.textPrimary)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 38, height: 38)
                     .background(Color.elevatedSurface)
                     .clipShape(Circle())
                     .overlay(Circle().stroke(Color.borderHairline, lineWidth: 1))
@@ -325,7 +357,7 @@ struct VideoEditorView: View {
                 syncPlayheadToPlayer()
             }) {
                 Image(systemName: "forward.end.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .foregroundColor(.textSecondary)
             }
 
@@ -335,21 +367,22 @@ struct VideoEditorView: View {
             Button(action: { performSplitAtPlayhead() }) {
                 HStack(spacing: 5) {
                     Image(systemName: "scissors")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                     Text("Split")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                 }
                 .foregroundColor(.brandAccent)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(Color.brandAccent.opacity(0.14))
                 .clipShape(Capsule())
+                .fixedSize()
             }
             .disabled(project.clips.isEmpty)
 
             // Add Media (+) Button
             Menu {
-                Button(action: { selectedPhotosItem = nil }) {
+                Button(action: { showPhotosPicker = true }) {
                     Label("Import from Photos", systemImage: "photo.on.rectangle")
                 }
                 Button(action: { showFilePicker = true }) {
@@ -358,15 +391,16 @@ struct VideoEditorView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                     Text("Add Clip")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                 }
                 .foregroundColor(.emeraldAccent)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(Color.emeraldAccent.opacity(0.14))
                 .clipShape(Capsule())
+                .fixedSize()
             }
         }
     }
@@ -374,10 +408,29 @@ struct VideoEditorView: View {
     // MARK: - 4. Timeline Section
     @ViewBuilder
     private var timelineSection: some View {
-        GeometryReader { geo in
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    ZStack(alignment: .leading) {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                ZStack(alignment: .leading) {
+                    if project.clips.isEmpty {
+                        // Empty Timeline Placeholder
+                        Button(action: { showPhotosPicker = true }) {
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [6]))
+                                .foregroundColor(Color.borderHairlineBright)
+                                .frame(width: 160, height: 60)
+                                .overlay(
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .foregroundColor(.emeraldAccent)
+                                        Text("Add First Clip")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                )
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+                    } else {
                         // Clips Track
                         HStack(spacing: 6) {
                             ForEach(0..<project.clips.count, id: \.self) { idx in
@@ -422,7 +475,7 @@ struct VideoEditorView: View {
                                     }
                                     .padding(6)
                                 }
-                                .frame(width: clipWidth, height: 75)
+                                .frame(width: clipWidth, height: 65)
                                 .onTapGesture {
                                     selectedClipIndex = idx
                                     let startMs = project.timelineStartTime(forClipIndex: idx)
@@ -432,25 +485,27 @@ struct VideoEditorView: View {
                             }
                         }
                         .padding(.horizontal, 20)
-                        .padding(.top, 25)
+                        .padding(.top, 20)
 
                         // Playhead Needle
                         let playheadX = 20 + (CGFloat(playheadMs) / 35.0 * CGFloat(timelineZoom))
                         Rectangle()
                             .fill(Color.brandAccent)
-                            .frame(width: 2.5, height: 110)
-                            .position(x: playheadX, y: 55)
+                            .frame(width: 2.5, height: 85)
+                            .position(x: playheadX, y: 50)
                             .shadow(color: Color.brandAccent.opacity(0.5), radius: 3)
                     }
                 }
+                .frame(minHeight: 100)
             }
         }
+        .clipped()
     }
 
     // MARK: - 5. Bottom Contextual Editing Dock
     @ViewBuilder
     private var bottomEditingDock: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             // Inspector Panel for Active Tool (if open)
             if let tool = activeToolPanel, let clip = selectedClip {
                 toolInspectorPanel(tool: tool, clip: clip)
@@ -518,6 +573,7 @@ struct VideoEditorView: View {
                 .padding(.vertical, 8)
             }
         }
+        .padding(.bottom, 20)
         .background(Color.voidCanvas)
     }
 
@@ -899,25 +955,37 @@ struct VideoEditorView: View {
 
     private func handlePhotosPickerImport(item: PhotosPickerItem) {
         Task {
-            if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                let ingestedUrl = ProjectStorageManager.shared.importMedia(from: movie.url, to: project.id)
-                let info = try? await VideoEngine.shared.extractVideoInfo(from: ingestedUrl)
+            do {
+                if let movie = try await item.loadTransferable(type: MovieTransferable.self) {
+                    let ingestedUrl = ProjectStorageManager.shared.importMedia(from: movie.url, to: project.id)
+                    let info = try? await VideoEngine.shared.extractVideoInfo(from: ingestedUrl)
 
-                let durMs = info?.durationMs ?? 5000
-                let newClip = EditorClip(
-                    sourceUrl: ingestedUrl,
-                    filename: ingestedUrl.lastPathComponent,
-                    sourceDurationMs: durMs,
-                    sourceInPointMs: 0,
-                    sourceOutPointMs: durMs
-                )
+                    let durMs = info?.durationMs ?? 5000
+                    let newClip = EditorClip(
+                        sourceUrl: ingestedUrl,
+                        filename: movie.url.lastPathComponent,
+                        sourceDurationMs: durMs,
+                        sourceInPointMs: 0,
+                        sourceOutPointMs: durMs
+                    )
 
-                DispatchQueue.main.async {
-                    recordUndo()
-                    project.clips.append(newClip)
-                    selectedClipIndex = project.clips.count - 1
-                    ProjectStorageManager.shared.saveProject(project)
-                    syncPlayheadToPlayer()
+                    await MainActor.run {
+                        self.selectedPhotosItem = nil
+                        self.recordUndo()
+                        self.project.clips.append(newClip)
+                        self.selectedClipIndex = self.project.clips.count - 1
+                        ProjectStorageManager.shared.saveProject(self.project)
+                        self.syncPlayheadToPlayer()
+                    }
+                } else {
+                    await MainActor.run {
+                        self.selectedPhotosItem = nil
+                    }
+                }
+            } catch {
+                print("PhotosPicker load error: \(error)")
+                await MainActor.run {
+                    self.selectedPhotosItem = nil
                 }
             }
         }
@@ -941,11 +1009,11 @@ struct VideoEditorView: View {
                 )
 
                 DispatchQueue.main.async {
-                    recordUndo()
-                    project.clips.append(newClip)
-                    selectedClipIndex = project.clips.count - 1
-                    ProjectStorageManager.shared.saveProject(project)
-                    syncPlayheadToPlayer()
+                    self.recordUndo()
+                    self.project.clips.append(newClip)
+                    self.selectedClipIndex = self.project.clips.count - 1
+                    ProjectStorageManager.shared.saveProject(self.project)
+                    self.syncPlayheadToPlayer()
                 }
             }
         }
@@ -957,22 +1025,5 @@ struct VideoEditorView: View {
         let s = Int(totalSec) % 60
         let f = Int((totalSec.truncatingRemainder(dividingBy: 1.0)) * 10)
         return String(format: "%02d:%02d.%d", m, s, f)
-    }
-}
-
-// MARK: - Video Transferable for PhotosPicker
-struct VideoTransferable: Transferable {
-    let url: URL
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(contentType: .movie) { movie in
-            SentTransferredFile(movie.url)
-        } importing: { received in
-            let tempDir = FileManager.default.temporaryDirectory
-            let copyUrl = tempDir.appendingPathComponent("import_\(UUID().uuidString).mp4")
-            try? FileManager.default.removeItem(at: copyUrl)
-            try FileManager.default.copyItem(at: received.file, to: copyUrl)
-            return Self(url: copyUrl)
-        }
     }
 }
