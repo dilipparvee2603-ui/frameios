@@ -425,34 +425,46 @@ final class WiFiTransferServer: ObservableObject {
             return
         }
 
-        receiveUploadChunks(handle: handle, expectedBytes: expectedBytes, totalReceived: &totalReceived, targetUrl: targetUrl, connection: connection)
+        receiveUploadChunks(
+            handle: handle,
+            expectedBytes: expectedBytes,
+            currentReceived: totalReceived,
+            targetUrl: targetUrl,
+            connection: connection
+        )
     }
 
     private func receiveUploadChunks(
         handle: FileHandle,
         expectedBytes: Int64,
-        totalReceived: inout Int64,
+        currentReceived: Int64,
         targetUrl: URL,
         connection: NWConnection
     ) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 131072) { [weak self] content, _, isComplete, error in
             guard let self = self else { return }
 
+            var updatedReceived = currentReceived
             if let chunk = content, !chunk.isEmpty {
                 handle.write(chunk)
                 let cCount = Int64(chunk.count)
-                totalReceived += cCount
+                updatedReceived += cCount
                 DispatchQueue.main.async {
                     self.bytesReceived += cCount
                 }
             }
 
-            if (expectedBytes > 0 && totalReceived >= expectedBytes) || isComplete || error != nil {
+            if (expectedBytes > 0 && updatedReceived >= expectedBytes) || isComplete || error != nil {
                 try? handle.close()
                 self.finishUpload(targetUrl: targetUrl, connection: connection)
             } else {
-                var copyReceived = totalReceived
-                self.receiveUploadChunks(handle: handle, expectedBytes: expectedBytes, totalReceived: &copyReceived, targetUrl: targetUrl, connection: connection)
+                self.receiveUploadChunks(
+                    handle: handle,
+                    expectedBytes: expectedBytes,
+                    currentReceived: updatedReceived,
+                    targetUrl: targetUrl,
+                    connection: connection
+                )
             }
         }
     }
