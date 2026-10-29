@@ -284,11 +284,11 @@ struct EditorClip: Identifiable, Codable, Equatable {
         keyframes.sorted { $0.timeMs < $1.timeMs }
     }
 
-    func keyframe(near timeMs: Int64, toleranceMs: Int64 = 60) -> ClipKeyframe? {
+    func keyframe(near timeMs: Int64, toleranceMs: Int64 = 120) -> ClipKeyframe? {
         keyframes.first { abs($0.timeMs - timeMs) <= toleranceMs }
     }
 
-    func keyframeIndex(near timeMs: Int64, toleranceMs: Int64 = 60) -> Int? {
+    func keyframeIndex(near timeMs: Int64, toleranceMs: Int64 = 120) -> Int? {
         keyframes.firstIndex { abs($0.timeMs - timeMs) <= toleranceMs }
     }
 
@@ -305,14 +305,14 @@ struct EditorClip: Identifiable, Codable, Equatable {
         let clampedTime = max(0, min(timelineDurationMs, timeMs))
         let cur = evaluatedTransform(at: clampedTime)
 
-        if let idx = keyframeIndex(near: clampedTime, toleranceMs: 60) {
+        if let idx = keyframeIndex(near: clampedTime, toleranceMs: 120) {
             if let px = positionX { keyframes[idx].positionX = px }
             if let py = positionY { keyframes[idx].positionY = py }
             if let sc = scale { keyframes[idx].scale = max(0.1, sc) }
             if let rot = rotationDegrees { keyframes[idx].rotationDegrees = rot }
             if let op = opacity { keyframes[idx].opacity = max(0.0, min(1.0, op)) }
             if let es = easing { keyframes[idx].easing = es }
-            keyframes[idx].timeMs = clampedTime
+            // Keep keyframes[idx].timeMs unchanged so timestamp does not drift on timeline!
             return keyframes[idx]
         } else {
             let newKf = ClipKeyframe(
@@ -330,7 +330,7 @@ struct EditorClip: Identifiable, Codable, Equatable {
         }
     }
 
-    mutating func removeKeyframe(near timeMs: Int64, toleranceMs: Int64 = 60) {
+    mutating func removeKeyframe(near timeMs: Int64, toleranceMs: Int64 = 120) {
         keyframes.removeAll { abs($0.timeMs - timeMs) <= toleranceMs }
     }
 

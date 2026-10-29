@@ -321,7 +321,7 @@ struct VideoEditorView: View {
                         VideoPlayerView(player: playerModel.player)
                             .scaleEffect(animTransform.scale)
                             .offset(x: animTransform.offsetX, y: animTransform.offsetY)
-                            .rotationEffect(Angle(degrees: Double(clip.transform.rotation.rawValue) + animTransform.rotationDegrees))
+                            .rotationEffect(Angle(degrees: clip.hasKeyframes() ? animTransform.rotationDegrees : Double(clip.transform.rotation.rawValue)))
                             .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
                             .opacity(animTransform.opacity)
                             .brightness(animColor.brightness)
@@ -772,7 +772,18 @@ struct VideoEditorView: View {
                                             }
                                             if let initialMs = dragPlayheadInitialMs {
                                                 let deltaMs = Int64(round(Double(value.translation.width) / Double(pointsPerSecond) * 1000.0))
-                                                let newMs = max(0, min(project.totalTimelineDurationMs, initialMs + deltaMs))
+                                                var newMs = max(0, min(project.totalTimelineDurationMs, initialMs + deltaMs))
+
+                                                // Magnetic Keyframe Snapping:
+                                                if let activeIdx = project.clipIndex(at: newMs) {
+                                                    let activeClip = project.clips[activeIdx]
+                                                    let clipStart = project.timelineStartTime(forClipIndex: activeIdx)
+                                                    let localMs = newMs - clipStart
+                                                    if let snapKf = activeClip.sortedKeyframes.first(where: { abs($0.timeMs - localMs) <= 120 }) {
+                                                        newMs = clipStart + snapKf.timeMs
+                                                    }
+                                                }
+
                                                 playheadMs = newMs
 
                                                 // Dynamically switch active clip if scrubbing crosses clip boundaries
@@ -835,7 +846,7 @@ struct VideoEditorView: View {
                         let kfRatio = CGFloat(max(0, min(clip.timelineDurationMs, kf.timeMs))) / CGFloat(max(1, clip.timelineDurationMs))
                         let markerX = max(4, min(width - 12, kfRatio * width - 4))
                         let clipStart = project.timelineStartTime(forClipIndex: index)
-                        let isNearPlayhead = abs((clipStart + kf.timeMs) - playheadMs) < 60
+                        let isNearPlayhead = abs((clipStart + kf.timeMs) - playheadMs) <= 120
 
                         Image(systemName: "rhombus.fill")
                             .font(.system(size: isNearPlayhead ? 10 : 8, weight: .bold))
@@ -1296,7 +1307,7 @@ struct VideoEditorView: View {
         if let clip = selectedClip {
             let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
             let clipLocalMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
-            let currentKf = clip.keyframe(near: clipLocalMs, toleranceMs: 60)
+            let currentKf = clip.keyframe(near: clipLocalMs, toleranceMs: 120)
             let prevMs = clip.previousKeyframeTime(from: clipLocalMs)
             let nextMs = clip.nextKeyframeTime(from: clipLocalMs)
             let hasKeyframeAtPlayhead = currentKf != nil
@@ -1731,7 +1742,14 @@ struct VideoEditorView: View {
             HStack(spacing: 10) {
                 Button(action: {
                     recordUndo()
-                    project.clips[selectedClipIndex].transform.rotation = clip.transform.rotation.next
+                    if clip.hasKeyframes() {
+                        let cur = clip.evaluatedTransform(at: clipLocalMs)
+                        let newRot = (cur.rotationDegrees + 90.0).truncatingRemainder(dividingBy: 360.0)
+                        project.clips[selectedClipIndex].addOrUpdateKeyframe(at: clipLocalMs, rotationDegrees: newRot, easing: selectedKeyframeEasing)
+                    } else {
+                        project.clips[selectedClipIndex].transform.rotation = clip.transform.rotation.next
+                    }
+                    ProjectStorageManager.shared.saveProject(project)
                 }) {
                     Label("Rotate 90°", systemImage: "rotate.right")
                         .font(.system(size: 11, weight: .bold))
@@ -1770,7 +1788,20 @@ struct VideoEditorView: View {
 
                 Button(action: {
                     recordUndo()
-                    project.clips[selectedClipIndex].transform = .identity
+                    if clip.hasKeyframes() {
+                        project.clips[selectedClipIndex].addOrUpdateKeyframe(
+                            at: clipLocalMs,
+                            positionX: 0.0,
+                            positionY: 0.0,
+                            scale: 1.0,
+                            rotationDegrees: 0.0,
+                            opacity: 1.0,
+                            easing: selectedKeyframeEasing
+                        )
+                    } else {
+                        project.clips[selectedClipIndex].transform = .identity
+                    }
+                    ProjectStorageManager.shared.saveProject(project)
                 }) {
                     Text("Reset All")
                         .font(.system(size: 11, weight: .bold))

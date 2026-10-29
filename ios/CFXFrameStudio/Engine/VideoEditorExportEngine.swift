@@ -149,15 +149,27 @@ final class VideoEditorExportEngine {
             var vFilters: [String] = []
 
             // A. Rotation & Flip
-            switch clip.transform.rotation {
-            case .r90:
-                vFilters.append("transpose=1")
-            case .r180:
-                vFilters.append("transpose=1,transpose=1")
-            case .r270:
-                vFilters.append("transpose=2")
-            case .r0:
-                break
+            if clip.hasKeyframes() {
+                let rotPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.rotationDegrees) }
+                let hasRotationAnim = rotPoints.contains { abs($0.value) > 0.01 }
+                if hasRotationAnim {
+                    let rotExpr = buildFFmpegTimeExpression(points: rotPoints, defaultValue: Double(clip.transform.rotation.rawValue))
+                    vFilters.append("rotate='(\(rotExpr))*PI/180':ow='rotw((\(rotExpr))*PI/180)':oh='roth((\(rotExpr))*PI/180)':c=black")
+                } else {
+                    switch clip.transform.rotation {
+                    case .r90: vFilters.append("transpose=1")
+                    case .r180: vFilters.append("transpose=1,transpose=1")
+                    case .r270: vFilters.append("transpose=2")
+                    case .r0: break
+                    }
+                }
+            } else {
+                switch clip.transform.rotation {
+                case .r90: vFilters.append("transpose=1")
+                case .r180: vFilters.append("transpose=1,transpose=1")
+                case .r270: vFilters.append("transpose=2")
+                case .r0: break
+                }
             }
 
             if clip.transform.flipH {
