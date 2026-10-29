@@ -75,7 +75,7 @@ struct VideoEditorView: View {
 
                 // 2. Main Video Monitor / Preview Canvas
                 previewMonitor
-                    .frame(height: 240)
+                    .frame(height: 230)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 4)
 
@@ -86,7 +86,7 @@ struct VideoEditorView: View {
 
                 // 4. Horizontal Multi-Clip Timeline
                 timelineSection
-                    .frame(height: 105)
+                    .frame(height: 120)
                     .background(Color.surfaceCard.opacity(0.85))
 
                 Spacer(minLength: 4)
@@ -141,7 +141,7 @@ struct VideoEditorView: View {
                 dismiss()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.textPrimary)
                     .frame(width: 32, height: 32)
                     .background(Color.surfaceCard)
@@ -163,10 +163,10 @@ struct VideoEditorView: View {
                         .font(.system(size: 10))
                         .foregroundColor(.textTertiary)
                 }
-                .frame(maxWidth: 100, alignment: .leading)
+                .frame(maxWidth: 88, alignment: .leading)
             }
 
-            Spacer()
+            Spacer(minLength: 2)
 
             // Canvas Aspect Ratio Pill
             Menu {
@@ -190,21 +190,23 @@ struct VideoEditorView: View {
                         .font(.system(size: 10, weight: .bold))
                     Text(project.canvasAspectRatio.badgeText)
                         .font(.system(size: 11, weight: .heavy))
+                        .lineLimit(1)
                 }
                 .foregroundColor(.skyAccent)
-                .padding(.horizontal, 9)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color.skyAccent.opacity(0.14))
                 .clipShape(Capsule())
-                .fixedSize()
             }
+            .fixedSize()
+            .layoutPriority(1)
 
             // Undo Button
             Button(action: { performUndo() }) {
                 Image(systemName: "arrow.uturn.backward")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(undoManager.canUndo ? .textPrimary : .textTertiary)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 30, height: 30)
                     .background(Color.surfaceCard)
                     .clipShape(Circle())
             }
@@ -215,7 +217,7 @@ struct VideoEditorView: View {
                 Image(systemName: "arrow.uturn.forward")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(undoManager.canRedo ? .textPrimary : .textTertiary)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 30, height: 30)
                     .background(Color.surfaceCard)
                     .clipShape(Circle())
             }
@@ -225,20 +227,22 @@ struct VideoEditorView: View {
             Button(action: { startProjectExport() }) {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                     Text("Export")
-                        .font(.system(size: 12, weight: .heavy))
+                        .font(.system(size: 11, weight: .heavy))
+                        .lineLimit(1)
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 11)
                 .padding(.vertical, 7)
                 .background(LinearGradient.brandGradient)
                 .clipShape(Capsule())
-                .fixedSize()
             }
+            .fixedSize()
+            .layoutPriority(2)
             .disabled(project.clips.isEmpty || isExporting)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 14)
         .padding(.vertical, 6)
     }
 
@@ -320,10 +324,16 @@ struct VideoEditorView: View {
         }
     }
 
+    private var pointsPerSecond: CGFloat {
+        80.0 * CGFloat(timelineZoom)
+    }
+
+    private let leadPad: CGFloat = 36.0
+
     // MARK: - 3. Transport Bar
     @ViewBuilder
     private var transportBar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             // Jump to Start
             Button(action: {
                 playheadMs = 0
@@ -339,7 +349,8 @@ struct VideoEditorView: View {
                 if playerModel.isPlaying {
                     playerModel.pause()
                 } else {
-                    playerModel.play()
+                    let speed = Float(selectedClip?.speedConfig.speedMultiplier ?? 1.0)
+                    playerModel.play(rate: speed)
                 }
             }) {
                 Image(systemName: playerModel.isPlaying ? "pause.fill" : "play.fill")
@@ -360,6 +371,44 @@ struct VideoEditorView: View {
                     .font(.system(size: 13))
                     .foregroundColor(.textSecondary)
             }
+
+            // Timeline Zoom Controls: [-] 1.0x [+]
+            HStack(spacing: 4) {
+                Button(action: {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        timelineZoom = max(0.5, timelineZoom - 0.25)
+                    }
+                }) {
+                    Image(systemName: "minus")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.textSecondary)
+                        .frame(width: 20, height: 20)
+                        .background(Color.elevatedSurface)
+                        .clipShape(Circle())
+                }
+
+                Text(String(format: "%.1fx", timelineZoom))
+                    .font(.system(size: 9.5, weight: .heavy, design: .monospaced))
+                    .foregroundColor(.textTertiary)
+                    .frame(width: 26)
+
+                Button(action: {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        timelineZoom = min(4.0, timelineZoom + 0.25)
+                    }
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.textSecondary)
+                        .frame(width: 20, height: 20)
+                        .background(Color.elevatedSurface)
+                        .clipShape(Circle())
+                }
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(Color.surfaceCard)
+            .clipShape(Capsule())
 
             Spacer()
 
@@ -410,96 +459,178 @@ struct VideoEditorView: View {
     private var timelineSection: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                ZStack(alignment: .leading) {
-                    if project.clips.isEmpty {
-                        // Empty Timeline Placeholder
+                if project.clips.isEmpty {
+                    // Empty Timeline Placeholder
+                    HStack {
+                        Spacer()
                         Button(action: { showPhotosPicker = true }) {
-                            RoundedRectangle(cornerRadius: 10)
+                            RoundedRectangle(cornerRadius: 12)
                                 .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [6]))
                                 .foregroundColor(Color.borderHairlineBright)
-                                .frame(width: 160, height: 60)
+                                .frame(width: 200, height: 70)
                                 .overlay(
-                                    HStack(spacing: 6) {
+                                    HStack(spacing: 8) {
                                         Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 16))
                                             .foregroundColor(.emeraldAccent)
-                                        Text("Add First Clip")
-                                            .font(.system(size: 11, weight: .bold))
+                                        Text("Tap to Add First Video")
+                                            .font(.system(size: 12, weight: .bold))
                                             .foregroundColor(.textSecondary)
                                     }
                                 )
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                    } else {
-                        // Clips Track
-                        HStack(spacing: 6) {
-                            ForEach(0..<project.clips.count, id: \.self) { idx in
-                                let clip = project.clips[idx]
-                                let isSelected = idx == selectedClipIndex
-                                let clipWidth = max(70, CGFloat(clip.timelineDurationMs) / 35.0 * CGFloat(timelineZoom))
+                        Spacer()
+                    }
+                    .frame(width: max(UIScreen.main.bounds.width, 390), height: 120)
+                } else {
+                    let totalSec = max(5, Int(ceil(Double(project.totalTimelineDurationMs) / 1000.0)) + 3)
+                    let totalClipsWidth = (CGFloat(project.totalTimelineDurationMs) / 1000.0) * pointsPerSecond
+                    let totalContentWidth = leadPad + totalClipsWidth + 240.0
 
-                                ZStack(alignment: .leading) {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(isSelected ? Color.elevatedSurface : Color.surfaceCard)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(isSelected ? Color.brandAccent : Color.borderHairline, lineWidth: isSelected ? 2 : 1)
-                                        )
-
+                    ZStack(alignment: .topLeading) {
+                        // Background track layer
+                        VStack(alignment: .leading, spacing: 4) {
+                            // Seconds Ruler Row
+                            HStack(alignment: .bottom, spacing: 0) {
+                                ForEach(0...totalSec, id: \.self) { sec in
                                     VStack(alignment: .leading, spacing: 2) {
-                                        HStack {
-                                            Text(clip.filename)
-                                                .font(.system(size: 10, weight: .bold))
-                                                .foregroundColor(.textPrimary)
-                                                .lineLimit(1)
-
-                                            Spacer()
-
-                                            // Speed tag if slow-mo
-                                            if abs(clip.speedConfig.speedMultiplier - 1.0) > 0.01 {
-                                                Text(String(format: "%.2fx", clip.speedConfig.speedMultiplier))
-                                                    .font(.system(size: 8.5, weight: .heavy))
-                                                    .foregroundColor(.pinkAccent)
-                                                    .padding(.horizontal, 4)
-                                                    .padding(.vertical, 1)
-                                                    .background(Color.pinkAccent.opacity(0.18))
-                                                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                                            }
-                                        }
-
-                                        Spacer()
-
-                                        Text(formatMs(clip.timelineDurationMs))
-                                            .font(.system(size: 9, design: .monospaced))
+                                        Text(formatSeconds(sec))
+                                            .font(.system(size: 9, weight: .medium, design: .monospaced))
                                             .foregroundColor(.textTertiary)
+                                        Rectangle()
+                                            .fill(Color.borderHairlineBright)
+                                            .frame(width: 1, height: 6)
                                     }
-                                    .padding(6)
-                                }
-                                .frame(width: clipWidth, height: 65)
-                                .onTapGesture {
-                                    selectedClipIndex = idx
-                                    let startMs = project.timelineStartTime(forClipIndex: idx)
-                                    playheadMs = startMs
-                                    syncPlayheadToPlayer()
+                                    .frame(width: pointsPerSecond, alignment: .leading)
                                 }
                             }
+                            .padding(.leading, leadPad)
+
+                            // Clips Horizontal Row
+                            HStack(spacing: 4) {
+                                ForEach(0..<project.clips.count, id: \.self) { idx in
+                                    let clip = project.clips[idx]
+                                    let isSelected = idx == selectedClipIndex
+                                    let clipWidth = max(60, (CGFloat(clip.timelineDurationMs) / 1000.0) * pointsPerSecond)
+
+                                    clipTrackItem(clip: clip, index: idx, isSelected: isSelected, width: clipWidth)
+                                }
+
+                                // Trailing spacer allowing playback to scroll past end
+                                Spacer()
+                                    .frame(width: 240)
+                            }
+                            .padding(.leading, leadPad)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
+                        .frame(width: max(totalContentWidth, UIScreen.main.bounds.width + 120), alignment: .topLeading)
 
                         // Playhead Needle
-                        let playheadX = 20 + (CGFloat(playheadMs) / 35.0 * CGFloat(timelineZoom))
-                        Rectangle()
-                            .fill(Color.brandAccent)
-                            .frame(width: 2.5, height: 85)
-                            .position(x: playheadX, y: 50)
-                            .shadow(color: Color.brandAccent.opacity(0.5), radius: 3)
+                        let playheadX = leadPad + (CGFloat(playheadMs) / 1000.0 * pointsPerSecond)
+                        VStack(spacing: 0) {
+                            // Draggable Top Cap
+                            Capsule()
+                                .fill(Color.brandAccent)
+                                .frame(width: 14, height: 16)
+                                .overlay(
+                                    Circle()
+                                        .fill(Color.white)
+                                        .frame(width: 5, height: 5)
+                                )
+                                .shadow(color: Color.brandAccent.opacity(0.6), radius: 3)
+                                .gesture(
+                                    DragGesture(minimumDistance: 1)
+                                        .onChanged { value in
+                                            let rawX = playheadX + value.translation.width
+                                            let clampedX = max(leadPad, rawX)
+                                            let newMs = Int64(round(Double(clampedX - leadPad) / Double(pointsPerSecond) * 1000.0))
+                                            playheadMs = max(0, min(project.totalTimelineDurationMs, newMs))
+                                            syncPlayheadToPlayer()
+                                        }
+                                )
+
+                            // Vertical Needle Line (allowsHitTesting false so touches pass through to clips)
+                            Rectangle()
+                                .fill(Color.brandAccent)
+                                .frame(width: 2, height: 86)
+                                .shadow(color: Color.brandAccent.opacity(0.4), radius: 2)
+                                .allowsHitTesting(false)
+                        }
+                        .offset(x: playheadX - 7, y: 2)
                     }
+                    .frame(height: 120)
                 }
-                .frame(minHeight: 100)
             }
         }
         .clipped()
+    }
+
+    @ViewBuilder
+    private func clipTrackItem(clip: EditorClip, index: Int, isSelected: Bool, width: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            // Background Filmstrip Thumbnail Strip
+            ClipThumbnailStripView(clip: clip, width: width)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            // Dark gradient overlay for text readability
+            LinearGradient(
+                colors: [Color.black.opacity(0.65), Color.black.opacity(0.2), Color.black.opacity(0.5)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            // Border (highlighted when selected)
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.brandAccent : Color.borderHairline, lineWidth: isSelected ? 2 : 1)
+
+            // Clip metadata overlay
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(clip.filename)
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+
+                    // Speed Pill
+                    if abs(clip.speedConfig.speedMultiplier - 1.0) > 0.01 {
+                        Text(String(format: "%.2fx", clip.speedConfig.speedMultiplier))
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundColor(.pinkAccent)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+                }
+
+                Spacer()
+
+                HStack {
+                    Text(formatMs(clip.timelineDurationMs))
+                        .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.9))
+
+                    Spacer()
+
+                    if clip.isMuted {
+                        Image(systemName: "speaker.slash.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(.brandAccent)
+                    }
+                }
+            }
+            .padding(5)
+        }
+        .frame(width: width, height: 62)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedClipIndex = index
+            let startMs = project.timelineStartTime(forClipIndex: index)
+            playheadMs = startMs
+            syncPlayheadToPlayer()
+        }
     }
 
     // MARK: - 5. Bottom Contextual Editing Dock
@@ -858,7 +989,33 @@ struct VideoEditorView: View {
     // MARK: - Logic Actions
     private func setupInitialProject() {
         if let clip = project.clips.first {
-            playerModel.setup(with: clip.sourceUrl)
+            playerModel.setup(with: clip.sourceUrl) { [weak playerModel] curMs in
+                _ = playerModel
+                self.updatePlayheadFromPlayback(sourceMs: curMs)
+            }
+        }
+    }
+
+    private func updatePlayheadFromPlayback(sourceMs: Int64) {
+        guard let clip = selectedClip else { return }
+        let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+        let timelineOffset = clip.mapSourceMsToTimelineOffset(sourceMs)
+        let newPlayhead = clipStart + timelineOffset
+
+        DispatchQueue.main.async {
+            self.playheadMs = newPlayhead
+
+            // Auto-advance to next clip if this clip finishes
+            if timelineOffset >= clip.timelineDurationMs - 60 {
+                if selectedClipIndex + 1 < project.clips.count {
+                    selectedClipIndex += 1
+                    syncPlayheadToPlayer()
+                    let speed = Float(selectedClip?.speedConfig.speedMultiplier ?? 1.0)
+                    playerModel.play(rate: speed)
+                } else {
+                    playerModel.pause()
+                }
+            }
         }
     }
 
@@ -870,7 +1027,10 @@ struct VideoEditorView: View {
 
         if playerModel.player.currentItem?.asset as? AVURLAsset == nil ||
            (playerModel.player.currentItem?.asset as? AVURLAsset)?.url != clip.sourceUrl {
-            playerModel.setup(with: clip.sourceUrl)
+            playerModel.setup(with: clip.sourceUrl) { [weak playerModel] curMs in
+                _ = playerModel
+                self.updatePlayheadFromPlayback(sourceMs: curMs)
+            }
         }
         playerModel.seek(to: sourceMs)
     }
@@ -1025,5 +1185,47 @@ struct VideoEditorView: View {
         let s = Int(totalSec) % 60
         let f = Int((totalSec.truncatingRemainder(dividingBy: 1.0)) * 10)
         return String(format: "%02d:%02d.%d", m, s, f)
+    }
+
+    private func formatSeconds(_ sec: Int) -> String {
+        let m = sec / 60
+        let s = sec % 60
+        return String(format: "%02d:%02d", m, s)
+    }
+}
+
+// MARK: - Filmstrip Thumbnail Strip
+struct ClipThumbnailStripView: View {
+    let clip: EditorClip
+    let width: CGFloat
+    @State private var thumbnails: [UIImage] = []
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if thumbnails.isEmpty {
+                Color.surfaceCard
+            } else {
+                ForEach(0..<thumbnails.count, id: \.self) { i in
+                    Image(uiImage: thumbnails[i])
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: max(15, width / CGFloat(thumbnails.count)), height: 62)
+                        .clipped()
+                }
+            }
+        }
+        .onAppear {
+            loadThumbnails()
+        }
+        .onChange(of: clip.id) { _ in loadThumbnails() }
+        .onChange(of: clip.sourceInPointMs) { _ in loadThumbnails() }
+        .onChange(of: clip.sourceOutPointMs) { _ in loadThumbnails() }
+    }
+
+    private func loadThumbnails() {
+        let count = max(2, min(8, Int(width / 35.0)))
+        ThumbnailCacheService.shared.generateThumbnails(for: clip, count: count) { imgs in
+            self.thumbnails = imgs
+        }
     }
 }
