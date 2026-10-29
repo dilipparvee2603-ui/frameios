@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QLineEdit, QSpinBox, QProgressBar, QFileDialog,
     QMessageBox, QFrame, QSizePolicy, QGroupBox, QRadioButton,
-    QButtonGroup, QCheckBox, QToolTip, QApplication, QComboBox
+    QButtonGroup, QCheckBox, QToolTip, QApplication, QComboBox, QListView
 )
 from PySide6.QtGui import (
     QPixmap, QImage, QColor, QFont, QPainter, QCursor,
@@ -1288,20 +1288,25 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
         lbl_mode.setStyleSheet("color: #94A3B8; font-size: 11px; font-weight: 500;")
         row_trim.addWidget(lbl_mode)
 
+        self.btn_group_format = QButtonGroup(self)
+
         self.radio_copy = QRadioButton("⚡ Lossless (Fast)")
         self.radio_copy.setChecked(True)
         self.radio_copy.setToolTip("Instant stream copy with 0s re-encode and bit-exact original quality")
         self.radio_copy.setStyleSheet("color: #CBD5E1; font-size: 11px;")
+        self.btn_group_format.addButton(self.radio_copy)
         row_trim.addWidget(self.radio_copy)
 
         self.radio_h264 = QRadioButton("🎬 MP4 (H.264)")
         self.radio_h264.setToolTip("Universally compatible H.264/AAC MP4 - plays flawlessly on iPhone, iPad, Windows, Mac, web & editors")
         self.radio_h264.setStyleSheet("color: #CBD5E1; font-size: 11px;")
+        self.btn_group_format.addButton(self.radio_h264)
         row_trim.addWidget(self.radio_h264)
 
         self.radio_h265 = QRadioButton("🚀 MP4 (H.265 / HEVC)")
         self.radio_h265.setToolTip("High-efficiency HEVC export tagged with hvc1 for Apple devices and stereo AAC audio")
         self.radio_h265.setStyleSheet("color: #CBD5E1; font-size: 11px;")
+        self.btn_group_format.addButton(self.radio_h265)
         row_trim.addWidget(self.radio_h265)
 
         self.radio_h264.toggled.connect(self._on_export_format_toggled)
@@ -1383,23 +1388,37 @@ class VideoTrimmerWindow(FramelessWindowMixin, QMainWindow):
         # Format Extension Selector
         self.combo_ext = QComboBox()
         self.combo_ext.setFixedHeight(28)
+        self.combo_ext.setMinimumWidth(85)
+        self.combo_ext.setView(QListView())
         self.combo_ext.addItems([".mp4", ".mov", ".mkv", ".webm"])
+        self.combo_ext.setToolTip("Select container format (.mp4 is recommended for maximum compatibility)")
         self.combo_ext.setStyleSheet("""
             QComboBox {
                 background: #15151A;
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 color: #38BDF8;
                 font-family: 'Consolas', monospace;
                 font-size: 11px;
                 font-weight: bold;
-                padding: 2px 6px;
+                padding: 2px 20px 2px 8px;
                 border-radius: 6px;
             }
-            QComboBox::drop-down { border: none; width: 14px; }
+            QComboBox:hover {
+                border: 1px solid #38BDF8;
+                background: #1E1E26;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 18px;
+                border-left: 1px solid rgba(255, 255, 255, 0.08);
+            }
             QComboBox QAbstractItemView {
                 background: #1A1A22;
                 color: #FFFFFF;
+                border: 1px solid #38BDF8;
                 selection-background-color: #C0000A;
+                padding: 4px;
             }
         """)
         self.combo_ext.currentIndexChanged.connect(self._update_file_status)

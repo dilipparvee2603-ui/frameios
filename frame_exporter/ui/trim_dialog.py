@@ -803,17 +803,22 @@ class VideoTrimDialog(DarkModalDialog):
         lbl_m.setStyleSheet("color: #94a3b8; font-size: 11px; min-width: 75px;")
         mode_row.addWidget(lbl_m)
 
+        self.btn_group_format = QButtonGroup(self)
+
         self.radio_copy = QRadioButton("⚡ Lossless (Fast)")
         self.radio_copy.setChecked(True)
         self.radio_copy.setToolTip("Cuts instantly without re-encoding. 100% original stream quality and resolution at disk write speed!")
+        self.btn_group_format.addButton(self.radio_copy)
         mode_row.addWidget(self.radio_copy)
 
         self.radio_h264 = QRadioButton("🎬 MP4 (H.264 Universal)")
         self.radio_h264.setToolTip("Universally compatible H.264/AAC MP4 - plays flawlessly on iPhone, iPad, Windows, Mac, web & editors.")
+        self.btn_group_format.addButton(self.radio_h264)
         mode_row.addWidget(self.radio_h264)
 
         self.radio_h265 = QRadioButton("🚀 MP4 (H.265 HEVC)")
         self.radio_h265.setToolTip("High-efficiency HEVC export tagged with hvc1 for Apple devices and stereo AAC audio.")
+        self.btn_group_format.addButton(self.radio_h265)
         mode_row.addWidget(self.radio_h265)
         mode_row.addStretch()
         opt_layout.addLayout(mode_row)
