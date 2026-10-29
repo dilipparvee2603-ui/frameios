@@ -83,9 +83,13 @@ final class MKVRemuxEngine {
     ]
 
     /// Checks if a given file URL points to a non-native Apple container
-    func isNonNativeContainer(url: URL) -> Bool {
+    static func isNonNativeContainer(url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
-        return Self.nonNativeContainers.contains(ext)
+        return nonNativeContainers.contains(ext)
+    }
+
+    func isNonNativeContainer(url: URL) -> Bool {
+        return Self.isNonNativeContainer(url: url)
     }
 
     /// Legacy convenience alias for backwards compatibility
@@ -512,13 +516,14 @@ final class MKVRemuxEngine {
             probedInfo = ProbedMediaInfo()
         }
 
+        let isNonNative = Self.isNonNativeContainer(url: sourceUrl)
         let binScan = Self.fastBinaryScan(url: sourceUrl)
         var finalInfo = probedInfo
         if binScan.hasHev1 {
             finalInfo.isHEVC = true
             finalInfo.isHev1Tag = true
         }
-        if binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts || isNonNativeContainer(url: sourceUrl) {
+        if binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts || isNonNative {
             finalInfo.needsAudioTranscode = true
         }
 
@@ -634,7 +639,7 @@ final class MKVRemuxEngine {
                 "-c:v", "copy"
             ]
 
-            if finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1 || isNonNativeContainer(url: sourceUrl) {
+            if finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1 || isNonNative {
                 tier1Arguments += ["-tag:v", "hvc1"]
             }
 
@@ -648,7 +653,7 @@ final class MKVRemuxEngine {
                 tier1Arguments += ["-colorspace", finalInfo.colorSpace]
             }
 
-            if finalInfo.needsAudioTranscode || binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts || isNonNativeContainer(url: sourceUrl) {
+            if finalInfo.needsAudioTranscode || binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts || isNonNative {
                 tier1Arguments += ["-c:a", "aac", "-ac", "2", "-b:a", "256k"]
             } else {
                 tier1Arguments += ["-c:a", "copy"]
@@ -693,7 +698,7 @@ final class MKVRemuxEngine {
                 "-c:v", "copy"
             ]
 
-            if finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1 || isNonNativeContainer(url: sourceUrl) {
+            if finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1 || isNonNative {
                 tier2Arguments += ["-tag:v", "hvc1"]
             }
 

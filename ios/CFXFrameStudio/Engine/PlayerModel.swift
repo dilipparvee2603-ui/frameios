@@ -43,7 +43,7 @@ final class PlayerModel: ObservableObject {
         ) { [weak self] _ in
             guard let self = self else { return }
             self.pause()
-            self.seek(to: 0)
+            self.seek(to: Int64(0))
         }
 
         let interval = CMTime(value: 1, timescale: 60) // 60Hz UI sync
