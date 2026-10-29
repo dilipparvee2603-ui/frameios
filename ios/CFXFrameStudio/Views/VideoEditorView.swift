@@ -38,6 +38,7 @@ struct VideoEditorView: View {
     @State private var timelineZoom: Double = 1.0 // 1.0 = normal, 2.0 = zoomed in
     @State private var activeToolPanel: EditorToolPanel? = nil
     @State private var isAdvancingClip: Bool = false
+    @State private var dragInitialOffset: CGSize? = nil
 
     // Import State
     @State private var selectedPhotosItem: PhotosPickerItem? = nil
@@ -305,10 +306,24 @@ struct VideoEditorView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .contentShape(Rectangle())
                     .gesture(
-                        DragGesture()
+                        DragGesture(minimumDistance: 2)
                             .onChanged { val in
-                                project.clips[selectedClipIndex].transform.offsetX += val.translation.width * 0.12
-                                project.clips[selectedClipIndex].transform.offsetY += val.translation.height * 0.12
+                                guard selectedClipIndex < project.clips.count else { return }
+                                if dragInitialOffset == nil {
+                                    dragInitialOffset = CGSize(
+                                        width: project.clips[selectedClipIndex].transform.offsetX,
+                                        height: project.clips[selectedClipIndex].transform.offsetY
+                                    )
+                                }
+                                if let initial = dragInitialOffset {
+                                    project.clips[selectedClipIndex].transform.offsetX = initial.width + val.translation.width
+                                    project.clips[selectedClipIndex].transform.offsetY = initial.height + val.translation.height
+                                }
+                            }
+                            .onEnded { _ in
+                                recordUndo()
+                                dragInitialOffset = nil
+                                ProjectStorageManager.shared.saveProject(project)
                             }
                     )
                     .overlay(
