@@ -240,8 +240,8 @@ final class MKVRemuxEngine {
         }
         defer { try? fileHandle.close() }
 
-        // Read first 1MB
-        let headData = fileHandle.readData(ofLength: 1024 * 1024)
+        // Read first 2MB
+        let headData = fileHandle.readData(ofLength: 2 * 1024 * 1024)
 
         // Seek to end minus 4MB
         fileHandle.seekToEndOfFile()
@@ -249,17 +249,33 @@ final class MKVRemuxEngine {
         let tailLength = min(size, 4 * 1024 * 1024)
         fileHandle.seek(toFileOffset: max(0, size - tailLength))
         let tailData = fileHandle.readData(ofLength: Int(tailLength))
+        let combined = headData + tailData
 
-        let hev1Bytes = Data("hev1".utf8)
-        let ec3Bytes = Data("ec-3".utf8)
-        let ac3Bytes = Data("ac-3".utf8)
-        let dtsBytes = Data("dts".utf8)
+        // Check for HEVC: MP4 hev1/hvc1 or Matroska V_MPEGH/ISO/HEVC
+        let hasHev1 = combined.range(of: Data("hev1".utf8)) != nil ||
+                      combined.range(of: Data("hvc1".utf8)) != nil ||
+                      combined.range(of: Data("V_MPEGH/ISO/HEVC".utf8)) != nil ||
+                      combined.range(of: Data("hevc".utf8)) != nil
+
+        // Check for Dolby Digital Plus / Atmos: MP4 ec-3 or Matroska A_EAC3 / ddp
+        let hasEc3 = combined.range(of: Data("ec-3".utf8)) != nil ||
+                     combined.range(of: Data("eac3".utf8)) != nil ||
+                     combined.range(of: Data("A_EAC3".utf8)) != nil ||
+                     combined.range(of: Data("ddp".utf8)) != nil
+
+        // Check for Dolby Digital AC-3: MP4 ac-3 or Matroska A_AC3
+        let hasAc3 = combined.range(of: Data("ac-3".utf8)) != nil ||
+                     combined.range(of: Data("ac3".utf8)) != nil ||
+                     combined.range(of: Data("A_AC3".utf8)) != nil
+
+        // Check for DTS / TrueHD / Opus / FLAC
+        let hasDts = combined.range(of: Data("dts".utf8)) != nil ||
+                     combined.range(of: Data("A_DTS".utf8)) != nil ||
+                     combined.range(of: Data("A_TRUEHD".utf8)) != nil ||
+                     combined.range(of: Data("A_OPUS".utf8)) != nil ||
+                     combined.range(of: Data("A_FLAC".utf8)) != nil
+
         let moovBytes = Data("moov".utf8)
-
-        let hasHev1 = headData.range(of: hev1Bytes) != nil || tailData.range(of: hev1Bytes) != nil
-        let hasEc3 = headData.range(of: ec3Bytes) != nil || tailData.range(of: ec3Bytes) != nil
-        let hasAc3 = headData.range(of: ac3Bytes) != nil || tailData.range(of: ac3Bytes) != nil
-        let hasDts = headData.range(of: dtsBytes) != nil || tailData.range(of: dtsBytes) != nil
         let moovAtTail = tailData.range(of: moovBytes) != nil && headData.range(of: moovBytes) == nil
 
         return (hasHev1, hasEc3, hasAc3, hasDts, moovAtTail)
@@ -484,7 +500,7 @@ final class MKVRemuxEngine {
                 return await probeTask.value
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: 3_000_000_000)
+                try await Task.sleep(nanoseconds: 6_000_000_000)
                 return ProbedMediaInfo()
             }
             let first = try await group.next() ?? ProbedMediaInfo()
@@ -502,7 +518,7 @@ final class MKVRemuxEngine {
             finalInfo.isHEVC = true
             finalInfo.isHev1Tag = true
         }
-        if binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts {
+        if binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts || isNonNativeContainer(url: sourceUrl) {
             finalInfo.needsAudioTranscode = true
         }
 
@@ -618,7 +634,7 @@ final class MKVRemuxEngine {
                 "-c:v", "copy"
             ]
 
-            if finalInfo.isHEVC || finalInfo.isHev1Tag {
+            if finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1 || isNonNativeContainer(url: sourceUrl) {
                 tier1Arguments += ["-tag:v", "hvc1"]
             }
 
@@ -632,7 +648,7 @@ final class MKVRemuxEngine {
                 tier1Arguments += ["-colorspace", finalInfo.colorSpace]
             }
 
-            if finalInfo.needsAudioTranscode {
+            if finalInfo.needsAudioTranscode || binScan.hasEc3 || binScan.hasAc3 || binScan.hasDts || isNonNativeContainer(url: sourceUrl) {
                 tier1Arguments += ["-c:a", "aac", "-ac", "2", "-b:a", "256k"]
             } else {
                 tier1Arguments += ["-c:a", "copy"]
@@ -677,14 +693,14 @@ final class MKVRemuxEngine {
                 "-c:v", "copy"
             ]
 
-            if finalInfo.isHEVC || finalInfo.isHev1Tag {
+            if finalInfo.isHEVC || finalInfo.isHev1Tag || binScan.hasHev1 || isNonNativeContainer(url: sourceUrl) {
                 tier2Arguments += ["-tag:v", "hvc1"]
             }
 
             tier2Arguments += [
                 "-c:a", "aac",
                 "-ac", "2",
-                "-b:a", "192k",
+                "-b:a", "256k",
                 "-movflags", "+faststart",
                 outputUrl.path
             ]
