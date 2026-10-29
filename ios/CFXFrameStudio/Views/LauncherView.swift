@@ -31,13 +31,7 @@ struct LauncherView: View {
                     // Bento Grid Scroll View
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 12) {
-                            // 1. Hero Bento Card: Studio Video Enhancer (Full Width)
-                            NavigationLink(destination: VideoEnhancerView()) {
-                                heroEnhancerCard
-                            }
-                            .buttonStyle(BentoButtonStyle())
-
-                            // 2. Bento 2-Column Grid of Core Tools (Clean - Subtexts Removed)
+                            // Bento 2-Column Grid (6 Core Tools)
                             LazyVGrid(columns: columns, spacing: 12) {
                                 // Lossless Trimmer
                                 NavigationLink(destination: VideoTrimmerView()) {
@@ -117,7 +111,7 @@ struct LauncherView: View {
                                 .buttonStyle(BentoButtonStyle())
                             }
 
-                            // 3. System Telemetry Bento Bar (Full Width)
+                            // System Telemetry Bento Bar (Full Width)
                             systemStatusCard
                         }
                         .padding(.horizontal, 16)
@@ -126,7 +120,6 @@ struct LauncherView: View {
                     }
                 }
             }
-            .background(ambientGlow.clipped())
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -145,12 +138,12 @@ struct LauncherView: View {
                         .shadow(color: Color.brandAccent.opacity(0.8), radius: 6)
 
                     Text("CFX FRAME STUDIO")
-                        .font(.system(size: 18, weight: .black, design: .rounded))
+                        .font(.system(size: 17, weight: .black, design: .rounded))
                         .foregroundColor(.textPrimary)
-                        .tracking(1.2)
+                        .tracking(1.0)
                 }
 
-                Text("Lossless Video & Remastering Engine")
+                Text("Lossless Video & Frame Engine")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.textMuted)
             }
@@ -161,7 +154,7 @@ struct LauncherView: View {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundColor(.textSecondary)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 36, height: 36)
                     .background(Color.elevatedSurface)
                     .clipShape(Circle())
                     .overlay(
@@ -170,128 +163,8 @@ struct LauncherView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 14)
+        .padding(.top, 12)
         .padding(.bottom, 12)
-    }
-
-    // MARK: - Hero Bento Card (Studio Video Enhancer)
-    private var heroEnhancerCard: some View {
-        ZStack(alignment: .topTrailing) {
-            // Glass container
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(hex: "0F172A"),
-                            Color(hex: "171923"),
-                            Color.surfaceCard
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color(hex: "00B4DB").opacity(0.4),
-                                    Color(hex: "8A2387").opacity(0.2),
-                                    Color.borderHairline
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1.2
-                        )
-                )
-                .shadow(color: Color.black.opacity(0.4), radius: 12, x: 0, y: 5)
-
-            VStack(alignment: .leading, spacing: 12) {
-                // Top row with Icon, Badge, and Action Pill
-                HStack(alignment: .center, spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color(hex: "00B4DB"), Color(hex: "8A2387")],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 44, height: 44)
-                            .shadow(color: Color(hex: "00B4DB").opacity(0.35), radius: 6)
-
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 19, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Text("STUDIO FLAGSHIP")
-                                .font(.system(size: 8.5, weight: .heavy))
-                                .tracking(0.8)
-                                .foregroundColor(Color(hex: "38BDF8"))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Color(hex: "38BDF8").opacity(0.14))
-                                .clipShape(Capsule())
-
-                            Text("PRO AI")
-                                .font(.system(size: 8.5, weight: .heavy))
-                                .foregroundColor(Color.pinkAccent)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Color.pinkAccent.opacity(0.14))
-                                .clipShape(Capsule())
-                        }
-
-                        Text("AI Video Enhancer")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundColor(.textPrimary)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(Color.white.opacity(0.06))
-                        .clipShape(Circle())
-                }
-
-                // Subtitle description (single clean line)
-                Text("AirVid portrait retouch, CAS sharpening & 4K super-resolution")
-                    .font(.system(size: 11.5, weight: .regular))
-                    .foregroundColor(.textMuted)
-                    .lineLimit(1)
-
-                // Feature pills
-                HStack(spacing: 6) {
-                    featurePill(title: "✨ AirVid Face", color: .pinkAccent)
-                    featurePill(title: "🔍 CAS Sharpen", color: .brandAccent)
-                    featurePill(title: "🚀 4K UHD", color: .skyAccent)
-                    featurePill(title: "🧹 De-noise", color: .emeraldAccent)
-                }
-            }
-            .padding(16)
-        }
-    }
-
-    private func featurePill(title: String, color: Color) -> some View {
-        Text(title)
-            .font(.system(size: 9.5, weight: .semibold))
-            .foregroundColor(.textSecondary)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3.5)
-            .background(Color.elevatedSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(color.opacity(0.25), lineWidth: 0.8)
-            )
     }
 
     // MARK: - Bento 2-Column Card (Clean - Subtexts Removed)
@@ -310,20 +183,20 @@ struct LauncherView: View {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(Color.borderHairline, lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.28), radius: 6, x: 0, y: 3)
+                .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 0) {
                 // Top Row: Icon + Badge
                 HStack(alignment: .center) {
                     ZStack {
                         if let grad = gradient {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .fill(grad)
-                                .frame(width: 40, height: 40)
+                                .frame(width: 38, height: 38)
                         } else {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .fill(accentColor.opacity(0.14))
-                                .frame(width: 40, height: 40)
+                                .frame(width: 38, height: 38)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                                         .stroke(accentColor.opacity(0.3), lineWidth: 1)
@@ -331,7 +204,7 @@ struct LauncherView: View {
                         }
 
                         Image(systemName: icon)
-                            .font(.system(size: 19, weight: .bold))
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundColor(gradient == nil ? accentColor : .white)
                     }
 
@@ -339,7 +212,7 @@ struct LauncherView: View {
 
                     Text(badge)
                         .font(.system(size: 8, weight: .heavy))
-                        .tracking(0.6)
+                        .tracking(0.5)
                         .foregroundColor(accentColor)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
@@ -347,17 +220,19 @@ struct LauncherView: View {
                         .clipShape(Capsule())
                 }
 
-                Spacer(minLength: 4)
+                Spacer()
 
-                // Bold Clean Title (No cramped subtext)
+                // Bold Clean Title
                 Text(title)
-                    .font(.system(size: 14.5, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
 
+                Spacer().frame(height: 8)
+
                 // Bottom Tag + Arrow
-                HStack {
+                HStack(alignment: .center) {
                     Text(footerTag)
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundColor(.textTertiary)
@@ -369,15 +244,15 @@ struct LauncherView: View {
                         .foregroundColor(.textTertiary)
                 }
             }
-            .padding(14)
+            .padding(13)
         }
-        .frame(height: 124)
+        .frame(height: 120)
     }
 
     // MARK: - System Status Bento Bar
     private var systemStatusCard: some View {
         GlassCard(cornerRadius: 16, padding: 12) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Circle()
                     .fill(Color.emeraldAccent)
                     .frame(width: 7, height: 7)
@@ -395,25 +270,5 @@ struct LauncherView: View {
                     .foregroundColor(.textTertiary)
             }
         }
-    }
-
-    // MARK: - Subtle Ambient Glow (Strictly bounded)
-    private var ambientGlow: some View {
-        GeometryReader { geo in
-            ZStack {
-                Circle()
-                    .fill(Color.brandAccent.opacity(0.07))
-                    .frame(width: 200, height: 200)
-                    .blur(radius: 50)
-                    .position(x: 30, y: 30)
-
-                Circle()
-                    .fill(Color(hex: "00B4DB").opacity(0.06))
-                    .frame(width: 200, height: 200)
-                    .blur(radius: 50)
-                    .position(x: geo.size.width - 30, y: 50)
-            }
-        }
-        .allowsHitTesting(false)
     }
 }
