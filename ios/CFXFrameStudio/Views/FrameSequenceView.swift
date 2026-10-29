@@ -12,6 +12,7 @@ struct FrameSequenceView: View {
     @State private var selectedPhotosItem: PhotosPickerItem? = nil
     @State private var showFilePicker: Bool = false
     @State private var videoUrl: URL? = nil
+    @State private var isLoadingVideo: Bool = false
 
     @State private var startMs: Int64 = 0
     @State private var endMs: Int64 = 0
@@ -41,7 +42,9 @@ struct FrameSequenceView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
-                        if let _ = videoUrl {
+                        if isLoadingVideo {
+                            loadingIndicatorCard
+                        } else if let _ = videoUrl {
                             // 1. Live Video Player Preview
                             videoPlayerCard
 
@@ -51,24 +54,18 @@ struct FrameSequenceView: View {
                             // 3. Time Range & In/Out Setters
                             timeRangeCard
 
-                            // 4. Destination Selector (Photos Album Default)
-                            destinationSelectorCard
+                            // 4. Dropdown Export Configuration (Destination, Format, FPS)
+                            sequenceConfigCard
 
-                            // 5. Format Card (PNG / JPEG / TIFF)
-                            formatSelectorCard
-
-                            // 6. FPS Selector (Defaults to Native Source)
-                            fpsSelectorCard
-
-                            // 7. Export Action Button
+                            // 5. Export Action Button
                             exportActionButton
 
-                            // 8. Progress Card
+                            // 6. Progress Card
                             if isExtracting {
                                 progressCard
                             }
 
-                            // 9. Success Card
+                            // 7. Success Card
                             if let result = exportResult, result.success {
                                 successResultCard(result: result)
                             }
@@ -84,16 +81,10 @@ struct FrameSequenceView: View {
             }
         }
         .navigationBarHidden(true)
-        .photosPicker(
-            isPresented: .init(
-                get: { selectedPhotosItem != nil },
-                set: { if !$0 { selectedPhotosItem = nil } }
-            ),
-            selection: $selectedPhotosItem,
-            matching: .videos
-        )
         .onChange(of: selectedPhotosItem) { newItem in
-            handlePhotosItem(newItem)
+            if let item = newItem {
+                handlePhotosItem(item)
+            }
         }
         .fileImporter(
             isPresented: $showFilePicker,
@@ -103,7 +94,7 @@ struct FrameSequenceView: View {
             switch result {
             case .success(let urls):
                 if let url = urls.first {
-                    loadVideoUrl(url)
+                    loadFromFiles(url: url)
                 }
             case .failure(let error):
                 alertMessage = "File import error: \(error.localizedDescription)"
@@ -184,6 +175,25 @@ struct FrameSequenceView: View {
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 10)
+    }
+
+    // MARK: - Loading Indicator Card
+    private var loadingIndicatorCard: some View {
+        GlassCard(cornerRadius: 18, padding: 24) {
+            VStack(spacing: 14) {
+                ProgressView()
+                    .tint(Color.emeraldAccent)
+                    .scaleEffect(1.2)
+                Text("Loading Video Frames...")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.textPrimary)
+                Text("Reading native frame rate and preparing player")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.textMuted)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+        }
     }
 
     // MARK: - Video Player Card
@@ -425,147 +435,200 @@ struct FrameSequenceView: View {
         }
     }
 
-    // MARK: - Destination Selector Card
-    private var destinationSelectorCard: some View {
+    // MARK: - Sequence Configuration Card (Dropdowns)
+    private var sequenceConfigCard: some View {
         GlassCard(cornerRadius: 16, padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text("SAVE DESTINATION")
+                    Text("SEQUENCE CONFIGURATION")
                         .font(.system(size: 10.5, weight: .heavy))
-                        .foregroundColor(.skyAccent)
+                        .foregroundColor(.emeraldAccent)
                         .tracking(0.8)
 
                     Spacer()
 
-                    Text("NO CONFUSION")
+                    Text("SELECT SETTINGS")
                         .font(.system(size: 8, weight: .heavy))
-                        .foregroundColor(.emeraldAccent)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1.5)
-                        .background(Color.emeraldAccent.opacity(0.2))
-                        .clipShape(Capsule())
+                        .foregroundColor(.textTertiary)
                 }
 
-                VStack(spacing: 8) {
-                    ForEach(SequenceDestination.allCases) { dest in
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedDestination = dest
-                            }
-                        }) {
-                            HStack(spacing: 10) {
-                                Image(systemName: selectedDestination == dest ? "largecircle.fill.circle" : "circle")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(selectedDestination == dest ? .emeraldAccent : .textTertiary)
+                // 1. Destination Dropdown
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("SAVE DESTINATION")
+                        .font(.system(size: 9.5, weight: .heavy))
+                        .foregroundColor(.textSecondary)
+                        .tracking(0.5)
 
-                                VStack(alignment: .leading, spacing: 2) {
+                    Menu {
+                        ForEach(SequenceDestination.allCases) { dest in
+                            Button(action: {
+                                withAnimation { selectedDestination = dest }
+                            }) {
+                                HStack {
                                     Text(dest.rawValue)
-                                        .font(.system(size: 12.5, weight: .bold))
-                                        .foregroundColor(selectedDestination == dest ? .textPrimary : .textSecondary)
-
-                                    if dest == .photosAlbum, let url = videoUrl {
-                                        Text("Creates album: 'CFX Sequence - \(url.deletingPathExtension().lastPathComponent)'")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.emeraldAccent)
+                                    if selectedDestination == dest {
+                                        Image(systemName: "checkmark")
                                     }
                                 }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: destinationIcon(for: selectedDestination))
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.emeraldAccent)
+
+                            Text(destinationLabel(for: selectedDestination))
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundColor(.textPrimary)
+                                .lineLimit(1)
+
+                            Spacer()
+
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.textTertiary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.elevatedSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.borderHairlineBright, lineWidth: 1)
+                        )
+                    }
+
+                    if selectedDestination == .photosAlbum, let url = videoUrl {
+                        Text("Creates album: 'CFX Sequence - \(url.deletingPathExtension().lastPathComponent)'")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.emeraldAccent)
+                            .padding(.leading, 2)
+                    }
+                }
+
+                Divider().background(Color.borderHairline)
+
+                // 2. Format & FPS Dropdowns side-by-side
+                HStack(spacing: 12) {
+                    // Image Format Dropdown
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("FORMAT")
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .foregroundColor(.textSecondary)
+                            .tracking(0.5)
+
+                        Menu {
+                            ForEach(SequenceFormat.allCases) { fmt in
+                                Button(action: {
+                                    withAnimation { selectedFormat = fmt }
+                                }) {
+                                    HStack {
+                                        Text(fmt.rawValue)
+                                        if selectedFormat == fmt {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.brandAccent)
+
+                                Text(selectedFormat.fileExtension.uppercased())
+                                    .font(.system(size: 12.5, weight: .bold))
+                                    .foregroundColor(.textPrimary)
 
                                 Spacer()
+
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.textTertiary)
                             }
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 10)
-                            .background(selectedDestination == dest ? Color.elevatedSurface : Color.clear)
+                            .background(Color.elevatedSurface)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(selectedDestination == dest ? Color.emeraldAccent.opacity(0.5) : Color.borderHairline, lineWidth: 1)
+                                    .stroke(Color.borderHairlineBright, lineWidth: 1)
                             )
                         }
                     }
-                }
-            }
-        }
-    }
 
-    // MARK: - Format Selector Card
-    private var formatSelectorCard: some View {
-        GlassCard(cornerRadius: 16, padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("IMAGE FORMAT")
-                    .font(.system(size: 10.5, weight: .heavy))
-                    .foregroundColor(.skyAccent)
-                    .tracking(0.8)
+                    // FPS Dropdown
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("FRAME RATE")
+                            .font(.system(size: 9.5, weight: .heavy))
+                            .foregroundColor(.textSecondary)
+                            .tracking(0.5)
 
-                HStack(spacing: 8) {
-                    ForEach(SequenceFormat.allCases) { fmt in
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedFormat = fmt
-                            }
-                        }) {
-                            VStack(spacing: 3) {
-                                Text(fmt.fileExtension.uppercased())
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(selectedFormat == fmt ? .white : .textPrimary)
-                                Text(fmt == .png ? "Lossless" : (fmt == .jpeg ? "Compact" : "Master"))
-                                    .font(.system(size: 9))
-                                    .foregroundColor(selectedFormat == fmt ? .white.opacity(0.8) : .textTertiary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(selectedFormat == fmt ? Color.brandAccent : Color.elevatedSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(selectedFormat == fmt ? Color.brandAccent : Color.borderHairline, lineWidth: 1)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - FPS Selector Card
-    private var fpsSelectorCard: some View {
-        GlassCard(cornerRadius: 16, padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("FRAME RATE (FPS)")
-                        .font(.system(size: 10.5, weight: .heavy))
-                        .foregroundColor(.skyAccent)
-                        .tracking(0.8)
-
-                    Spacer()
-
-                    Text(String(format: "Source: %.1f FPS", sourceFps))
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(.emeraldAccent)
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(SequenceFPS.allCases) { fps in
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    selectedFps = fps
+                        Menu {
+                            ForEach(SequenceFPS.allCases) { fps in
+                                Button(action: {
+                                    withAnimation { selectedFps = fps }
+                                }) {
+                                    HStack {
+                                        Text(fps == .source ? String(format: "Auto Native (%.1f FPS)", sourceFps) : fps.rawValue)
+                                        if selectedFps == fps {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
                                 }
-                            }) {
-                                Text(fps == .source ? String(format: "Native (%.1f FPS)", sourceFps) : fps.rawValue)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(selectedFps == fps ? .white : .textSecondary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(selectedFps == fps ? Color.skyAccent : Color.elevatedSurface)
-                                    .clipShape(Capsule())
-                                    .overlay(
-                                        Capsule().stroke(Color.borderHairline, lineWidth: 1)
-                                    )
                             }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "speedometer")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.skyAccent)
+
+                                Text(selectedFps == .source ? String(format: "%.0f FPS (Auto)", sourceFps) : (selectedFps.numericValue.map { String(format: "%.0f FPS", $0) } ?? selectedFps.rawValue))
+                                    .font(.system(size: 12.5, weight: .bold))
+                                    .foregroundColor(.textPrimary)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.textTertiary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 10)
+                            .background(Color.elevatedSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.borderHairlineBright, lineWidth: 1)
+                            )
                         }
                     }
                 }
             }
+        }
+    }
+
+    private func destinationIcon(for dest: SequenceDestination) -> String {
+        switch dest {
+        case .photosAlbum:
+            return "photo.stack.fill"
+        case .zipArchive:
+            return "archivebox.fill"
+        case .filesFolder:
+            return "folder.fill"
+        }
+    }
+
+    private func destinationLabel(for dest: SequenceDestination) -> String {
+        switch dest {
+        case .photosAlbum:
+            return "Photos Album (Organized)"
+        case .zipArchive:
+            return "ZIP Archive (Files / AirDrop)"
+        case .filesFolder:
+            return "Files App Folder"
         }
     }
 
@@ -685,36 +748,34 @@ struct FrameSequenceView: View {
     // MARK: - Import Options Section
     private var importOptionsSection: some View {
         VStack(spacing: 16) {
-            Button(action: { selectedPhotosItem = nil }) {
-                PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
-                    GlassCard(cornerRadius: 18, padding: 20) {
-                        HStack(spacing: 16) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.emeraldAccent.opacity(0.14))
-                                    .frame(width: 48, height: 48)
+            PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
+                GlassCard(cornerRadius: 18, padding: 20) {
+                    HStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.emeraldAccent.opacity(0.14))
+                                .frame(width: 48, height: 48)
 
-                                Image(systemName: "photo.stack")
-                                    .font(.system(size: 20, weight: .bold))
-                                    .foregroundColor(.emeraldAccent)
-                            }
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Import from Camera Roll")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.textPrimary)
-
-                                Text("High-frame-rate videos & clips")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.textMuted)
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.textTertiary)
+                            Image(systemName: "photo.stack")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.emeraldAccent)
                         }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Import from Camera Roll")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.textPrimary)
+
+                            Text("High-frame-rate videos & clips")
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.textMuted)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textTertiary)
                     }
                 }
             }
@@ -772,12 +833,64 @@ struct FrameSequenceView: View {
     }
 
     // MARK: - Handlers
-    private func handlePhotosItem(_ item: PhotosPickerItem?) {
-        guard let item = item else { return }
+    private func handlePhotosItem(_ item: PhotosPickerItem) {
+        isLoadingVideo = true
         Task {
-            if let movie = try? await item.loadTransferable(type: MovieTransferable.self) {
+            do {
+                if let movie = try await item.loadTransferable(type: MovieTransferable.self) {
+                    let tempDir = FileManager.default.temporaryDirectory
+                    let stagedUrl = tempDir.appendingPathComponent("CFX_Seq_Src_\(UUID().uuidString).\(movie.url.pathExtension)")
+                    try? FileManager.default.removeItem(at: stagedUrl)
+                    try FileManager.default.copyItem(at: movie.url, to: stagedUrl)
+
+                    await MainActor.run {
+                        self.selectedPhotosItem = nil
+                        self.loadVideoUrl(stagedUrl)
+                        self.isLoadingVideo = false
+                    }
+                } else {
+                    await MainActor.run {
+                        self.selectedPhotosItem = nil
+                        self.isLoadingVideo = false
+                    }
+                }
+            } catch {
                 await MainActor.run {
-                    loadVideoUrl(movie.url)
+                    self.selectedPhotosItem = nil
+                    self.isLoadingVideo = false
+                    self.alertMessage = "Failed to load video: \(error.localizedDescription)"
+                    self.showAlert = true
+                }
+            }
+        }
+    }
+
+    private func loadFromFiles(url: URL) {
+        let isSecurityScoped = url.startAccessingSecurityScopedResource()
+        isLoadingVideo = true
+
+        Task {
+            defer {
+                if isSecurityScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let tempDir = FileManager.default.temporaryDirectory
+            let stagedUrl = tempDir.appendingPathComponent("CFX_Seq_File_\(UUID().uuidString).\(url.pathExtension)")
+            try? FileManager.default.removeItem(at: stagedUrl)
+
+            do {
+                try FileManager.default.copyItem(at: url, to: stagedUrl)
+                await MainActor.run {
+                    self.loadVideoUrl(stagedUrl)
+                    self.isLoadingVideo = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoadingVideo = false
+                    self.alertMessage = "Failed to copy file: \(error.localizedDescription)"
+                    self.showAlert = true
                 }
             }
         }

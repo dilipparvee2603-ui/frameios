@@ -11,6 +11,7 @@ struct AudioExtractorView: View {
     @State private var showFilePicker: Bool = false
     @State private var videoUrl: URL? = nil
     @State private var trackInfo: AudioTrackInfo? = nil
+    @State private var isLoadingVideo: Bool = false
 
     @State private var selectedFormat: AudioExportFormat = .m4aLossless
     @State private var trimRangeEnabled: Bool = false
@@ -41,7 +42,9 @@ struct AudioExtractorView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
-                        if let _ = videoUrl {
+                        if isLoadingVideo {
+                            loadingIndicatorCard
+                        } else if let _ = videoUrl {
                             // Active Video Audio Card
                             audioTrackMetaCard
 
@@ -78,16 +81,10 @@ struct AudioExtractorView: View {
             }
         }
         .navigationBarHidden(true)
-        .photosPicker(
-            isPresented: .init(
-                get: { selectedPhotosItem != nil },
-                set: { if !$0 { selectedPhotosItem = nil } }
-            ),
-            selection: $selectedPhotosItem,
-            matching: .videos
-        )
         .onChange(of: selectedPhotosItem) { newItem in
-            handlePhotosItem(newItem)
+            if let item = newItem {
+                handlePhotosItem(item)
+            }
         }
         .fileImporter(
             isPresented: $showFilePicker,
@@ -97,7 +94,7 @@ struct AudioExtractorView: View {
             switch result {
             case .success(let urls):
                 if let url = urls.first {
-                    loadVideoUrl(url)
+                    loadFromFiles(url: url)
                 }
             case .failure(let error):
                 alertMessage = "File import error: \(error.localizedDescription)"
@@ -181,40 +178,54 @@ struct AudioExtractorView: View {
         .padding(.bottom, 10)
     }
 
+    // MARK: - Loading Indicator Card
+    private var loadingIndicatorCard: some View {
+        GlassCard(cornerRadius: 18, padding: 24) {
+            VStack(spacing: 14) {
+                ProgressView()
+                    .tint(Color.brandAccent)
+                    .scaleEffect(1.2)
+                Text("Loading Video Audio Stream...")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.textPrimary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+        }
+    }
+
     // MARK: - Import Options Section
     private var importOptionsSection: some View {
         VStack(spacing: 16) {
-            // Camera Roll Button
-            Button(action: { selectedPhotosItem = nil }) {
-                PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
-                    GlassCard(cornerRadius: 18, padding: 20) {
-                        HStack(spacing: 16) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.brandAccent.opacity(0.14))
-                                    .frame(width: 48, height: 48)
+            // Camera Roll Button (PhotosPicker is the root interactive element)
+            PhotosPicker(selection: $selectedPhotosItem, matching: .videos) {
+                GlassCard(cornerRadius: 18, padding: 20) {
+                    HStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandAccent.opacity(0.14))
+                                .frame(width: 48, height: 48)
 
-                                Image(systemName: "photo.on.rectangle.angled")
-                                    .font(.system(size: 20, weight: .bold))
-                                    .foregroundColor(.brandAccent)
-                            }
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Import from Camera Roll")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.textPrimary)
-
-                                Text("Videos, screen recordings & saved clips")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.textMuted)
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.textTertiary)
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.brandAccent)
                         }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Import from Camera Roll")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.textPrimary)
+
+                            Text("Videos, screen recordings & saved clips")
+                                .font(.system(size: 11.5))
+                                .foregroundColor(.textMuted)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.textTertiary)
                     }
                 }
             }
@@ -264,7 +275,7 @@ struct AudioExtractorView: View {
                             .foregroundColor(.amberAccent)
                     }
 
-                    Text("• Rips audio via stream copy in 0.5s with zero compression loss.\n• Exports directly to M4A, 320 kbps MP3, 24-bit WAV, or Apple Lossless.\n• Perfect for adding dialogue, soundbites, or songs into CapCut & VN.")
+                    Text("• Rips audio via hardware stream copy in 0.2s with zero compression loss.\n• Exports directly to M4A (Lossless Copy) or 24-bit PCM WAV.\n• Perfect for adding dialogue, soundbites, or songs into CapCut & VN.")
                         .font(.system(size: 11.5))
                         .foregroundColor(.textSecondary)
                         .lineSpacing(4)
@@ -359,7 +370,6 @@ struct AudioExtractorView: View {
 
                 Spacer()
 
-                // Waveform bars animation
                 HStack(spacing: 3) {
                     ForEach(0..<6) { i in
                         RoundedRectangle(cornerRadius: 2)
@@ -414,7 +424,6 @@ struct AudioExtractorView: View {
                             }
                         }
 
-                        // Range Slider
                         Slider(
                             value: Binding<Double>(
                                 get: { Double(startMs) },
@@ -442,49 +451,63 @@ struct AudioExtractorView: View {
     private var formatSelectorCard: some View {
         GlassCard(cornerRadius: 16, padding: 14) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("EXPORT AUDIO FORMAT")
-                    .font(.system(size: 10.5, weight: .heavy))
-                    .foregroundColor(.skyAccent)
-                    .tracking(0.8)
+                HStack {
+                    Text("EXPORT AUDIO FORMAT")
+                        .font(.system(size: 10.5, weight: .heavy))
+                        .foregroundColor(.skyAccent)
+                        .tracking(0.8)
 
-                VStack(spacing: 8) {
+                    Spacer()
+
+                    Text("STUDIO QUALITY")
+                        .font(.system(size: 8, weight: .heavy))
+                        .foregroundColor(.emeraldAccent)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Color.emeraldAccent.opacity(0.2))
+                        .clipShape(Capsule())
+                }
+
+                // Dropdown Menu for Audio Format
+                Menu {
                     ForEach(AudioExportFormat.allCases) { fmt in
                         Button(action: {
                             withAnimation(.easeInOut(duration: 0.15)) {
                                 selectedFormat = fmt
                             }
                         }) {
-                            HStack(spacing: 10) {
-                                Image(systemName: selectedFormat == fmt ? "largecircle.fill.circle" : "circle")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(selectedFormat == fmt ? .brandAccent : .textTertiary)
-
+                            HStack {
                                 Text(fmt.rawValue)
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                    .foregroundColor(selectedFormat == fmt ? .textPrimary : .textSecondary)
-
-                                Spacer()
-
-                                if fmt == .m4aLossless {
-                                    Text("RECOMMENDED")
-                                        .font(.system(size: 8, weight: .heavy))
-                                        .foregroundColor(.emeraldAccent)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.emeraldAccent.opacity(0.15))
-                                        .clipShape(Capsule())
+                                if selectedFormat == fmt {
+                                    Image(systemName: "checkmark")
                                 }
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(selectedFormat == fmt ? Color.elevatedSurface : Color.clear)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(selectedFormat == fmt ? Color.brandAccent.opacity(0.5) : Color.borderHairline, lineWidth: 1)
-                            )
                         }
                     }
+                } label: {
+                    HStack {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.brandAccent)
+
+                        Text(selectedFormat.rawValue)
+                            .font(.system(size: 12.5, weight: .bold))
+                            .foregroundColor(.textPrimary)
+
+                        Spacer()
+
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.textTertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color.elevatedSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.borderHairlineBright, lineWidth: 1)
+                    )
                 }
             }
         }
@@ -579,12 +602,64 @@ struct AudioExtractorView: View {
     }
 
     // MARK: - Handlers
-    private func handlePhotosItem(_ item: PhotosPickerItem?) {
-        guard let item = item else { return }
+    private func handlePhotosItem(_ item: PhotosPickerItem) {
+        isLoadingVideo = true
         Task {
-            if let movie = try? await item.loadTransferable(type: MovieTransferable.self) {
+            do {
+                if let movie = try await item.loadTransferable(type: MovieTransferable.self) {
+                    let tempDir = FileManager.default.temporaryDirectory
+                    let stagedUrl = tempDir.appendingPathComponent("CFX_Audio_Src_\(UUID().uuidString).\(movie.url.pathExtension)")
+                    try? FileManager.default.removeItem(at: stagedUrl)
+                    try FileManager.default.copyItem(at: movie.url, to: stagedUrl)
+
+                    await MainActor.run {
+                        self.selectedPhotosItem = nil
+                        self.loadVideoUrl(stagedUrl)
+                        self.isLoadingVideo = false
+                    }
+                } else {
+                    await MainActor.run {
+                        self.selectedPhotosItem = nil
+                        self.isLoadingVideo = false
+                    }
+                }
+            } catch {
                 await MainActor.run {
-                    loadVideoUrl(movie.url)
+                    self.selectedPhotosItem = nil
+                    self.isLoadingVideo = false
+                    self.alertMessage = "Failed to load video: \(error.localizedDescription)"
+                    self.showAlert = true
+                }
+            }
+        }
+    }
+
+    private func loadFromFiles(url: URL) {
+        let isSecurityScoped = url.startAccessingSecurityScopedResource()
+        isLoadingVideo = true
+
+        Task {
+            defer {
+                if isSecurityScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let tempDir = FileManager.default.temporaryDirectory
+            let stagedUrl = tempDir.appendingPathComponent("CFX_File_\(UUID().uuidString).\(url.pathExtension)")
+            try? FileManager.default.removeItem(at: stagedUrl)
+
+            do {
+                try FileManager.default.copyItem(at: url, to: stagedUrl)
+                await MainActor.run {
+                    self.loadVideoUrl(stagedUrl)
+                    self.isLoadingVideo = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoadingVideo = false
+                    self.alertMessage = "Failed to copy file: \(error.localizedDescription)"
+                    self.showAlert = true
                 }
             }
         }
@@ -608,7 +683,6 @@ struct AudioExtractorView: View {
                 self.startMs = 0
                 self.endMs = durMs
 
-                // Setup AVPlayer for audio preview
                 let playerItem = AVPlayerItem(url: url)
                 self.avPlayer = AVPlayer(playerItem: playerItem)
             }
