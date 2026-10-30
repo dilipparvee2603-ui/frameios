@@ -49,6 +49,7 @@
 		E20000012900000100000031 /* VideoEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000031 /* VideoEditorView.swift */; };
 		E20000012900000100000032 /* ProjectGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000032 /* ProjectGalleryView.swift */; };
 		E20000012900000100000033 /* AudioWaveformExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000033 /* AudioWaveformExtractor.swift */; };
+		E20000012900000100000034 /* CFXEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000034 /* CFXEditorTests.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -98,6 +99,7 @@
 		E10000012900000100000031 /* VideoEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEditorView.swift; sourceTree = "<group>"; };
 		E10000012900000100000032 /* ProjectGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectGalleryView.swift; sourceTree = "<group>"; };
 		E10000012900000100000033 /* AudioWaveformExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWaveformExtractor.swift; sourceTree = "<group>"; };
+		E10000012900000100000034 /* CFXEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CFXEditorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -182,6 +184,7 @@
 				E1000001290000010000002F /* ThumbnailCacheService.swift */,
 				E10000012900000100000030 /* VideoEditorExportEngine.swift */,
 				E10000012900000100000033 /* AudioWaveformExtractor.swift */,
+				E10000012900000100000034 /* CFXEditorTests.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -341,6 +344,7 @@
 				E20000012900000100000031 /* VideoEditorView.swift in Sources */,
 				E20000012900000100000032 /* ProjectGalleryView.swift in Sources */,
 				E20000012900000100000033 /* AudioWaveformExtractor.swift in Sources */,
+				E20000012900000100000034 /* CFXEditorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

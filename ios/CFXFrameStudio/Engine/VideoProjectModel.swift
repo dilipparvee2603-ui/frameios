@@ -183,6 +183,9 @@ struct ClipKeyframe: Identifiable, Codable, Equatable {
     var scale: Double = 1.0        // Zoom scale (1.0 = normal)
     var rotationDegrees: Double = 0.0 // Rotation angle in degrees
     var opacity: Double = 1.0      // Opacity (0.0 ... 1.0)
+    var brightness: Double = 0.0   // Brightness adjustment (-1.0 to 1.0)
+    var contrast: Double = 1.0     // Contrast adjustment (0.0 to 2.0)
+    var saturation: Double = 1.0   // Saturation adjustment (0.0 to 2.0)
     var easing: KeyframeEasing = .easeInOut
 }
 
@@ -255,6 +258,68 @@ struct ClipSpeedConfiguration: Codable, Equatable {
         }
         return speedMultiplier
     }
+
+    /// Total expansion factor: integral of 1 / speed(u) du from 0 to 1
+    func timelineDurationExpansionFactor(samples: Int = 100) -> Double {
+        guard isRamp, rampPoints.count >= 2 else {
+            return 1.0 / max(0.05, speedMultiplier)
+        }
+        var sum = 0.0
+        let step = 1.0 / Double(samples)
+        for i in 0..<samples {
+            let u = (Double(i) + 0.5) * step
+            let s = evaluateSpeed(at: u)
+            sum += (1.0 / max(0.05, s))
+        }
+        return sum * step
+    }
+
+    /// Evaluates timeline progress (0.0 ... 1.0) given source media progress (0.0 ... 1.0) via definite integration
+    func mapSourceProgressToTimelineProgress(_ sourceProgress: Double, samples: Int = 100) -> Double {
+        let clampedSource = max(0.0, min(1.0, sourceProgress))
+        guard isRamp, rampPoints.count >= 2 else {
+            return clampedSource
+        }
+        guard clampedSource > 0.0 else { return 0.0 }
+        guard clampedSource < 1.0 else { return 1.0 }
+
+        let totalFactor = timelineDurationExpansionFactor(samples: samples)
+        guard totalFactor > 0.0001 else { return clampedSource }
+
+        let n = max(10, Int(round(Double(samples) * clampedSource)))
+        let step = clampedSource / Double(n)
+        var partialSum = 0.0
+        for i in 0..<n {
+            let u = (Double(i) + 0.5) * step
+            let s = evaluateSpeed(at: u)
+            partialSum += (1.0 / max(0.05, s))
+        }
+        let partialIntegral = partialSum * step
+        return min(1.0, max(0.0, partialIntegral / totalFactor))
+    }
+
+    /// Inverts timeline progress (0.0 ... 1.0) back to source media progress (0.0 ... 1.0) via monotonic binary search
+    func mapTimelineProgressToSourceProgress(_ timelineProgress: Double, samples: Int = 100) -> Double {
+        let clampedTimeline = max(0.0, min(1.0, timelineProgress))
+        guard isRamp, rampPoints.count >= 2 else {
+            return clampedTimeline
+        }
+        guard clampedTimeline > 0.0 else { return 0.0 }
+        guard clampedTimeline < 1.0 else { return 1.0 }
+
+        var low = 0.0
+        var high = 1.0
+        for _ in 0..<18 {
+            let mid = (low + high) * 0.5
+            let midTl = mapSourceProgressToTimelineProgress(mid, samples: samples)
+            if midTl < clampedTimeline {
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        return (low + high) * 0.5
+    }
 }
 
 // MARK: - Editor Clip Model (Non-Destructive)
@@ -287,44 +352,85 @@ struct EditorClip: Identifiable, Codable, Equatable {
         keyframes.sorted { $0.timeMs < $1.timeMs }
     }
 
-    func keyframe(near timeMs: Int64, toleranceMs: Int64 = 120) -> ClipKeyframe? {
-        keyframes.first { abs($0.timeMs - timeMs) <= toleranceMs }
+    func keyframe(byId id: UUID) -> ClipKeyframe? {
+        keyframes.first { $0.id == id }
     }
 
-    func keyframeIndex(near timeMs: Int64, toleranceMs: Int64 = 120) -> Int? {
-        keyframes.firstIndex { abs($0.timeMs - timeMs) <= toleranceMs }
+    func keyframeIndex(byId id: UUID) -> Int? {
+        keyframes.firstIndex { $0.id == id }
+    }
+
+    func keyframe(near timeMs: Int64, toleranceMs: Int64 = 40) -> ClipKeyframe? {
+        keyframes.filter { abs($0.timeMs - timeMs) <= toleranceMs }
+            .min(by: { abs($0.timeMs - timeMs) < abs($1.timeMs - timeMs) })
+    }
+
+    func keyframeIndex(near timeMs: Int64, toleranceMs: Int64 = 40) -> Int? {
+        guard let kf = keyframe(near: timeMs, toleranceMs: toleranceMs) else { return nil }
+        return keyframeIndex(byId: kf.id)
+    }
+
+    mutating func moveKeyframe(id: UUID, newTimeMs: Int64) {
+        guard let idx = keyframeIndex(byId: id) else { return }
+        let clamped = max(0, min(timelineDurationMs, newTimeMs))
+        var finalTime = clamped
+        if keyframes.contains(where: { $0.id != id && $0.timeMs == finalTime }) {
+            finalTime = min(timelineDurationMs, finalTime + 1)
+        }
+        keyframes[idx].timeMs = finalTime
+        keyframes.sort { $0.timeMs < $1.timeMs }
     }
 
     @discardableResult
     mutating func addOrUpdateKeyframe(
+        id: UUID? = nil,
         at timeMs: Int64,
         positionX: Double? = nil,
         positionY: Double? = nil,
         scale: Double? = nil,
         rotationDegrees: Double? = nil,
         opacity: Double? = nil,
+        brightness: Double? = nil,
+        contrast: Double? = nil,
+        saturation: Double? = nil,
         easing: KeyframeEasing? = nil
     ) -> ClipKeyframe {
         let clampedTime = max(0, min(timelineDurationMs, timeMs))
-        let cur = evaluatedTransform(at: clampedTime)
+        let curTransform = evaluatedTransform(at: Double(clampedTime))
+        let curColor = evaluatedColor(at: Double(clampedTime))
 
-        if let idx = keyframeIndex(near: clampedTime, toleranceMs: 120) {
+        let targetIdx: Int?
+        if let targetId = id, let idx = keyframeIndex(byId: targetId) {
+            targetIdx = idx
+        } else if let exactIdx = keyframes.firstIndex(where: { abs($0.timeMs - clampedTime) <= 5 }) {
+            targetIdx = exactIdx
+        } else {
+            targetIdx = nil
+        }
+
+        if let idx = targetIdx {
             if let px = positionX { keyframes[idx].positionX = px }
             if let py = positionY { keyframes[idx].positionY = py }
             if let sc = scale { keyframes[idx].scale = max(0.1, sc) }
             if let rot = rotationDegrees { keyframes[idx].rotationDegrees = rot }
             if let op = opacity { keyframes[idx].opacity = max(0.0, min(1.0, op)) }
+            if let br = brightness { keyframes[idx].brightness = br }
+            if let ct = contrast { keyframes[idx].contrast = ct }
+            if let st = saturation { keyframes[idx].saturation = st }
             if let es = easing { keyframes[idx].easing = es }
-            // Keep keyframes[idx].timeMs unchanged so timestamp does not drift on timeline!
             return keyframes[idx]
         } else {
             let newKf = ClipKeyframe(
+                id: id ?? UUID(),
                 timeMs: clampedTime,
-                positionX: positionX ?? cur.offsetX,
-                positionY: positionY ?? cur.offsetY,
-                scale: scale ?? cur.scale,
-                rotationDegrees: rotationDegrees ?? cur.rotationDegrees,
-                opacity: opacity ?? cur.opacity,
+                positionX: positionX ?? curTransform.offsetX,
+                positionY: positionY ?? curTransform.offsetY,
+                scale: scale ?? curTransform.scale,
+                rotationDegrees: rotationDegrees ?? curTransform.rotationDegrees,
+                opacity: opacity ?? curTransform.opacity,
+                brightness: brightness ?? curColor.brightness,
+                contrast: contrast ?? curColor.contrast,
+                saturation: saturation ?? curColor.saturation,
                 easing: easing ?? .easeInOut
             )
             keyframes.append(newKf)
@@ -333,16 +439,23 @@ struct EditorClip: Identifiable, Codable, Equatable {
         }
     }
 
-    mutating func removeKeyframe(near timeMs: Int64, toleranceMs: Int64 = 120) {
-        keyframes.removeAll { abs($0.timeMs - timeMs) <= toleranceMs }
+    mutating func removeKeyframe(byId id: UUID) {
+        keyframes.removeAll { $0.id == id }
+    }
+
+    mutating func removeKeyframe(near timeMs: Int64, toleranceMs: Int64 = 40) {
+        if let nearest = keyframes.min(by: { abs($0.timeMs - timeMs) < abs($1.timeMs - timeMs) }),
+           abs(nearest.timeMs - timeMs) <= toleranceMs {
+            keyframes.removeAll { $0.id == nearest.id }
+        }
     }
 
     func previousKeyframeTime(from timeMs: Int64) -> Int64? {
-        sortedKeyframes.filter { $0.timeMs < timeMs - 40 }.last?.timeMs
+        sortedKeyframes.filter { $0.timeMs < timeMs - 5 }.last?.timeMs
     }
 
     func nextKeyframeTime(from timeMs: Int64) -> Int64? {
-        sortedKeyframes.filter { $0.timeMs > timeMs + 40 }.first?.timeMs
+        sortedKeyframes.filter { $0.timeMs > timeMs + 5 }.first?.timeMs
     }
 
     func allKeyframeTimes() -> [Int64] {
@@ -407,8 +520,64 @@ struct EditorClip: Identifiable, Codable, Equatable {
     }
 
     /// Evaluates color adjustments at a clip-local presentation time (ms)
-    func evaluatedColor(at timeMs: Int64) -> ColorAdjustments {
+    func evaluatedColor(at timeMs: Double) -> ColorAdjustments {
+        let sorted = sortedKeyframes
+        guard !sorted.isEmpty else {
+            return color
+        }
+        let maxDuration = Double(timelineDurationMs)
+        let clampedTime = max(0.0, min(maxDuration, timeMs))
+
+        let hasCustomColor = sorted.contains {
+            $0.brightness != 0.0 || $0.contrast != 1.0 || $0.saturation != 1.0
+        }
+        guard hasCustomColor else { return color }
+
+        if clampedTime <= Double(sorted.first!.timeMs) {
+            let k0 = sorted.first!
+            var c = color
+            c.brightness = k0.brightness
+            c.contrast = k0.contrast
+            c.saturation = k0.saturation
+            return c
+        }
+
+        if clampedTime >= Double(sorted.last!.timeMs) {
+            let kLast = sorted.last!
+            var c = color
+            c.brightness = kLast.brightness
+            c.contrast = kLast.contrast
+            c.saturation = kLast.saturation
+            return c
+        }
+
+        for i in 0..<(sorted.count - 1) {
+            let k0 = sorted[i]
+            let k1 = sorted[i + 1]
+            let t0 = Double(k0.timeMs)
+            let t1 = Double(k1.timeMs)
+            if clampedTime >= t0 && clampedTime <= t1 {
+                let span = t1 - t0
+                guard span > 0.001 else {
+                    var c = color
+                    c.brightness = k0.brightness
+                    c.contrast = k0.contrast
+                    c.saturation = k0.saturation
+                    return c
+                }
+                let progress = max(0.0, min(1.0, (clampedTime - t0) / span))
+                var c = color
+                c.brightness = k0.easing.interpolate(from: k0.brightness, to: k1.brightness, progress: progress)
+                c.contrast = k0.easing.interpolate(from: k0.contrast, to: k1.contrast, progress: progress)
+                c.saturation = k0.easing.interpolate(from: k0.saturation, to: k1.saturation, progress: progress)
+                return c
+            }
+        }
         return color
+    }
+
+    func evaluatedColor(at timeMs: Int64) -> ColorAdjustments {
+        evaluatedColor(at: Double(timeMs))
     }
 
     // MARK: - Computed Durations
@@ -419,21 +588,8 @@ struct EditorClip: Identifiable, Codable, Equatable {
 
     /// Effective timeline duration after speed retiming in ms
     var timelineDurationMs: Int64 {
-        if !speedConfig.isRamp {
-            let speed = max(0.05, speedConfig.speedMultiplier)
-            return Int64(round(Double(sourceTrimmedDurationMs) / speed))
-        } else {
-            // Numerically integrate 1 / speed(t) dt across 20 segments
-            let samples = 20
-            var sumTimeFactor = 0.0
-            for i in 0..<samples {
-                let normT = (Double(i) + 0.5) / Double(samples)
-                let s = speedConfig.evaluateSpeed(at: normT)
-                sumTimeFactor += (1.0 / max(0.05, s))
-            }
-            let avgFactor = sumTimeFactor / Double(samples)
-            return Int64(round(Double(sourceTrimmedDurationMs) * avgFactor))
-        }
+        let factor = speedConfig.timelineDurationExpansionFactor()
+        return max(50, Int64(round(Double(sourceTrimmedDurationMs) * factor)))
     }
 
     /// Maps a millisecond offset within this clip on the timeline to the corresponding source media timestamp (ms)
@@ -443,17 +599,13 @@ struct EditorClip: Identifiable, Codable, Equatable {
 
     /// Double-precision continuous time mapping from timeline offset (ms) to source media timestamp (ms)
     func mapTimelineOffsetToSourceMs(_ offsetMs: Double) -> Double {
-        let maxOffset = Double(timelineDurationMs)
-        let clampedOffset = max(0.0, min(maxOffset, offsetMs))
-        let progress = maxOffset > 0 ? (clampedOffset / maxOffset) : 0.0
-
-        if !speedConfig.isRamp {
-            let sourceDeltaMs = clampedOffset * speedConfig.speedMultiplier
-            return min(Double(sourceOutPointMs), max(Double(sourceInPointMs), Double(sourceInPointMs) + sourceDeltaMs))
-        } else {
-            let sourceDeltaMs = progress * Double(sourceTrimmedDurationMs)
-            return min(Double(sourceOutPointMs), max(Double(sourceInPointMs), Double(sourceInPointMs) + sourceDeltaMs))
-        }
+        let tlDur = Double(timelineDurationMs)
+        guard tlDur > 0 else { return Double(sourceInPointMs) }
+        let tlProgress = max(0.0, min(1.0, offsetMs / tlDur))
+        let srcProgress = speedConfig.mapTimelineProgressToSourceProgress(tlProgress)
+        let srcTrimmed = Double(sourceTrimmedDurationMs)
+        let srcMs = Double(sourceInPointMs) + (srcProgress * srcTrimmed)
+        return min(Double(sourceOutPointMs), max(Double(sourceInPointMs), srcMs))
     }
 
     /// Maps a source timestamp (ms) back to this clip's timeline offset (ms)
@@ -463,10 +615,12 @@ struct EditorClip: Identifiable, Codable, Equatable {
 
     /// Double-precision continuous time mapping from source timestamp (ms) to timeline offset (ms)
     func mapSourceMsToTimelineOffset(_ srcMs: Double) -> Double {
-        let maxSrcTrimmed = Double(sourceTrimmedDurationMs)
-        let deltaSrc = max(0.0, min(maxSrcTrimmed, srcMs - Double(sourceInPointMs)))
-        let progress = maxSrcTrimmed > 0 ? (deltaSrc / maxSrcTrimmed) : 0.0
-        return progress * Double(timelineDurationMs)
+        let srcTrimmed = Double(sourceTrimmedDurationMs)
+        guard srcTrimmed > 0 else { return 0.0 }
+        let clampedSrc = min(Double(sourceOutPointMs), max(Double(sourceInPointMs), srcMs))
+        let srcProgress = (clampedSrc - Double(sourceInPointMs)) / srcTrimmed
+        let tlProgress = speedConfig.mapSourceProgressToTimelineProgress(srcProgress)
+        return tlProgress * Double(timelineDurationMs)
     }
 }
 
@@ -558,31 +712,42 @@ struct VideoProject: Identifiable, Codable, Equatable {
         var secondKeyframes: [ClipKeyframe] = []
 
         if !clip.keyframes.isEmpty {
-            let midTransform = clip.evaluatedTransform(at: offsetMs)
+            let midTransform = clip.evaluatedTransform(at: Double(offsetMs))
+            let midColor = clip.evaluatedColor(at: Double(offsetMs))
 
             // First clip keyframes
             for kf in clip.sortedKeyframes where kf.timeMs < offsetMs {
-                firstKeyframes.append(kf)
+                var copy = kf
+                copy.id = UUID()
+                firstKeyframes.append(copy)
             }
             // Boundary keyframe at end of clip 1
             firstKeyframes.append(ClipKeyframe(
+                id: UUID(),
                 timeMs: offsetMs,
                 positionX: midTransform.offsetX,
                 positionY: midTransform.offsetY,
                 scale: midTransform.scale,
                 rotationDegrees: midTransform.rotationDegrees,
                 opacity: midTransform.opacity,
+                brightness: midColor.brightness,
+                contrast: midColor.contrast,
+                saturation: midColor.saturation,
                 easing: .easeInOut
             ))
 
             // Boundary keyframe at start of clip 2 (time 0)
             secondKeyframes.append(ClipKeyframe(
+                id: UUID(),
                 timeMs: 0,
                 positionX: midTransform.offsetX,
                 positionY: midTransform.offsetY,
                 scale: midTransform.scale,
                 rotationDegrees: midTransform.rotationDegrees,
                 opacity: midTransform.opacity,
+                brightness: midColor.brightness,
+                contrast: midColor.contrast,
+                saturation: midColor.saturation,
                 easing: .easeInOut
             ))
 

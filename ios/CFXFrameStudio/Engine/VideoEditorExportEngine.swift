@@ -183,8 +183,25 @@ final class VideoEditorExportEngine {
                 vFilters.append("vflip")
             }
 
-            // B. Color grading
-            if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
+            // B. Color grading (Supports per-clip keyframed contrast, brightness, saturation)
+            if clip.hasKeyframes() {
+                let contrastPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.contrast ?? clip.color.contrast) }
+                let brightnessPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.brightness ?? clip.color.brightness) }
+                let saturationPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.saturation ?? clip.color.saturation) }
+
+                let hasColorAnim = contrastPoints.contains { abs($0.value - 1.0) > 0.01 } ||
+                                   brightnessPoints.contains { abs($0.value) > 0.01 } ||
+                                   saturationPoints.contains { abs($0.value - 1.0) > 0.01 }
+
+                if hasColorAnim {
+                    let cExpr = buildFFmpegTimeExpression(points: contrastPoints, defaultValue: clip.color.contrast)
+                    let bExpr = buildFFmpegTimeExpression(points: brightnessPoints, defaultValue: clip.color.brightness)
+                    let sExpr = buildFFmpegTimeExpression(points: saturationPoints, defaultValue: clip.color.saturation)
+                    vFilters.append("eq=eval=frame:contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(sExpr)'")
+                } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
+                    vFilters.append("eq=contrast=\(String(format: "%.2f", clip.color.contrast)):brightness=\(String(format: "%.2f", clip.color.brightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
+                }
+            } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
                 vFilters.append("eq=contrast=\(String(format: "%.2f", clip.color.contrast)):brightness=\(String(format: "%.2f", clip.color.brightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
             }
 
