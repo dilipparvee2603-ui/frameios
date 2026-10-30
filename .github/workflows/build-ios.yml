@@ -98,14 +98,15 @@ jobs:
 
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
-          zip -r -y CFXFrameStudio.ipa Payload
-          ls -lh CFXFrameStudio.ipa
+          zip -r -y "CFXFrameStudio-v1.0.${{ github.run_number }}.ipa" Payload
+          cp "CFXFrameStudio-v1.0.${{ github.run_number }}.ipa" CFXFrameStudio.ipa
+          ls -lh CFXFrameStudio*.ipa
 
       - name: Upload .IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CFXFrameStudio-iOS-IPA
-          path: ios/CFXFrameStudio.ipa
+          name: "CFXFrameStudio-v1.0.${{ github.run_number }}-IPA"
+          path: "ios/CFXFrameStudio-v1.0.${{ github.run_number }}.ipa"
           retention-days: 14
 
       - name: Publish Versioned GitHub Release
@@ -118,27 +119,30 @@ jobs:
             ### ⚡ CFX FrameStudio iOS v1.0.${{ github.run_number }}
             
             **Direct 1-Click Sideload Install:**
-            Download **`CFXFrameStudio.ipa`** directly to your iPhone below (no unzipping needed!).
+            Download **`CFXFrameStudio-v1.0.${{ github.run_number }}.ipa`** directly to your iPhone below (no unzipping needed!).
             
             - **App Version**: `1.0.${{ github.run_number }}`
             - **Build**: `${{ github.run_number }}`
             - **Commit**: `${{ github.sha }}`
             
             #### 📱 How to Install on iPhone:
-            1. Tap **`CFXFrameStudio.ipa`** below to download directly in Safari.
+            1. Tap **`CFXFrameStudio-v1.0.${{ github.run_number }}.ipa`** below to download directly in Safari.
             2. When downloaded, open Safari Downloads > tap Share.
             3. Choose **AltStore**, **Sideloadly**, or **TrollStore** to install.
             
             #### 🛠️ Studio Tools Included:
+            - 📺 **Universal VLC Pro Player** (MKV, AVI, WebM, FLV, WMV, DTS, AC3, 200% audio boost, A-B loop, swipe HUDs)
             - 🎞️ **Matroska (.MKV / .WebM) Import & Lossless Remux Engine** (Zero re-encoding stream copy powered by FFmpeg)
             - ✂️ **Lossless Video Trimmer** (Instant stream-copy cut & audio toggle for MP4, MOV & MKV)
             - 🎞️ **Precise Frame Exporter** (1f & 10f hardware stepping to PNG/JPG)
             - 🔄 **Video Format Converter** (MP4 ↔ MOV & MKV with ProRes & HEVC)
             - 📐 **Lossless Image Cropper** (Adjustable frame, 4-corner handles, pinch zoom & social aspect ratios)
-            - ⬇️ **Direct & YouTube Downloader** (Fetch Cloudflare, S3, CDN & YouTube up to 4K/8K with smart Camera Roll & Files routing)
+            - ⬇️ **Direct & Universal Downloader** (Fetch Cloudflare, S3, CDN, YouTube, Instagram, TikTok, X/Twitter with background daemon survival)
             - 🧹 **App Storage & Cache Manager** (Clear temporary cache, wipe downloaded documents, and purge app media from Camera Roll)
             - 📁 **Files App Integration** (`On My iPhone > CFX Studio`)
-          files: ios/CFXFrameStudio.ipa
+          files: |
+            ios/CFXFrameStudio-v1.0.${{ github.run_number }}.ipa
+            ios/CFXFrameStudio.ipa
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

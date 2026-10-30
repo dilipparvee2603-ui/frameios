@@ -614,7 +614,7 @@ struct SettingsView: View {
                         .foregroundColor(.textMuted)
                 }
                 Spacer()
-                Text("v1.0")
+                Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundColor(.textSecondary)
                     .padding(.horizontal, 8)
