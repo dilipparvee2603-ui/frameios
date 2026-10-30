@@ -224,7 +224,7 @@ final class PlayerModel: ObservableObject {
 
         player.replaceCurrentItem(with: playerItem)
 
-        player.seek(to: targetCm, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        let performPlay = { [weak self] in
             guard let self = self else { return }
             self.currentPositionTime = targetCm
             self.currentPositionMs = effectiveStartMs
@@ -234,6 +234,14 @@ final class PlayerModel: ObservableObject {
                 self.startDisplayLink()
             }
             completion?()
+        }
+
+        if effectiveStartMs <= 30 {
+            performPlay()
+        } else {
+            player.seek(to: targetCm, toleranceBefore: CMTime(value: 30, timescale: 1000), toleranceAfter: CMTime(value: 30, timescale: 1000)) { _ in
+                performPlay()
+            }
         }
     }
 

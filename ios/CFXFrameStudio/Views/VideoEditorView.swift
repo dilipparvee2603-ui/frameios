@@ -803,6 +803,11 @@ struct VideoEditorView: View {
                         // CapCut & LibreCuts Styled Playhead Needle (CustomVideoSeeker)
                         let playheadX = leadPad + (CGFloat(playheadMs) / 1000.0 * pointsPerSecond)
                         ZStack(alignment: .top) {
+                            // Touch Target (44pt wide x 136pt tall)
+                            Color.white.opacity(0.001)
+                                .frame(width: 44, height: 136)
+                                .contentShape(Rectangle())
+
                             // Subtle drop shadow for vertical stem
                             Rectangle()
                                 .fill(Color.black.opacity(0.45))
@@ -813,7 +818,7 @@ struct VideoEditorView: View {
                             // Primary Needle Stem
                             Rectangle()
                                 .fill(Color.brandAccent)
-                                .frame(width: 1.5, height: 124)
+                                .frame(width: 2.0, height: 124)
                                 .offset(y: 16)
                                 .shadow(color: Color.brandAccent.opacity(0.5), radius: 2)
                                 .allowsHitTesting(false)
@@ -843,42 +848,45 @@ struct VideoEditorView: View {
                                     .fill(Color.brandAccent)
                                     .frame(width: 8, height: 5)
                             }
-                            .gesture(
-                                DragGesture(minimumDistance: 1)
-                                    .onChanged { value in
-                                        if dragPlayheadInitialMs == nil {
-                                            dragPlayheadInitialMs = playheadMs
-                                            playerModel.pause()
-                                        }
-                                        if let initialMs = dragPlayheadInitialMs {
-                                            let deltaMs = Int64(round(Double(value.translation.width) / Double(pointsPerSecond) * 1000.0))
-                                            var newMs = max(0, min(project.totalTimelineDurationMs, initialMs + deltaMs))
-
-                                            // Magnetic Keyframe & Clip Cut Snapping (LibreCuts style)
-                                            if let activeIdx = project.clipIndex(at: newMs) {
-                                                let activeClip = project.clips[activeIdx]
-                                                let clipStart = project.timelineStartTime(forClipIndex: activeIdx)
-                                                let localMs = newMs - clipStart
-                                                if let snapKf = activeClip.sortedKeyframes.first(where: { abs($0.timeMs - localMs) <= 120 }) {
-                                                    newMs = clipStart + snapKf.timeMs
-                                                }
-                                            }
-
-                                            playheadMs = newMs
-
-                                            // Dynamically switch active clip if scrubbing crosses clip boundaries
-                                            if let activeIdx = project.clipIndex(at: playheadMs), activeIdx != selectedClipIndex {
-                                                selectedClipIndex = activeIdx
-                                            }
-                                            syncPlayheadToPlayer(preservePlayback: false)
-                                        }
-                                    }
-                                    .onEnded { _ in
-                                        dragPlayheadInitialMs = nil
-                                    }
-                            )
+                            .allowsHitTesting(false)
                         }
-                        .offset(x: playheadX - 9, y: 0)
+                        .frame(width: 44, height: 136)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 1)
+                                .onChanged { value in
+                                    if dragPlayheadInitialMs == nil {
+                                        dragPlayheadInitialMs = playheadMs
+                                        playerModel.pause()
+                                    }
+                                    if let initialMs = dragPlayheadInitialMs {
+                                        let deltaMs = Int64(round(Double(value.translation.width) / Double(pointsPerSecond) * 1000.0))
+                                        var newMs = max(0, min(project.totalTimelineDurationMs, initialMs + deltaMs))
+
+                                        // Magnetic Keyframe & Clip Cut Snapping (LibreCuts style)
+                                        if let activeIdx = project.clipIndex(at: newMs) {
+                                            let activeClip = project.clips[activeIdx]
+                                            let clipStart = project.timelineStartTime(forClipIndex: activeIdx)
+                                            let localMs = newMs - clipStart
+                                            if let snapKf = activeClip.sortedKeyframes.first(where: { abs($0.timeMs - localMs) <= 120 }) {
+                                                newMs = clipStart + snapKf.timeMs
+                                            }
+                                        }
+
+                                        playheadMs = newMs
+
+                                        // Dynamically switch active clip if scrubbing crosses clip boundaries
+                                        if let activeIdx = project.clipIndex(at: playheadMs), activeIdx != selectedClipIndex {
+                                            selectedClipIndex = activeIdx
+                                        }
+                                        syncPlayheadToPlayer(preservePlayback: false)
+                                    }
+                                }
+                                .onEnded { _ in
+                                    dragPlayheadInitialMs = nil
+                                }
+                        )
+                        .offset(x: playheadX - 22, y: 0)
                         .id("PLAYHEAD_NEEDLE")
                     }
                     .frame(height: 148)
@@ -2042,6 +2050,16 @@ struct VideoEditorView: View {
             let startMs = project.timelineStartTime(forClipIndex: selectedClipIndex)
             playheadMs = startMs
 
+            // Pre-seed preview state for next clip at time 0 so there is no single-frame glitch or jump
+            let anim = nextClip.evaluatedTransform(at: 0)
+            self.previewState.update(
+                scale: anim.scale,
+                offsetX: anim.positionX,
+                offsetY: anim.positionY,
+                rotationDegrees: nextClip.hasKeyframes() ? anim.rotationDegrees : Double(nextClip.transform.rotation.rawValue),
+                opacity: anim.opacity
+            )
+
             playerModel.player.isMuted = nextClip.isMuted
             playerModel.setPlaybackBounds(inMs: nextClip.sourceInPointMs, outMs: nextClip.sourceOutPointMs)
             let speed = Float(nextClip.speedConfig.speedMultiplier)
@@ -2507,17 +2525,6 @@ struct DynamicTimeRulerView: View {
         let totalTicks = max(1, Int(durationMs / minorStepMs) + 2)
 
         ZStack(alignment: .topLeading) {
-            // Invisible background touch catcher for instant tap-to-seek or scrub
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { val in
-                            let seekMs = Int64(max(0, min(Double(durationMs), Double(val.location.x) / Double(pointsPerSecond) * 1000.0)))
-                            onSeek(seekMs)
-                        }
-                )
-
             // Tick marks & timecode labels
             ForEach(0..<totalTicks, id: \.self) { i in
                 let tickMs = Int64(i) * minorStepMs
@@ -2541,8 +2548,20 @@ struct DynamicTimeRulerView: View {
                         .offset(x: x, y: 15)
                 }
             }
+
+            // Interactive top gesture overlay spanning full width and height
+            Color.white.opacity(0.001)
+                .frame(width: width, height: 26)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { val in
+                            let seekMs = Int64(max(0, min(Double(durationMs), Double(val.location.x) / Double(pointsPerSecond) * 1000.0)))
+                            onSeek(seekMs)
+                        }
+                )
         }
-        .frame(width: width, height: 22, alignment: .topLeading)
+        .frame(width: width, height: 26, alignment: .topLeading)
     }
 
     private func formatTickLabel(_ ms: Int64, stepMs: Int64) -> String {

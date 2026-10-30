@@ -94,28 +94,32 @@ final class VideoEditorExportEngine {
                 }
                 renderedClipUrl = resUrl
             } else {
-                // Just extract trimmed portion
-                onProgress(clipProgressBase, "Trimming (Clip \(idx + 1)/\(totalClips))...")
-                let trimResult = await VideoTrimEngine.shared.trimVideo(
-                    srcUrl: clip.sourceUrl,
-                    startMs: clip.sourceInPointMs,
-                    endMs: clip.sourceOutPointMs,
-                    includeAudio: !clip.isMuted,
-                    mode: .frameAccurate,
-                    onProgress: { p in
-                        let overallFraction = clipProgressBase + (Double(p) * clipProgressSpan)
-                        onProgress(overallFraction, "Preparing Clip \(idx + 1)/\(totalClips)...")
-                    }
-                )
+                // High-performance direct trim to temp file using VideoToolbox - zero Photo library pollution!
+                onProgress(clipProgressBase, "Preparing Clip \(idx + 1)/\(totalClips)...")
+                let tempClipOut = tempDir.appendingPathComponent("CFX_Prep_\(idx)_\(timestamp).mp4")
+                try? FileManager.default.removeItem(at: tempClipOut)
 
-                guard trimResult.success, let resUrl = trimResult.outputUrl else {
-                    return EditorExportResult(
-                        success: false,
-                        outputUrl: nil,
-                        errorMessage: "Failed to trim Clip \(idx + 1): \(trimResult.errorMessage ?? "Trim error")"
-                    )
+                let startSec = String(format: "%.3f", Double(clip.sourceInPointMs) / 1000.0)
+                let durSec = String(format: "%.3f", Double(clip.sourceTrimmedDurationMs) / 1000.0)
+
+                let trimArgs = [
+                    "-threads", "0", "-y",
+                    "-ss", startSec,
+                    "-t", durSec,
+                    "-i", clip.sourceUrl.path,
+                    "-c:v", "h264_videotoolbox",
+                    "-b:v", "\(Int(config.bitrateMbps))M",
+                    "-pix_fmt", "yuv420p",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    tempClipOut.path
+                ]
+                let session = FFmpegKit.execute(withArguments: trimArgs)
+                if ReturnCode.isSuccess(session?.getReturnCode()) && FileManager.default.fileExists(atPath: tempClipOut.path) {
+                    renderedClipUrl = tempClipOut
+                } else {
+                    renderedClipUrl = clip.sourceUrl
                 }
-                renderedClipUrl = resUrl
             }
 
             preparedClipUrls.append(renderedClipUrl)
@@ -230,17 +234,19 @@ final class VideoEditorExportEngine {
 
             let durFormatted = String(format: "%.3f", clipDurationSec)
 
+            // Video overlay onto black background with eof_action=pass, exact framerate and duration trim
             filterComplexParts.append("color=c=black:s=\(targetW)x\(targetH):d=\(durFormatted):r=\(config.targetFps)[bg\(idx)]")
-            filterComplexParts.append("[\(idx):v]\(vFilterStr)[fg\(idx)]")
-            filterComplexParts.append("[bg\(idx)][fg\(idx)]overlay=x='\(xExpr)':y='\(yExpr)':shortest=1,setsar=1,fps=\(config.targetFps),trim=duration=\(durFormatted),setpts=PTS-STARTPTS[v\(idx)]")
+            filterComplexParts.append("[\(idx):v]setpts=PTS-STARTPTS,\(vFilterStr)[fg\(idx)]")
+            filterComplexParts.append("[bg\(idx)][fg\(idx)]overlay=x='\(xExpr)':y='\(yExpr)':eof_action=pass,fps=\(config.targetFps),setsar=1,trim=0:\(durFormatted),setpts=PTS-STARTPTS[v\(idx)]")
 
-            // 2. Audio Filters
+            // 2. Audio Filters with apad to guarantee perfect duration matching
             if hasAudioTrack && !clip.isMuted {
                 let vol = String(format: "%.2f", clip.volume)
-                filterComplexParts.append("[\(idx):a]volume=\(vol),aformat=sample_rates=48000:channel_layouts=stereo,atrim=duration=\(durFormatted),asetpts=PTS-STARTPTS[a\(idx)]")
+                filterComplexParts.append("[\(idx):a]asetpts=PTS-STARTPTS,volume=\(vol),aformat=sample_rates=48000:channel_layouts=stereo,apad[a_pad\(idx)]")
+                filterComplexParts.append("[a_pad\(idx)]atrim=0:\(durFormatted),asetpts=PTS-STARTPTS[a\(idx)]")
             } else {
-                // Generate silent audio of exact duration so multi-clip concat never fails
-                filterComplexParts.append("aevalsrc=0:d=\(durFormatted):s=48000:c=stereo,atrim=duration=\(durFormatted),asetpts=PTS-STARTPTS[a\(idx)]")
+                // Generate silent audio of exact duration so multi-clip concat never fails or desyncs
+                filterComplexParts.append("aevalsrc=0:d=\(durFormatted):s=48000:c=stereo,atrim=0:\(durFormatted),asetpts=PTS-STARTPTS[a\(idx)]")
             }
 
             concatStreams += "[v\(idx)][a\(idx)]"
