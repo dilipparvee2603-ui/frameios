@@ -47,20 +47,27 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         super.init()
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60.0
-        config.timeoutIntervalForResource = 3600.0
+        config.timeoutIntervalForResource = 86400.0 // 24-hour resource budget for large downloads
         config.waitsForConnectivity = true
         config.allowsCellularAccess = true
         config.allowsConstrainedNetworkAccess = true
         config.allowsExpensiveNetworkAccess = true
-        self.urlSession = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+        config.shouldUseExtendedBackgroundIdleMode = true
+        config.sessionSendsLaunchEvents = true
+        let queue = OperationQueue()
+        queue.name = "com.cfx.download.delegate"
+        queue.maxConcurrentOperationCount = 4
+        self.urlSession = URLSession(configuration: config, delegate: self, delegateQueue: queue)
 
         let chunkConfig = URLSessionConfiguration.default
-        chunkConfig.timeoutIntervalForRequest = 45.0
-        chunkConfig.timeoutIntervalForResource = 1800.0
+        chunkConfig.timeoutIntervalForRequest = 60.0
+        chunkConfig.timeoutIntervalForResource = 86400.0
         chunkConfig.waitsForConnectivity = true
         chunkConfig.allowsCellularAccess = true
         chunkConfig.allowsConstrainedNetworkAccess = true
         chunkConfig.allowsExpensiveNetworkAccess = true
+        chunkConfig.shouldUseExtendedBackgroundIdleMode = true
+        chunkConfig.sessionSendsLaunchEvents = true
         self.chunkSession = URLSession(configuration: chunkConfig)
     }
 
@@ -88,6 +95,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
 
         reset()
         beginBackgroundTask()
+        BackgroundDownloadKeepAlive.shared.start()
         self.isDownloading = true
         self.statusMessage = "Downloading Media..."
         self.customTargetFilename = customFilename
@@ -103,6 +111,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         NotificationManager.shared.requestAuthorization()
         reset()
         beginBackgroundTask()
+        BackgroundDownloadKeepAlive.shared.start()
         self.isDownloading = true
         self.statusMessage = "Starting high-speed stream..."
         self.lastSpeedCheckTime = Date()
@@ -174,12 +183,14 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                 if Task.isCancelled {
                     self.isDownloading = false
                     self.endBackgroundTask()
+                    BackgroundDownloadKeepAlive.shared.stop()
                     return
                 }
                 self.isDownloading = false
                 self.errorMessage = "Download Error: \(error.localizedDescription)"
                 self.cleanupTempFiles()
                 self.endBackgroundTask()
+                BackgroundDownloadKeepAlive.shared.stop()
                 NotificationManager.shared.notifyDownloadFailed(
                     filename: safeTitle,
                     error: error.localizedDescription
@@ -198,6 +209,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         progress = 0.0
         statusMessage = ""
         endBackgroundTask()
+        BackgroundDownloadKeepAlive.shared.stop()
     }
 
     func reset() {
@@ -216,6 +228,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         tempVideoFileUrl = nil
         customTargetFilename = nil
         endBackgroundTask()
+        BackgroundDownloadKeepAlive.shared.stop()
     }
 
     // MARK: - High-Speed Chunked Streaming (Bypasses YouTube Throttling)
@@ -294,7 +307,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
             // Robust retry loop: if user switches apps, retry chunk instead of failing with network error
             var chunkData: Data? = nil
             var lastErr: Error? = nil
-            for attempt in 1...4 {
+            for attempt in 1...6 {
                 do {
                     try Task.checkCancellation()
                     let (data, _) = try await self.chunkSession.data(for: chunkReq)
@@ -303,8 +316,8 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                 } catch {
                     if Task.isCancelled { throw error }
                     lastErr = error
-                    // Pause briefly before retrying
-                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    // Pause briefly before retrying so connection re-establishes smoothly without socket drop
+                    try? await Task.sleep(nanoseconds: 1_200_000_000)
                 }
             }
 
@@ -520,6 +533,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
     ) {
         Task { @MainActor in
             self.endBackgroundTask()
+            BackgroundDownloadKeepAlive.shared.stop()
             if let err = error as? URLError, err.code == .cancelled {
                 self.isDownloading = false
                 return
@@ -602,6 +616,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         self.progress = 1.0
         self.statusMessage = "Download Complete"
         self.endBackgroundTask()
+        BackgroundDownloadKeepAlive.shared.stop()
 
         // Inspect Codecs and Container
         let inspection = await inspectMedia(url: destinationUrl)

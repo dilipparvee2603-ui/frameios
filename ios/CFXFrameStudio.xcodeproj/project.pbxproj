@@ -51,6 +51,7 @@
 		E20000012900000100000033 /* AudioWaveformExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000033 /* AudioWaveformExtractor.swift */; };
 		E20000012900000100000034 /* CFXEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000034 /* CFXEditorTests.swift */; };
 		E20000012900000100000035 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000035 /* NotificationManager.swift */; };
+		E20000012900000100000036 /* BackgroundDownloadKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000036 /* BackgroundDownloadKeepAlive.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -102,6 +103,7 @@
 		E10000012900000100000033 /* AudioWaveformExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWaveformExtractor.swift; sourceTree = "<group>"; };
 		E10000012900000100000034 /* CFXEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CFXEditorTests.swift; sourceTree = "<group>"; };
 		E10000012900000100000035 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		E10000012900000100000036 /* BackgroundDownloadKeepAlive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundDownloadKeepAlive.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -188,6 +190,7 @@
 				E10000012900000100000033 /* AudioWaveformExtractor.swift */,
 				E10000012900000100000034 /* CFXEditorTests.swift */,
 				E10000012900000100000035 /* NotificationManager.swift */,
+				E10000012900000100000036 /* BackgroundDownloadKeepAlive.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -349,6 +352,7 @@
 				E20000012900000100000033 /* AudioWaveformExtractor.swift in Sources */,
 				E20000012900000100000034 /* CFXEditorTests.swift in Sources */,
 				E20000012900000100000035 /* NotificationManager.swift in Sources */,
+				E20000012900000100000036 /* BackgroundDownloadKeepAlive.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
