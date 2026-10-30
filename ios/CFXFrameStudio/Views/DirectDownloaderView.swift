@@ -3,7 +3,7 @@ import AVFoundation
 
 struct DirectDownloaderView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var engine = DirectDownloadEngine()
+    @ObservedObject private var engine = DirectDownloadEngine.shared
     @StateObject private var ytEngine = YouTubeDownloadEngine()
     @StateObject private var igEngine = InstagramDownloadEngine()
     @StateObject private var twitterEngine = TwitterDownloadEngine()

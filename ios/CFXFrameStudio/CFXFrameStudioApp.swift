@@ -2,12 +2,28 @@ import SwiftUI
 import UserNotifications
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    var backgroundSessionCompletionHandler: (() -> Void)?
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil
     ) -> Bool {
         NotificationManager.shared.setup()
+        _ = DirectDownloadEngine.shared
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        if identifier == DirectDownloadEngine.backgroundSessionIdentifier {
+            self.backgroundSessionCompletionHandler = completionHandler
+            _ = DirectDownloadEngine.shared
+        } else {
+            completionHandler()
+        }
     }
 
     func userNotificationCenter(

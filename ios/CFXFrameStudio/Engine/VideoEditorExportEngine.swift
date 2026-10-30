@@ -660,7 +660,7 @@ final class VideoEditorExportEngine {
             var photosNotice: String? = nil
             if config.saveToCameraRoll {
                 onProgress(0.97, "Saving to Camera Roll...")
-                let saved = await DirectDownloadEngine().saveVideoToPhotos(url: outputUrl)
+                let saved = await DirectDownloadEngine.shared.saveVideoToPhotos(url: outputUrl)
                 if !saved {
                     photosNotice = "Export rendered successfully, but could not be saved to Photos library (check Photos permissions)."
                 }

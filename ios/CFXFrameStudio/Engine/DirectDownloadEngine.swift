@@ -18,6 +18,9 @@ struct MediaInspection {
 
 @MainActor
 final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownloadDelegate {
+    static let backgroundSessionIdentifier = "com.cfx.framestudio.backgroundDownloader"
+    static let shared = DirectDownloadEngine()
+
     @Published var isDownloading: Bool = false
     @Published var progress: Double = 0.0
     @Published var bytesWritten: Int64 = 0
@@ -45,19 +48,21 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
 
     override init() {
         super.init()
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60.0
-        config.timeoutIntervalForResource = 86400.0 // 24-hour resource budget for large downloads
-        config.waitsForConnectivity = true
-        config.allowsCellularAccess = true
-        config.allowsConstrainedNetworkAccess = true
-        config.allowsExpensiveNetworkAccess = true
-        config.shouldUseExtendedBackgroundIdleMode = true
-        config.sessionSendsLaunchEvents = true
+        let bgConfig = URLSessionConfiguration.background(withIdentifier: Self.backgroundSessionIdentifier)
+        bgConfig.sessionSendsLaunchEvents = true
+        bgConfig.isDiscretionary = false
+        bgConfig.shouldUseExtendedBackgroundIdleMode = true
+        bgConfig.waitsForConnectivity = true
+        bgConfig.allowsCellularAccess = true
+        bgConfig.allowsConstrainedNetworkAccess = true
+        bgConfig.allowsExpensiveNetworkAccess = true
+        bgConfig.timeoutIntervalForRequest = 60.0
+        bgConfig.timeoutIntervalForResource = 86400.0 // 24-hour resource budget for large downloads
+
         let queue = OperationQueue()
-        queue.name = "com.cfx.download.delegate"
-        queue.maxConcurrentOperationCount = 4
-        self.urlSession = URLSession(configuration: config, delegate: self, delegateQueue: queue)
+        queue.name = "com.cfx.backgroundDownloader.delegate"
+        queue.maxConcurrentOperationCount = 2
+        self.urlSession = URLSession(configuration: bgConfig, delegate: self, delegateQueue: queue)
 
         let chunkConfig = URLSessionConfiguration.default
         chunkConfig.timeoutIntervalForRequest = 60.0
@@ -69,6 +74,21 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         chunkConfig.shouldUseExtendedBackgroundIdleMode = true
         chunkConfig.sessionSendsLaunchEvents = true
         self.chunkSession = URLSession(configuration: chunkConfig)
+
+        restoreActiveTasks()
+    }
+
+    /// Re-links with any background download running in the iOS system daemon when the app is opened
+    func restoreActiveTasks() {
+        urlSession?.getTasksWithCompletionHandler { [weak self] _, _, downloadTasks in
+            guard let self = self, let activeTask = downloadTasks.first(where: { $0.state == .running || $0.state == .suspended }) else { return }
+            Task { @MainActor in
+                self.downloadTask = activeTask
+                self.isDownloading = true
+                self.statusMessage = "Resuming Background Download..."
+                self.customTargetFilename = activeTask.taskDescription
+            }
+        }
     }
 
     private func beginBackgroundTask() {
@@ -103,6 +123,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         self.lastSpeedBytes = 0
 
         let task = urlSession?.downloadTask(with: url)
+        task?.taskDescription = customFilename
         self.downloadTask = task
         task?.resume()
     }
@@ -488,7 +509,8 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                 }
 
                 // Standard direct single-file download
-                let originalName = self.customTargetFilename
+                let originalName = downloadTask.taskDescription
+                    ?? self.customTargetFilename
                     ?? suggestedName
                     ?? fallbackName
                     ?? "CFX_Download_\(Int(Date().timeIntervalSince1970))"
@@ -546,6 +568,16 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                     filename: self.customTargetFilename ?? task.response?.suggestedFilename,
                     error: err.localizedDescription
                 )
+            }
+        }
+    }
+
+    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        Task { @MainActor in
+            if let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+               let handler = appDelegate.backgroundSessionCompletionHandler {
+                appDelegate.backgroundSessionCompletionHandler = nil
+                handler()
             }
         }
     }
