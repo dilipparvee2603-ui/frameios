@@ -112,7 +112,7 @@ struct UniversalPlayerView: View {
 
                 if engine.currentSourceUrl != nil {
                     // Active Video Presentation
-                    playerContent(size: proxy.size)
+                    playerContent(proxy: proxy)
                 } else {
                     // Media Empty / Selector State
                     emptyStatePicker
@@ -155,7 +155,10 @@ struct UniversalPlayerView: View {
     // MARK: - Video Layer & Gestures
 
     @ViewBuilder
-    private func playerContent(size: CGSize) -> some View {
+    private func playerContent(proxy: GeometryProxy) -> some View {
+        let size = proxy.size
+        let topSafeArea = max(proxy.safeAreaInsets.top, 20)
+
         ZStack {
             // 1. Native Player Layer
             UniversalVideoPlayerRepresentable(player: engine.player, aspectMode: engine.aspectRatioMode)
@@ -182,7 +185,7 @@ struct UniversalPlayerView: View {
 
             // 6. Player Control Overlays (Top, Bottom, Lock)
             if showControls || engine.isControlsLocked {
-                controlsOverlay
+                controlsOverlay(proxy: proxy)
             }
 
             // 7. Floating Copied Toast
@@ -201,7 +204,7 @@ struct UniversalPlayerView: View {
                     .background(.ultraThinMaterial)
                     .cornerRadius(20)
                     .shadow(color: .black.opacity(0.4), radius: 10, y: 5)
-                    .padding(.top, 70)
+                    .padding(.top, topSafeArea + 50)
                     Spacer()
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
@@ -257,7 +260,7 @@ struct UniversalPlayerView: View {
                     .background(.ultraThinMaterial)
                     .cornerRadius(14)
                     .padding(.horizontal, 20)
-                    .padding(.top, 65)
+                    .padding(.top, topSafeArea + 50)
                     Spacer()
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
@@ -576,24 +579,26 @@ struct UniversalPlayerView: View {
     // MARK: - Controls Overlay (Top / Center / Bottom)
 
     @ViewBuilder
-    private var controlsOverlay: some View {
+    private func controlsOverlay(proxy: GeometryProxy) -> some View {
+        let isPortrait = proxy.size.height > proxy.size.width
+
         ZStack {
             // 1. Top Bar
             VStack {
-                topControlsBar
+                topControlsBar(proxy: proxy)
                 Spacer()
             }
 
             // 2. Center Playback Transport (Floating in middle)
             if !engine.isControlsLocked {
-                centerPlaybackControls
+                centerPlaybackControls(isPortrait: isPortrait)
             }
 
             // 3. Bottom Bar (Scrubber + Tool Pills)
             if !engine.isControlsLocked {
                 VStack {
                     Spacer()
-                    bottomControlsBar
+                    bottomControlsBar(proxy: proxy)
                 }
             }
         }
@@ -603,17 +608,21 @@ struct UniversalPlayerView: View {
     // MARK: - Top Controls Bar
 
     @ViewBuilder
-    private var topControlsBar: some View {
-        HStack(spacing: 12) {
+    private func topControlsBar(proxy: GeometryProxy) -> some View {
+        let isPortrait = proxy.size.height > proxy.size.width
+        let topInset = max(proxy.safeAreaInsets.top, 16)
+        let btnSize: CGFloat = isPortrait ? 34 : 38
+
+        HStack(spacing: isPortrait ? 8 : 12) {
             // Dismiss Button
             Button {
                 engine.cleanUp()
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: isPortrait ? 13 : 15, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(width: 38, height: 38)
+                    .frame(width: btnSize, height: btnSize)
                     .background(.ultraThinMaterial)
                     .clipShape(Circle())
             }
@@ -621,23 +630,28 @@ struct UniversalPlayerView: View {
             // Title & Codec Tag
             VStack(alignment: .leading, spacing: 2) {
                 Text(engine.metadata.title.isEmpty ? "VLC Pro Player" : engine.metadata.title)
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: isPortrait ? 12 : 14, weight: .bold))
                     .foregroundColor(.white)
                     .lineLimit(1)
-                HStack(spacing: 6) {
+                    .truncationMode(.middle)
+
+                HStack(spacing: 4) {
                     if !engine.metadata.container.isEmpty {
                         badgeTag(engine.metadata.container, color: .brandAccent)
                     }
-                    if !engine.metadata.videoCodec.isEmpty {
+                    if !isPortrait {
+                        if !engine.metadata.videoCodec.isEmpty {
+                            badgeTag(engine.metadata.videoCodec, color: .skyAccent)
+                        }
+                        if !engine.metadata.audioCodec.isEmpty {
+                            badgeTag(engine.metadata.audioCodec, color: .amberAccent)
+                        }
+                    } else if !engine.metadata.videoCodec.isEmpty {
                         badgeTag(engine.metadata.videoCodec, color: .skyAccent)
-                    }
-                    if !engine.metadata.audioCodec.isEmpty {
-                        badgeTag(engine.metadata.audioCodec, color: .amberAccent)
                     }
                 }
             }
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if !engine.isControlsLocked {
                 // Aspect Ratio Menu
@@ -651,9 +665,9 @@ struct UniversalPlayerView: View {
                     }
                 } label: {
                     Image(systemName: engine.aspectRatioMode.iconName)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: isPortrait ? 13 : 15, weight: .semibold))
                         .foregroundColor(.white)
-                        .frame(width: 38, height: 38)
+                        .frame(width: btnSize, height: btnSize)
                         .background(.ultraThinMaterial)
                         .clipShape(Circle())
                 }
@@ -663,9 +677,9 @@ struct UniversalPlayerView: View {
                     showInspector = true
                 } label: {
                     Image(systemName: "info.circle")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: isPortrait ? 14 : 16, weight: .semibold))
                         .foregroundColor(.white)
-                        .frame(width: 38, height: 38)
+                        .frame(width: btnSize, height: btnSize)
                         .background(.ultraThinMaterial)
                         .clipShape(Circle())
                 }
@@ -681,15 +695,16 @@ struct UniversalPlayerView: View {
                 }
             } label: {
                 Image(systemName: engine.isControlsLocked ? "lock.fill" : "lock.open")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: isPortrait ? 13 : 15, weight: .bold))
                     .foregroundColor(engine.isControlsLocked ? .amberAccent : .white)
-                    .frame(width: 38, height: 38)
+                    .frame(width: btnSize, height: btnSize)
                     .background(.ultraThinMaterial)
                     .clipShape(Circle())
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 12)
+        .padding(.horizontal, isPortrait ? 14 : 24)
+        .padding(.top, topInset + 4)
+        .padding(.bottom, 8)
         .background(
             LinearGradient(colors: [Color.black.opacity(0.85), Color.clear], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
@@ -699,17 +714,17 @@ struct UniversalPlayerView: View {
     // MARK: - Center Playback Controls
 
     @ViewBuilder
-    private var centerPlaybackControls: some View {
-        HStack(spacing: 28) {
+    private func centerPlaybackControls(isPortrait: Bool) -> some View {
+        HStack(spacing: isPortrait ? 14 : 26) {
             // Frame Step Back
             Button {
                 engine.stepFrame(forward: false)
                 restartControlsTimer()
             } label: {
                 Image(systemName: "chevron.left.2")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: isPortrait ? 14 : 16, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: isPortrait ? 38 : 44, height: isPortrait ? 38 : 44)
                     .background(.ultraThinMaterial)
                     .clipShape(Circle())
             }
@@ -720,9 +735,9 @@ struct UniversalPlayerView: View {
                 restartControlsTimer()
             } label: {
                 Image(systemName: "gobackward.10")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: isPortrait ? 18 : 22, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: 50, height: 50)
+                    .frame(width: isPortrait ? 44 : 50, height: isPortrait ? 44 : 50)
                     .background(.ultraThinMaterial)
                     .clipShape(Circle())
             }
@@ -735,10 +750,10 @@ struct UniversalPlayerView: View {
                 ZStack {
                     Circle()
                         .fill(LinearGradient.brandGradient)
-                        .frame(width: 68, height: 68)
+                        .frame(width: isPortrait ? 58 : 68, height: isPortrait ? 58 : 68)
                         .shadow(color: .brandAccent.opacity(0.5), radius: 14)
                     Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 28, weight: .heavy))
+                        .font(.system(size: isPortrait ? 24 : 28, weight: .heavy))
                         .foregroundColor(.white)
                         .offset(x: engine.isPlaying ? 0 : 3)
                 }
@@ -750,9 +765,9 @@ struct UniversalPlayerView: View {
                 restartControlsTimer()
             } label: {
                 Image(systemName: "goforward.10")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: isPortrait ? 18 : 22, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: 50, height: 50)
+                    .frame(width: isPortrait ? 44 : 50, height: isPortrait ? 44 : 50)
                     .background(.ultraThinMaterial)
                     .clipShape(Circle())
             }
@@ -763,9 +778,9 @@ struct UniversalPlayerView: View {
                 restartControlsTimer()
             } label: {
                 Image(systemName: "chevron.right.2")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: isPortrait ? 14 : 16, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: isPortrait ? 38 : 44, height: isPortrait ? 38 : 44)
                     .background(.ultraThinMaterial)
                     .clipShape(Circle())
             }
@@ -785,24 +800,27 @@ struct UniversalPlayerView: View {
     // MARK: - Bottom Controls Bar
 
     @ViewBuilder
-    private var bottomControlsBar: some View {
-        VStack(spacing: 8) {
+    private func bottomControlsBar(proxy: GeometryProxy) -> some View {
+        let isPortrait = proxy.size.height > proxy.size.width
+        let bottomInset = max(proxy.safeAreaInsets.bottom, 16)
+
+        VStack(spacing: isPortrait ? 8 : 10) {
             // Row 1: Scrubber with Timecode Badges on Both Ends
-            HStack(spacing: 12) {
+            HStack(spacing: isPortrait ? 8 : 12) {
                 // Current Timecode (Tap to copy!)
                 Button(action: copyCurrentTimecode) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         Text(formatTime(engine.currentTime))
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundColor(.white)
                         Image(systemName: showCopiedToast ? "checkmark.circle.fill" : "doc.on.doc")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(showCopiedToast ? .emeraldAccent : .skyAccent)
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 7)
                     .padding(.vertical, 4)
                     .background(.ultraThinMaterial)
-                    .cornerRadius(8)
+                    .cornerRadius(7)
                 }
 
                 // Smooth Scrubber Slider Track
@@ -851,125 +869,125 @@ struct UniversalPlayerView: View {
                 // Remaining Timecode
                 if engine.duration > 0 {
                     Text("-" + formatTime(max(0, engine.duration - engine.currentTime)))
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(.gray)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                         .background(.ultraThinMaterial)
-                        .cornerRadius(8)
+                        .cornerRadius(7)
                 }
             }
 
-            // Row 2: Compact Secondary Tool Pills
-            HStack(spacing: 12) {
-                // Playback Speed Menu
-                Menu {
-                    ForEach([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0], id: \.self) { rate in
-                        Button {
-                            engine.setPlaybackRate(Float(rate))
-                        } label: {
-                            HStack {
-                                Text("\(rate, specifier: "%.2f")x")
-                                if engine.playbackRate == Float(rate) {
-                                    Image(systemName: "checkmark")
+            // Row 2: Secondary Tool Pills (Scrollable so it never clips or goes beyond viewport on 9:16!)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    // Playback Speed Menu
+                    Menu {
+                        ForEach([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0], id: \.self) { rate in
+                            Button {
+                                engine.setPlaybackRate(Float(rate))
+                            } label: {
+                                HStack {
+                                    Text("\(rate, specifier: "%.2f")x")
+                                    if engine.playbackRate == Float(rate) {
+                                        Image(systemName: "checkmark")
+                                    }
                                 }
                             }
                         }
+                    } label: {
+                        Text("\(engine.playbackRate, specifier: "%.2f")x")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(engine.playbackRate != 1.0 ? Color.brandAccent : Color.white.opacity(0.15))
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
                     }
-                } label: {
-                    Text("\(engine.playbackRate, specifier: "%.2f")x")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .padding(.horizontal, 10)
+
+                    // A-B Loop Toggle
+                    Button {
+                        if engine.loopPointA == nil {
+                            engine.setPointA()
+                        } else if engine.loopPointB == nil {
+                            engine.setPointB()
+                        } else {
+                            engine.clearABLoop()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "repeat")
+                                .font(.system(size: 11, weight: .bold))
+                            if engine.isLoopingAB {
+                                Text("A-B Active")
+                                    .font(.system(size: 10, weight: .heavy))
+                            } else if engine.loopPointA != nil {
+                                Text("Set B")
+                                    .font(.system(size: 10, weight: .heavy))
+                            } else {
+                                Text("A-B")
+                                    .font(.system(size: 10, weight: .heavy))
+                            }
+                        }
+                        .padding(.horizontal, 9)
                         .padding(.vertical, 5)
-                        .background(engine.playbackRate != 1.0 ? Color.brandAccent : Color.white.opacity(0.15))
+                        .background(engine.isLoopingAB ? Color.amberAccent : (engine.loopPointA != nil ? Color.amberAccent.opacity(0.3) : Color.white.opacity(0.15)))
+                        .foregroundColor(engine.isLoopingAB ? .black : .white)
+                        .cornerRadius(8)
+                    }
+
+                    // Sleep Timer Menu
+                    Menu {
+                        ForEach(PlayerSleepTimer.allCases) { timer in
+                            Button {
+                                engine.setSleepTimer(timer)
+                            } label: {
+                                HStack {
+                                    Text(timer.label)
+                                    if engine.sleepTimer == timer {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "moon.fill")
+                                .font(.system(size: 11))
+                            if engine.sleepTimerRemainingSeconds > 0 {
+                                Text(String(format: "%02d:%02d", engine.sleepTimerRemainingSeconds / 60, engine.sleepTimerRemainingSeconds % 60))
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            } else {
+                                Text("Sleep")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(engine.sleepTimer != .off ? Color.skyAccent : Color.white.opacity(0.15))
                         .foregroundColor(.white)
                         .cornerRadius(8)
-                }
-
-                // A-B Loop Toggle
-                Button {
-                    if engine.loopPointA == nil {
-                        engine.setPointA()
-                    } else if engine.loopPointB == nil {
-                        engine.setPointB()
-                    } else {
-                        engine.clearABLoop()
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "repeat")
-                            .font(.system(size: 11, weight: .bold))
-                        if engine.isLoopingAB {
-                            Text("A-B Active")
-                                .font(.system(size: 11, weight: .heavy))
-                        } else if engine.loopPointA != nil {
-                            Text("Set B")
-                                .font(.system(size: 11, weight: .heavy))
-                        } else {
-                            Text("A-B")
-                                .font(.system(size: 11, weight: .heavy))
+
+                    // Copy Timecode Button
+                    Button(action: copyCurrentTimecode) {
+                        HStack(spacing: 4) {
+                            Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 11, weight: .bold))
+                            Text(showCopiedToast ? "Copied" : "Copy Time")
+                                .font(.system(size: 11, weight: .bold))
                         }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(showCopiedToast ? Color.emeraldAccent : Color.white.opacity(0.15))
+                        .foregroundColor(showCopiedToast ? .black : .white)
+                        .cornerRadius(8)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(engine.isLoopingAB ? Color.amberAccent : (engine.loopPointA != nil ? Color.amberAccent.opacity(0.3) : Color.white.opacity(0.15)))
-                    .foregroundColor(engine.isLoopingAB ? .black : .white)
-                    .cornerRadius(8)
                 }
-
-                // Sleep Timer Menu
-                Menu {
-                    ForEach(PlayerSleepTimer.allCases) { timer in
-                        Button {
-                            engine.setSleepTimer(timer)
-                        } label: {
-                            HStack {
-                                Text(timer.label)
-                                if engine.sleepTimer == timer {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "moon.fill")
-                            .font(.system(size: 11))
-                        if engine.sleepTimerRemainingSeconds > 0 {
-                            Text(String(format: "%02d:%02d", engine.sleepTimerRemainingSeconds / 60, engine.sleepTimerRemainingSeconds % 60))
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        } else {
-                            Text("Sleep")
-                                .font(.system(size: 11, weight: .semibold))
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(engine.sleepTimer != .off ? Color.skyAccent : Color.white.opacity(0.15))
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                }
-
-                // Copy Timecode Button
-                Button(action: copyCurrentTimecode) {
-                    HStack(spacing: 4) {
-                        Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11, weight: .bold))
-                        Text(showCopiedToast ? "Copied" : "Copy Time")
-                            .font(.system(size: 11, weight: .bold))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(showCopiedToast ? Color.emeraldAccent : Color.white.opacity(0.15))
-                    .foregroundColor(showCopiedToast ? .black : .white)
-                    .cornerRadius(8)
-                }
-
-                Spacer()
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 16)
+        .padding(.horizontal, isPortrait ? 14 : 24)
+        .padding(.bottom, bottomInset + 4)
         .background(
             LinearGradient(colors: [Color.clear, Color.black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
