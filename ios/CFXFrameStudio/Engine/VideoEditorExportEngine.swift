@@ -167,21 +167,13 @@ struct EditorExportResult {
 final class VideoEditorExportEngine {
     static let shared = VideoEditorExportEngine()
 
-    private let stateLock = NSLock()
     private var isCancelled: Bool = false
     private var isExportingActive: Bool = false
-    private var activeSessionId: Int64? = nil
 
     private init() {}
 
     func cancel() {
-        stateLock.lock()
         isCancelled = true
-        let sid = activeSessionId
-        stateLock.unlock()
-        if let sid = sid {
-            FFmpegKit.cancel(sid)
-        }
         FFmpegKit.cancel()
     }
 
@@ -208,22 +200,16 @@ final class VideoEditorExportEngine {
         onProgress: @escaping (Double, String) -> Void
     ) async -> EditorExportResult {
         // Prevent concurrent export operations
-        stateLock.lock()
         guard !isExportingActive else {
-            stateLock.unlock()
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "An export is already in progress.")
         }
         isExportingActive = true
         isCancelled = false
-        stateLock.unlock()
 
         var temporaryFilesToDelete: [URL] = []
 
         defer {
-            stateLock.lock()
             isExportingActive = false
-            activeSessionId = nil
-            stateLock.unlock()
 
             // Safe cleanup: ONLY delete generated temporary files; never delete original media
             for fileUrl in temporaryFilesToDelete {
@@ -256,10 +242,7 @@ final class VideoEditorExportEngine {
         let totalClips = project.clips.count
 
         for (idx, clip) in project.clips.enumerated() {
-            stateLock.lock()
-            let cancelled = isCancelled
-            stateLock.unlock()
-            if cancelled {
+            if isCancelled {
                 return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Export cancelled")
             }
 
@@ -317,9 +300,6 @@ final class VideoEditorExportEngine {
                     tempClipOut.path
                 ]
                 let session = FFmpegKit.execute(withArguments: trimArgs)
-                stateLock.lock()
-                activeSessionId = session?.getSessionId()
-                stateLock.unlock()
 
                 guard ReturnCode.isSuccess(session?.getReturnCode()) && FileManager.default.fileExists(atPath: tempClipOut.path) else {
                     return EditorExportResult(
@@ -334,10 +314,7 @@ final class VideoEditorExportEngine {
             preparedClipUrls.append(renderedClipUrl)
         }
 
-        stateLock.lock()
-        let cancelled = isCancelled
-        stateLock.unlock()
-        if cancelled {
+        if isCancelled {
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Export cancelled")
         }
 
@@ -649,9 +626,6 @@ final class VideoEditorExportEngine {
         onProgress(0.85, "Encoding master video (\(config.codec.shortLabel))...")
 
         let session = FFmpegKit.execute(withArguments: concatArgs)
-        stateLock.lock()
-        activeSessionId = session?.getSessionId()
-        stateLock.unlock()
         var code = session?.getReturnCode()
 
         // Fallback: If hardware encoder failed, retry with software encoder
@@ -663,17 +637,10 @@ final class VideoEditorExportEngine {
                 swArgs[encIdx + 1] = swEncoder
             }
             let swSession = FFmpegKit.execute(withArguments: swArgs)
-            stateLock.lock()
-            activeSessionId = swSession?.getSessionId()
-            stateLock.unlock()
             code = swSession?.getReturnCode()
         }
 
-        stateLock.lock()
-        let wasCancelled = isCancelled
-        stateLock.unlock()
-
-        if wasCancelled || ReturnCode.isCancel(code) {
+        if isCancelled || ReturnCode.isCancel(code) {
             try? FileManager.default.removeItem(at: outputUrl)
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Export cancelled")
         }
