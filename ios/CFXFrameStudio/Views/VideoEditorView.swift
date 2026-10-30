@@ -25,14 +25,14 @@ enum EditorToolPanel: String, CaseIterable, Identifiable {
 
 // MARK: - Dedicated Preview Render State for Smooth 60/120Hz Animation
 final class PreviewRenderState: ObservableObject {
-    @Published var scale: Double = 1.0
-    @Published var offsetX: Double = 0.0
-    @Published var offsetY: Double = 0.0
-    @Published var rotationDegrees: Double = 0.0
-    @Published var opacity: Double = 1.0
-    @Published var brightness: Double = 0.0
-    @Published var contrast: Double = 1.0
-    @Published var saturation: Double = 1.0
+    var scale: Double = 1.0
+    var offsetX: Double = 0.0
+    var offsetY: Double = 0.0
+    var rotationDegrees: Double = 0.0
+    var opacity: Double = 1.0
+    var brightness: Double = 0.0
+    var contrast: Double = 1.0
+    var saturation: Double = 1.0
 
     func update(
         scale: Double,
@@ -45,13 +45,14 @@ final class PreviewRenderState: ObservableObject {
         saturation: Double = 1.0
     ) {
         if abs(self.scale - scale) > 0.0001 ||
-           abs(self.offsetX - offsetX) > 0.01 ||
-           abs(self.offsetY - offsetY) > 0.01 ||
-           abs(self.rotationDegrees - rotationDegrees) > 0.01 ||
-           abs(self.opacity - opacity) > 0.001 ||
-           abs(self.brightness - brightness) > 0.005 ||
-           abs(self.contrast - contrast) > 0.005 ||
-           abs(self.saturation - saturation) > 0.005 {
+           abs(self.offsetX - offsetX) > 0.001 ||
+           abs(self.offsetY - offsetY) > 0.001 ||
+           abs(self.rotationDegrees - rotationDegrees) > 0.001 ||
+           abs(self.opacity - opacity) > 0.0001 ||
+           abs(self.brightness - brightness) > 0.001 ||
+           abs(self.contrast - contrast) > 0.001 ||
+           abs(self.saturation - saturation) > 0.001 {
+            objectWillChange.send()
             self.scale = scale
             self.offsetX = offsetX
             self.offsetY = offsetY
@@ -64,6 +65,43 @@ final class PreviewRenderState: ObservableObject {
     }
 }
 
+// MARK: - Isolated Live Canvas View for 60/120Hz Zero-Stutter Playback
+struct LiveCanvasPlayerView: View {
+    @ObservedObject var previewState: PreviewRenderState
+    let player: AVPlayer
+    let clip: EditorClip
+    let isPlaying: Bool
+    let clipLocalMs: Double
+    let animColor: ColorAdjustments
+
+    var body: some View {
+        let curScale = isPlaying ? previewState.scale : clip.evaluatedTransform(at: clipLocalMs).scale
+        let curX = isPlaying ? previewState.offsetX : clip.evaluatedTransform(at: clipLocalMs).offsetX
+        let curY = isPlaying ? previewState.offsetY : clip.evaluatedTransform(at: clipLocalMs).offsetY
+        let curRot = isPlaying
+            ? previewState.rotationDegrees
+            : (clip.hasKeyframes() ? clip.evaluatedTransform(at: clipLocalMs).rotationDegrees : Double(clip.transform.rotation.rawValue))
+        let curOp = isPlaying ? previewState.opacity : clip.evaluatedTransform(at: clipLocalMs).opacity
+        let curBrightness = isPlaying ? previewState.brightness : animColor.brightness
+        let curContrast = isPlaying ? previewState.contrast : animColor.contrast
+        let curSaturation = isPlaying ? previewState.saturation : animColor.saturation
+
+        ZStack {
+            Color.black
+
+            VideoPlayerView(player: player)
+                .scaleEffect(curScale)
+                .rotationEffect(Angle(degrees: curRot))
+                .offset(x: curX, y: curY)
+                .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
+                .opacity(curOp)
+                .brightness(curBrightness)
+                .contrast(curContrast)
+                .saturation(curSaturation)
+        }
+    }
+}
+
 // MARK: - Video Editor Main Workspace
 struct VideoEditorView: View {
     @Environment(\.dismiss) private var dismiss
@@ -72,7 +110,7 @@ struct VideoEditorView: View {
     @State private var project: VideoProject
     @StateObject private var undoManager = EditorUndoManager()
     @StateObject private var playerModel = PlayerModel()
-    @StateObject private var previewState = PreviewRenderState()
+    private let previewState = PreviewRenderState()
 
     // Timeline & Selection State
     @State private var selectedClipIndex: Int = 0
@@ -395,7 +433,7 @@ struct VideoEditorView: View {
                 if let clip = selectedClip {
                     let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
                     let clipLocalMs = Double(max(0, min(clip.timelineDurationMs, playheadMs - clipStart)))
-                    let animColor = clip.evaluatedColor(at: Int64(clipLocalMs))
+                    let animColor = clip.evaluatedColor(at: clipLocalMs)
 
                     let curScale = playerModel.isPlaying ? previewState.scale : clip.evaluatedTransform(at: clipLocalMs).scale
                     let curX = playerModel.isPlaying ? previewState.offsetX : clip.evaluatedTransform(at: clipLocalMs).offsetX
@@ -412,19 +450,14 @@ struct VideoEditorView: View {
                     let canvasSize = computeCanvasDimensions(ratio: ratio, maxW: max(80, availW - 16), maxH: max(80, availH - 16))
 
                     // Canvas Container Box (Accurately sized to chosen Aspect Ratio)
-                    ZStack {
-                        Color.black
-
-                        VideoPlayerView(player: playerModel.player)
-                            .scaleEffect(curScale)
-                            .offset(x: curX, y: curY)
-                            .rotationEffect(Angle(degrees: curRot))
-                            .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
-                            .opacity(curOp)
-                            .brightness(curBrightness)
-                            .contrast(curContrast)
-                            .saturation(curSaturation)
-                    }
+                    LiveCanvasPlayerView(
+                        previewState: previewState,
+                        player: playerModel.player,
+                        clip: clip,
+                        isPlaying: playerModel.isPlaying,
+                        clipLocalMs: clipLocalMs,
+                        animColor: animColor
+                    )
                     .frame(width: canvasSize.width, height: canvasSize.height)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .contentShape(Rectangle())

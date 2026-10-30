@@ -725,6 +725,74 @@ public final class CFXEditorTests {
             record("Strict Video Output Validation Routine", passed: caughtMissing)
         }
 
+        // 28. Acceptance Test: Smooth Continuous Keyframe Animation at 30 FPS and 60 FPS (Zero Jitter / Discontinuity)
+        do {
+            var clip = EditorClip(
+                sourceUrl: URL(fileURLWithPath: "/dummy.mp4"),
+                filename: "dummy.mp4",
+                sourceDurationMs: 2000,
+                sourceInPointMs: 0,
+                sourceOutPointMs: 2000
+            )
+
+            // Linear position (0, 0) -> (120, -90), zoom 1.0 -> 2.5, rotation 0 -> 90 degrees
+            clip.addOrUpdateKeyframe(at: 0, positionX: 0.0, positionY: 0.0, scale: 1.0, rotationDegrees: 0.0, easing: .linear)
+            clip.addOrUpdateKeyframe(at: 1000, positionX: 120.0, positionY: -90.0, scale: 2.5, rotationDegrees: 90.0, easing: .linear)
+
+            // Verify continuous motion at 30 FPS (33.33ms delta)
+            var continuous30Fps = true
+            var prevX30 = 0.0
+            let step30 = 1000.0 / 30.0
+            for i in 1...30 {
+                let t = Double(i) * step30
+                let transform = clip.evaluatedTransform(at: t)
+                let deltaX = transform.offsetX - prevX30
+                // Velocity must be strictly positive and constant (120 / 30 = 4.0 pt/frame)
+                if deltaX <= 0.0 || abs(deltaX - (120.0 / 30.0)) > 0.05 {
+                    continuous30Fps = false
+                }
+                prevX30 = transform.offsetX
+            }
+
+            // Verify continuous motion at 60 FPS (16.67ms delta)
+            var continuous60Fps = true
+            var prevX60 = 0.0
+            var prevScale60 = 1.0
+            var prevRot60 = 0.0
+            let step60 = 1000.0 / 60.0
+            for i in 1...60 {
+                let t = Double(i) * step60
+                let transform = clip.evaluatedTransform(at: t)
+                let deltaX = transform.offsetX - prevX60
+                let deltaScale = transform.scale - prevScale60
+                let deltaRot = transform.rotationDegrees - prevRot60
+
+                // Linear velocity must be strictly uniform with zero jitter
+                if deltaX <= 0.0 || abs(deltaX - (120.0 / 60.0)) > 0.05 {
+                    continuous60Fps = false
+                }
+                if deltaScale <= 0.0 || abs(deltaScale - (1.5 / 60.0)) > 0.01 {
+                    continuous60Fps = false
+                }
+                if deltaRot <= 0.0 || abs(deltaRot - (90.0 / 60.0)) > 0.05 {
+                    continuous60Fps = false
+                }
+
+                prevX60 = transform.offsetX
+                prevScale60 = transform.scale
+                prevRot60 = transform.rotationDegrees
+            }
+
+            // Boundary values match exactly without floating point overshoot
+            let startT = clip.evaluatedTransform(at: 0.0)
+            let endT = clip.evaluatedTransform(at: 1000.0)
+            let boundariesAccurate = (startT.offsetX == 0.0 && abs(endT.offsetX - 120.0) < 0.001) &&
+                                     (startT.scale == 1.0 && abs(endT.scale - 2.5) < 0.001) &&
+                                     (startT.rotationDegrees == 0.0 && abs(endT.rotationDegrees - 90.0) < 0.001)
+
+            record("Smooth Continuous Keyframe Animation at 30 FPS & 60 FPS (Linear Position, Zoom & Rotation)", passed: continuous30Fps && continuous60Fps && boundariesAccurate)
+        }
+
         let passedCount = results.values.filter { $0 }.count
         let totalCount = results.count
         return TestReport(

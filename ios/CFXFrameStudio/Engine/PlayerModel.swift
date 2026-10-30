@@ -24,6 +24,10 @@ final class PlayerModel: ObservableObject {
     private var displayLink: CADisplayLink?
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .rigid)
 
+    // Continuous hardware presentation clock anchors for sub-frame animation without stair-stepping
+    private var playbackAnchorHostTime: CFTimeInterval = 0.0
+    private var playbackAnchorMediaSec: Double = 0.0
+
     init() {
         configureAudioSession()
         ensureTimeObserver()
@@ -153,6 +157,7 @@ final class PlayerModel: ObservableObject {
 
     func pause() {
         stopDisplayLink()
+        playbackAnchorHostTime = 0.0
         player.pause()
         player.rate = 0.0
         isPlaying = false
@@ -267,6 +272,8 @@ final class PlayerModel: ObservableObject {
 
         player.playImmediately(atRate: safeRate)
         isPlaying = true
+        playbackAnchorHostTime = CACurrentMediaTime()
+        playbackAnchorMediaSec = CMTimeGetSeconds(player.currentTime())
         startDisplayLink()
     }
 
@@ -281,15 +288,36 @@ final class PlayerModel: ObservableObject {
     func stopDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
+        playbackAnchorHostTime = 0.0
     }
 
     @objc private func handleDisplayLinkTick(_ link: CADisplayLink) {
         guard isPlaying else { return }
-        let currentTime = player.currentTime()
-        guard currentTime.isValid && !currentTime.isIndefinite else { return }
-        let sec = CMTimeGetSeconds(currentTime)
-        guard sec >= 0 else { return }
-        onDisplayFrame?(sec)
+
+        // Use hardware presentation target timestamp for buttery smooth 60/120Hz interpolation
+        let hostNow = (link.targetTimestamp > 0) ? link.targetTimestamp : CACurrentMediaTime()
+        if playbackAnchorHostTime == 0.0 {
+            playbackAnchorHostTime = (link.timestamp > 0) ? link.timestamp : CACurrentMediaTime()
+            playbackAnchorMediaSec = CMTimeGetSeconds(player.currentTime())
+        }
+
+        let hostDelta = hostNow - playbackAnchorHostTime
+        let continuousSec = playbackAnchorMediaSec + hostDelta * Double(player.rate)
+
+        // Verify with AVPlayer actual time to detect buffer pauses, seeking, or loop wraps
+        let actualTime = player.currentTime()
+        if actualTime.isValid && !actualTime.isIndefinite {
+            let actualSec = CMTimeGetSeconds(actualTime)
+            // If continuous clock drifts more than 40ms from hardware audio decoder clock, resync anchor
+            if abs(continuousSec - actualSec) > 0.04 {
+                playbackAnchorHostTime = hostNow
+                playbackAnchorMediaSec = actualSec
+                onDisplayFrame?(actualSec)
+                return
+            }
+        }
+
+        onDisplayFrame?(max(0.0, continuousSec))
     }
 
     func setRate(_ rate: Float) {
@@ -346,6 +374,8 @@ final class PlayerModel: ObservableObject {
         let cmTime = CMTime(seconds: targetSec, preferredTimescale: 60000)
         self.currentPositionTime = cmTime
         self.currentPositionMs = ms
+        self.playbackAnchorHostTime = CACurrentMediaTime()
+        self.playbackAnchorMediaSec = targetSec
 
         player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             guard let self = self else { return }
