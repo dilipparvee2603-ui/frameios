@@ -324,7 +324,10 @@ final class VideoEditorExportEngine {
             let v0 = k0.value * multiplier
             let v1 = k1.value * multiplier
             let span = max(0.001, t1 - t0)
-            let segExpr = "\(String(format: "%.2f", v0))+(\(String(format: "%.2f", v1 - v0)))*(t-\(String(format: "%.3f", t0)))/\(String(format: "%.3f", span))"
+            // Smooth continuous cubic Hermite easing: p * p * (3 - 2 * p) matching preview evaluation
+            let pExpr = "((t-\(String(format: "%.3f", t0)))/\(String(format: "%.3f", span)))"
+            let easeExpr = "(\(pExpr)*\(pExpr)*(3-2*\(pExpr)))"
+            let segExpr = "\(String(format: "%.2f", v0))+(\(String(format: "%.2f", v1 - v0)))*\(easeExpr)"
             expr = "if(lt(t,\(String(format: "%.3f", t1))),\(segExpr),\(expr))"
         }
         let firstT = Double(sorted.first!.timeMs) / 1000.0

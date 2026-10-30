@@ -23,6 +23,29 @@ enum EditorToolPanel: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Dedicated Preview Render State for Smooth 60/120Hz Animation
+final class PreviewRenderState: ObservableObject {
+    @Published var scale: Double = 1.0
+    @Published var offsetX: Double = 0.0
+    @Published var offsetY: Double = 0.0
+    @Published var rotationDegrees: Double = 0.0
+    @Published var opacity: Double = 1.0
+
+    func update(scale: Double, offsetX: Double, offsetY: Double, rotationDegrees: Double, opacity: Double) {
+        if abs(self.scale - scale) > 0.0001 ||
+           abs(self.offsetX - offsetX) > 0.01 ||
+           abs(self.offsetY - offsetY) > 0.01 ||
+           abs(self.rotationDegrees - rotationDegrees) > 0.01 ||
+           abs(self.opacity - opacity) > 0.001 {
+            self.scale = scale
+            self.offsetX = offsetX
+            self.offsetY = offsetY
+            self.rotationDegrees = rotationDegrees
+            self.opacity = opacity
+        }
+    }
+}
+
 // MARK: - Video Editor Main Workspace
 struct VideoEditorView: View {
     @Environment(\.dismiss) private var dismiss
@@ -31,6 +54,7 @@ struct VideoEditorView: View {
     @State private var project: VideoProject
     @StateObject private var undoManager = EditorUndoManager()
     @StateObject private var playerModel = PlayerModel()
+    @StateObject private var previewState = PreviewRenderState()
 
     // Timeline & Selection State
     @State private var selectedClipIndex: Int = 0
@@ -44,6 +68,7 @@ struct VideoEditorView: View {
     @State private var dragTrimInitialOutMs: Int64? = nil
     @State private var dragPlayheadInitialMs: Int64? = nil
     @State private var selectedKeyframeEasing: KeyframeEasing = .easeInOut
+    @State private var lastTimelineScrollTime: TimeInterval = 0
 
     // Import State
     @State private var selectedPhotosItem: PhotosPickerItem? = nil
@@ -137,8 +162,25 @@ struct VideoEditorView: View {
             playerModel.periodicTickHandler = { curMs in
                 self.updatePlayheadFromPlayback(sourceMs: curMs)
             }
+            playerModel.onDisplayFrame = { currentSourceSec in
+                guard self.playerModel.isPlaying else { return }
+                guard self.selectedClipIndex < self.project.clips.count else { return }
+                let clip = self.project.clips[self.selectedClipIndex]
+                let currentSourceMs = currentSourceSec * 1000.0
+                let timelineOffset = clip.mapSourceMsToTimelineOffset(currentSourceMs)
+                let anim = clip.evaluatedTransform(at: timelineOffset)
+                let rot = clip.hasKeyframes() ? anim.rotationDegrees : Double(clip.transform.rotation.rawValue)
+                self.previewState.update(
+                    scale: anim.scale,
+                    offsetX: anim.offsetX,
+                    offsetY: anim.offsetY,
+                    rotationDegrees: rot,
+                    opacity: anim.opacity
+                )
+            }
             playerModel.ensureTimeObserver()
             setupInitialProject()
+            syncPreviewStateWithPlayhead()
         }
         .onDisappear {
             playerModel.cleanup()
@@ -307,9 +349,16 @@ struct VideoEditorView: View {
 
                 if let clip = selectedClip {
                     let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
-                    let clipLocalMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
-                    let animTransform = clip.evaluatedTransform(at: clipLocalMs)
-                    let animColor = clip.evaluatedColor(at: clipLocalMs)
+                    let clipLocalMs = Double(max(0, min(clip.timelineDurationMs, playheadMs - clipStart)))
+                    let animColor = clip.evaluatedColor(at: Int64(clipLocalMs))
+
+                    let curScale = playerModel.isPlaying ? previewState.scale : clip.evaluatedTransform(at: clipLocalMs).scale
+                    let curX = playerModel.isPlaying ? previewState.offsetX : clip.evaluatedTransform(at: clipLocalMs).offsetX
+                    let curY = playerModel.isPlaying ? previewState.offsetY : clip.evaluatedTransform(at: clipLocalMs).offsetY
+                    let curRot = playerModel.isPlaying
+                        ? previewState.rotationDegrees
+                        : (clip.hasKeyframes() ? clip.evaluatedTransform(at: clipLocalMs).rotationDegrees : Double(clip.transform.rotation.rawValue))
+                    let curOp = playerModel.isPlaying ? previewState.opacity : clip.evaluatedTransform(at: clipLocalMs).opacity
 
                     let ratio: CGFloat = project.canvasAspectRatio.ratioValue ?? (9.0 / 16.0)
                     let canvasSize = computeCanvasDimensions(ratio: ratio, maxW: max(80, availW - 16), maxH: max(80, availH - 16))
@@ -319,11 +368,11 @@ struct VideoEditorView: View {
                         Color.black
 
                         VideoPlayerView(player: playerModel.player)
-                            .scaleEffect(animTransform.scale)
-                            .offset(x: animTransform.offsetX, y: animTransform.offsetY)
-                            .rotationEffect(Angle(degrees: clip.hasKeyframes() ? animTransform.rotationDegrees : Double(clip.transform.rotation.rawValue)))
+                            .scaleEffect(curScale)
+                            .offset(x: curX, y: curY)
+                            .rotationEffect(Angle(degrees: curRot))
                             .scaleEffect(x: clip.transform.flipH ? -1 : 1, y: clip.transform.flipV ? -1 : 1)
-                            .opacity(animTransform.opacity)
+                            .opacity(curOp)
                             .brightness(animColor.brightness)
                             .contrast(animColor.contrast)
                             .saturation(animColor.saturation)
@@ -337,16 +386,17 @@ struct VideoEditorView: View {
                                 guard selectedClipIndex < project.clips.count else { return }
                                 if dragInitialOffset == nil {
                                     dragInitialOffset = CGSize(
-                                        width: animTransform.offsetX,
-                                        height: animTransform.offsetY
+                                        width: curX,
+                                        height: curY
                                     )
                                 }
                                 if let initial = dragInitialOffset {
                                     let newX = initial.width + val.translation.width
                                     let newY = initial.height + val.translation.height
+                                    previewState.update(scale: curScale, offsetX: newX, offsetY: newY, rotationDegrees: curRot, opacity: curOp)
                                     if clip.hasKeyframes() {
                                         project.clips[selectedClipIndex].addOrUpdateKeyframe(
-                                            at: clipLocalMs,
+                                            at: Int64(clipLocalMs),
                                             positionX: newX,
                                             positionY: newY,
                                             easing: selectedKeyframeEasing
@@ -368,13 +418,14 @@ struct VideoEditorView: View {
                             .onChanged { scaleVal in
                                 guard selectedClipIndex < project.clips.count else { return }
                                 if dragInitialScale == nil {
-                                    dragInitialScale = animTransform.scale
+                                    dragInitialScale = curScale
                                 }
                                 if let initial = dragInitialScale {
                                     let newScale = max(0.2, min(5.0, initial * Double(scaleVal)))
+                                    previewState.update(scale: newScale, offsetX: curX, offsetY: curY, rotationDegrees: curRot, opacity: curOp)
                                     if clip.hasKeyframes() {
                                         project.clips[selectedClipIndex].addOrUpdateKeyframe(
-                                            at: clipLocalMs,
+                                            at: Int64(clipLocalMs),
                                             scale: newScale,
                                             easing: selectedKeyframeEasing
                                         )
@@ -813,7 +864,13 @@ struct VideoEditorView: View {
             }
             .onChange(of: playheadMs) { _ in
                 if playerModel.isPlaying {
-                    proxy.scrollTo("PLAYHEAD_NEEDLE", anchor: .center)
+                    let now = Date().timeIntervalSince1970
+                    if now - lastTimelineScrollTime > 0.25 {
+                        lastTimelineScrollTime = now
+                        proxy.scrollTo("PLAYHEAD_NEEDLE", anchor: .center)
+                    }
+                } else {
+                    syncPreviewStateWithPlayhead()
                 }
             }
         }
@@ -1912,6 +1969,22 @@ struct VideoEditorView: View {
         playerModel.periodicTickHandler = { curMs in
             self.updatePlayheadFromPlayback(sourceMs: curMs)
         }
+        playerModel.onDisplayFrame = { currentSourceSec in
+            guard self.playerModel.isPlaying else { return }
+            guard self.selectedClipIndex < self.project.clips.count else { return }
+            let clip = self.project.clips[self.selectedClipIndex]
+            let currentSourceMs = currentSourceSec * 1000.0
+            let timelineOffset = clip.mapSourceMsToTimelineOffset(currentSourceMs)
+            let anim = clip.evaluatedTransform(at: timelineOffset)
+            let rot = clip.hasKeyframes() ? anim.rotationDegrees : Double(clip.transform.rotation.rawValue)
+            self.previewState.update(
+                scale: anim.scale,
+                offsetX: anim.offsetX,
+                offsetY: anim.offsetY,
+                rotationDegrees: rot,
+                opacity: anim.opacity
+            )
+        }
         playerModel.ensureTimeObserver()
 
         if let clip = project.clips.first {
@@ -1925,6 +1998,22 @@ struct VideoEditorView: View {
                 playerModel.seek(to: clip.sourceInPointMs)
             }
         }
+        syncPreviewStateWithPlayhead()
+    }
+
+    private func syncPreviewStateWithPlayhead() {
+        guard let clip = selectedClip else { return }
+        let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+        let clipLocalMs = Double(max(0, min(clip.timelineDurationMs, playheadMs - clipStart)))
+        let anim = clip.evaluatedTransform(at: clipLocalMs)
+        let rot = clip.hasKeyframes() ? anim.rotationDegrees : Double(clip.transform.rotation.rawValue)
+        previewState.update(
+            scale: anim.scale,
+            offsetX: anim.offsetX,
+            offsetY: anim.offsetY,
+            rotationDegrees: rot,
+            opacity: anim.opacity
+        )
     }
 
     private func updatePlayheadFromPlayback(sourceMs: Int64) {
@@ -2003,6 +2092,7 @@ struct VideoEditorView: View {
         } else {
             playerModel.seek(to: sourceMs, preservePlaybackState: preservePlayback)
         }
+        syncPreviewStateWithPlayhead()
     }
 
     private func performSplitAtPlayhead() {

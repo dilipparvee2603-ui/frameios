@@ -164,8 +164,11 @@ enum KeyframeEasing: String, CaseIterable, Identifiable, Codable {
         case .easeOut:
             easedT = clampedT * (2.0 - clampedT)
         case .easeInOut:
-            easedT = clampedT < 0.5 ? 2.0 * clampedT * clampedT : -1.0 + (4.0 - 2.0 * clampedT) * clampedT
+            // Continuous cubic Hermite Ease In-Out (Smoothstep: 3t^2 - 2t^3):
+            // Zero velocity at endpoints, continuous acceleration with zero midpoint jump
+            easedT = clampedT * clampedT * (3.0 - 2.0 * clampedT)
         case .smooth:
+            // Continuous cosine ease curve: (1 - cos(pi * t)) / 2 (Alight Motion / After Effects curve)
             easedT = (1.0 - cos(clampedT * .pi)) / 2.0
         }
         return v0 + (v1 - v0) * easedT
@@ -346,8 +349,8 @@ struct EditorClip: Identifiable, Codable, Equatable {
         sortedKeyframes.map { $0.timeMs }
     }
 
-    /// Evaluates complete transform at clip-local presentation timestamp in ms
-    func evaluatedTransform(at timeMs: Int64) -> (scale: Double, offsetX: Double, offsetY: Double, rotationDegrees: Double, opacity: Double) {
+    /// Evaluates complete transform continuously at sub-millisecond clip-local presentation timestamp in ms
+    func evaluatedTransform(at timeMs: Double) -> (scale: Double, offsetX: Double, offsetY: Double, rotationDegrees: Double, opacity: Double) {
         let sorted = sortedKeyframes
         guard !sorted.isEmpty else {
             return (
@@ -359,40 +362,48 @@ struct EditorClip: Identifiable, Codable, Equatable {
             )
         }
 
-        let clampedTime = max(0, min(timelineDurationMs, timeMs))
+        let maxDuration = Double(timelineDurationMs)
+        let clampedTime = max(0.0, min(maxDuration, timeMs))
 
         // Before first keyframe: hold first keyframe state
-        if clampedTime <= sorted.first!.timeMs {
+        if clampedTime <= Double(sorted.first!.timeMs) {
             let k0 = sorted.first!
             return (max(0.1, k0.scale), k0.positionX, k0.positionY, k0.rotationDegrees, max(0.0, min(1.0, k0.opacity)))
         }
 
         // After last keyframe: hold last keyframe state
-        if clampedTime >= sorted.last!.timeMs {
+        if clampedTime >= Double(sorted.last!.timeMs) {
             let kLast = sorted.last!
             return (max(0.1, kLast.scale), kLast.positionX, kLast.positionY, kLast.rotationDegrees, max(0.0, min(1.0, kLast.opacity)))
         }
 
-        // Between two keyframes: smooth interpolation
+        // Between two keyframes: continuous smooth mathematical interpolation
         for i in 0..<(sorted.count - 1) {
             let k0 = sorted[i]
             let k1 = sorted[i + 1]
-            if clampedTime >= k0.timeMs && clampedTime <= k1.timeMs {
-                let span = Double(k1.timeMs - k0.timeMs)
+            let t0 = Double(k0.timeMs)
+            let t1 = Double(k1.timeMs)
+            if clampedTime >= t0 && clampedTime <= t1 {
+                let span = t1 - t0
                 guard span > 0.001 else {
                     return (max(0.1, k0.scale), k0.positionX, k0.positionY, k0.rotationDegrees, max(0.0, min(1.0, k0.opacity)))
                 }
-                let t = Double(clampedTime - k0.timeMs) / span
-                let s = k0.easing.interpolate(from: k0.scale, to: k1.scale, progress: t)
-                let x = k0.easing.interpolate(from: k0.positionX, to: k1.positionX, progress: t)
-                let y = k0.easing.interpolate(from: k0.positionY, to: k1.positionY, progress: t)
-                let r = k0.easing.interpolate(from: k0.rotationDegrees, to: k1.rotationDegrees, progress: t)
-                let o = k0.easing.interpolate(from: k0.opacity, to: k1.opacity, progress: t)
+                let progress = max(0.0, min(1.0, (clampedTime - t0) / span))
+                let s = k0.easing.interpolate(from: k0.scale, to: k1.scale, progress: progress)
+                let x = k0.easing.interpolate(from: k0.positionX, to: k1.positionX, progress: progress)
+                let y = k0.easing.interpolate(from: k0.positionY, to: k1.positionY, progress: progress)
+                let r = k0.easing.interpolate(from: k0.rotationDegrees, to: k1.rotationDegrees, progress: progress)
+                let o = k0.easing.interpolate(from: k0.opacity, to: k1.opacity, progress: progress)
                 return (max(0.1, s), x, y, r, max(0.0, min(1.0, o)))
             }
         }
 
         return (transform.scale, transform.offsetX, transform.offsetY, Double(transform.rotation.rawValue), max(0.0, min(1.0, transform.opacity)))
+    }
+
+    /// Convenience overload for integer millisecond timestamp
+    func evaluatedTransform(at timeMs: Int64) -> (scale: Double, offsetX: Double, offsetY: Double, rotationDegrees: Double, opacity: Double) {
+        evaluatedTransform(at: Double(timeMs))
     }
 
     /// Evaluates color adjustments at a clip-local presentation time (ms)
@@ -427,24 +438,35 @@ struct EditorClip: Identifiable, Codable, Equatable {
 
     /// Maps a millisecond offset within this clip on the timeline to the corresponding source media timestamp (ms)
     func mapTimelineOffsetToSourceMs(_ offsetMs: Int64) -> Int64 {
-        let clampedOffset = max(0, min(timelineDurationMs, offsetMs))
-        let progress = timelineDurationMs > 0 ? (Double(clampedOffset) / Double(timelineDurationMs)) : 0.0
+        Int64(round(mapTimelineOffsetToSourceMs(Double(offsetMs))))
+    }
+
+    /// Double-precision continuous time mapping from timeline offset (ms) to source media timestamp (ms)
+    func mapTimelineOffsetToSourceMs(_ offsetMs: Double) -> Double {
+        let maxOffset = Double(timelineDurationMs)
+        let clampedOffset = max(0.0, min(maxOffset, offsetMs))
+        let progress = maxOffset > 0 ? (clampedOffset / maxOffset) : 0.0
 
         if !speedConfig.isRamp {
-            let sourceDeltaMs = Int64(round(Double(clampedOffset) * speedConfig.speedMultiplier))
-            return min(sourceOutPointMs, max(sourceInPointMs, sourceInPointMs + sourceDeltaMs))
+            let sourceDeltaMs = clampedOffset * speedConfig.speedMultiplier
+            return min(Double(sourceOutPointMs), max(Double(sourceInPointMs), Double(sourceInPointMs) + sourceDeltaMs))
         } else {
-            // Linear approximation for ramp progress
-            let sourceDeltaMs = Int64(round(progress * Double(sourceTrimmedDurationMs)))
-            return min(sourceOutPointMs, max(sourceInPointMs, sourceInPointMs + sourceDeltaMs))
+            let sourceDeltaMs = progress * Double(sourceTrimmedDurationMs)
+            return min(Double(sourceOutPointMs), max(Double(sourceInPointMs), Double(sourceInPointMs) + sourceDeltaMs))
         }
     }
 
     /// Maps a source timestamp (ms) back to this clip's timeline offset (ms)
     func mapSourceMsToTimelineOffset(_ srcMs: Int64) -> Int64 {
-        let deltaSrc = max(0, min(sourceTrimmedDurationMs, srcMs - sourceInPointMs))
-        let progress = sourceTrimmedDurationMs > 0 ? (Double(deltaSrc) / Double(sourceTrimmedDurationMs)) : 0.0
-        return Int64(round(progress * Double(timelineDurationMs)))
+        Int64(round(mapSourceMsToTimelineOffset(Double(srcMs))))
+    }
+
+    /// Double-precision continuous time mapping from source timestamp (ms) to timeline offset (ms)
+    func mapSourceMsToTimelineOffset(_ srcMs: Double) -> Double {
+        let maxSrcTrimmed = Double(sourceTrimmedDurationMs)
+        let deltaSrc = max(0.0, min(maxSrcTrimmed, srcMs - Double(sourceInPointMs)))
+        let progress = maxSrcTrimmed > 0 ? (deltaSrc / maxSrcTrimmed) : 0.0
+        return progress * Double(timelineDurationMs)
     }
 }
 

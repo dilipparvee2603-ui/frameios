@@ -16,10 +16,12 @@ final class PlayerModel: ObservableObject {
 
     var loopOnEnd: Bool = false
     var periodicTickHandler: ((Int64) -> Void)? = nil
+    var onDisplayFrame: ((_ currentSourceSec: Double) -> Void)? = nil
 
     private var timeObserverToken: Any? = nil
     private var endObserverToken: Any? = nil
     private var statusObserverToken: NSKeyValueObservation? = nil
+    private var displayLink: CADisplayLink?
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .rigid)
 
     init() {
@@ -51,10 +53,10 @@ final class PlayerModel: ObservableObject {
         item.forwardPlaybackEndTime = outCm
     }
 
-    /// Ensures the 60Hz periodic time observer is attached to the AVPlayer instance
+    /// Ensures the periodic time observer is attached to the AVPlayer instance for timeline UI sync
     func ensureTimeObserver() {
         guard timeObserverToken == nil else { return }
-        let interval = CMTime(value: 1, timescale: 60) // 60Hz UI sync
+        let interval = CMTime(value: 1, timescale: 30) // 30Hz for timeline UI needle to keep main thread light
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self else { return }
             self.currentPositionTime = time
@@ -135,6 +137,7 @@ final class PlayerModel: ObservableObject {
     }
 
     func cleanup() {
+        stopDisplayLink()
         if let token = endObserverToken {
             NotificationCenter.default.removeObserver(token)
             endObserverToken = nil
@@ -149,6 +152,7 @@ final class PlayerModel: ObservableObject {
     }
 
     func pause() {
+        stopDisplayLink()
         player.pause()
         player.rate = 0.0
         isPlaying = false
@@ -184,6 +188,7 @@ final class PlayerModel: ObservableObject {
                 if autoPlay {
                     self.player.playImmediately(atRate: safeRate)
                     self.isPlaying = true
+                    self.startDisplayLink()
                 }
                 completion?()
             }
@@ -212,6 +217,7 @@ final class PlayerModel: ObservableObject {
                     self.play()
                 }
             } else if self.isPlaying {
+                self.stopDisplayLink()
                 self.periodicTickHandler?(self.trimOutMs)
             }
         }
@@ -225,6 +231,7 @@ final class PlayerModel: ObservableObject {
             if autoPlay {
                 self.player.playImmediately(atRate: safeRate)
                 self.isPlaying = true
+                self.startDisplayLink()
             }
             completion?()
         }
@@ -245,12 +252,36 @@ final class PlayerModel: ObservableObject {
                 guard let self = self else { return }
                 self.player.playImmediately(atRate: safeRate)
                 self.isPlaying = true
+                self.startDisplayLink()
             }
             return
         }
 
         player.playImmediately(atRate: safeRate)
         isPlaying = true
+        startDisplayLink()
+    }
+
+    // MARK: - Hardware V-Sync Display Link for Continuous 60/120Hz Animation
+    func startDisplayLink() {
+        stopDisplayLink()
+        let link = CADisplayLink(target: self, selector: #selector(handleDisplayLinkTick(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func handleDisplayLinkTick(_ link: CADisplayLink) {
+        guard isPlaying else { return }
+        let currentTime = player.currentTime()
+        guard currentTime.isValid && !currentTime.isIndefinite else { return }
+        let sec = CMTimeGetSeconds(currentTime)
+        guard sec >= 0 else { return }
+        onDisplayFrame?(sec)
     }
 
     func setRate(_ rate: Float) {
