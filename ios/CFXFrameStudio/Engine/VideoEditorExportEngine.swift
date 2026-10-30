@@ -69,7 +69,7 @@ enum ExportFrameRate: Int, CaseIterable, Identifiable, Codable {
 }
 
 // MARK: - Export Codec Presets
-enum ExportCodec: String, CaseIterable, Identifiable, Codable {
+enum EditorCodec: String, CaseIterable, Identifiable, Codable {
     case h264 = "H.264 (Universal Compatibility)"
     case hevc = "HEVC / H.265 (High Efficiency)"
 
@@ -98,7 +98,7 @@ enum ExportQuality: String, CaseIterable, Identifiable, Codable {
 
     var id: String { rawValue }
 
-    func bitrateMbps(resolution: ExportResolutionPreset, fps: ExportFrameRate, codec: ExportCodec) -> Double {
+    func bitrateMbps(resolution: ExportResolutionPreset, fps: ExportFrameRate, codec: EditorCodec) -> Double {
         let baseBitrate: Double
         switch resolution {
         case .res720p:
@@ -127,7 +127,7 @@ struct ProjectExportConfig {
     var resolutionPreset: ExportResolutionPreset = .res1080p
     var aspectRatio: AspectRatioPreset = .ratio9x16
     var frameRate: ExportFrameRate = .fps30
-    var codec: ExportCodec = .h264
+    var codec: EditorCodec = .h264
     var quality: ExportQuality = .high
     var saveToCameraRoll: Bool = true
 
@@ -485,7 +485,7 @@ final class VideoEditorExportEngine {
 
         if ReturnCode.isSuccess(code), FileManager.default.fileExists(atPath: outputUrl.path) {
             onProgress(0.92, "Validating exported output integrity...")
-            let valResult = await validateExportedFile(
+            let valResult = validateExportedFile(
                 url: outputUrl,
                 expectedDurationSec: totalExpectedDurationSec,
                 expectedWidth: targetW,
@@ -570,7 +570,7 @@ final class VideoEditorExportEngine {
         expectedHeight: Int,
         expectedFps: Int,
         shouldHaveAudio: Bool
-    ) async -> (isValid: Bool, error: String?) {
+    ) -> (isValid: Bool, error: String?) {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return (false, "Export validation error: Output file does not exist on disk.")
         }
@@ -580,46 +580,43 @@ final class VideoEditorExportEngine {
         }
 
         let asset = AVURLAsset(url: url)
+        let durSec = asset.duration.seconds
+        guard durSec > 0.05 else {
+            return (false, "Export validation error: Output video duration is zero.")
+        }
+
+        let videoTracks = asset.tracks(withMediaType: .video)
+        guard let videoTrack = videoTracks.first else {
+            return (false, "Export validation error: No valid video track found in output file.")
+        }
+
+        let naturalSize = videoTrack.naturalSize
+        let transform = videoTrack.preferredTransform
+        let transformedSize = naturalSize.applying(transform)
+        let actualW = Int(abs(transformedSize.width))
+        let actualH = Int(abs(transformedSize.height))
+
+        if abs(actualW - expectedWidth) > 16 && abs(actualH - expectedHeight) > 16 {
+            // Non-fatal dimension warning
+        }
+
+        if shouldHaveAudio {
+            let audioTracks = asset.tracks(withMediaType: .audio)
+            if audioTracks.isEmpty {
+                // Audio track check
+            }
+        }
+
+        // Verify final frame can be decoded with AVAssetImageGenerator
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        let testTimeSec = max(0.0, durSec - 0.08)
+        let testTime = CMTime(seconds: testTimeSec, preferredTimescale: 600)
         do {
-            let duration = try await asset.load(.duration)
-            let durSec = duration.seconds
-            guard durSec > 0.05 else {
-                return (false, "Export validation error: Output video duration is zero.")
-            }
-
-            let videoTracks = try await asset.loadTracks(withMediaType: .video)
-            guard let videoTrack = videoTracks.first else {
-                return (false, "Export validation error: No valid video track found in output file.")
-            }
-
-            let naturalSize = try await videoTrack.load(.naturalSize)
-            let transform = try await videoTrack.load(.preferredTransform)
-            let transformedSize = naturalSize.applying(transform)
-            let actualW = Int(abs(transformedSize.width))
-            let actualH = Int(abs(transformedSize.height))
-
-            // Allow 8px margin of error for encoder macroblock alignment
-            if abs(actualW - expectedWidth) > 8 && abs(actualH - expectedHeight) > 8 {
-                // Warning only if orientation preserved
-            }
-
-            if shouldHaveAudio {
-                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-                if audioTracks.isEmpty {
-                    // Audio track was expected but missing
-                }
-            }
-
-            // Verify final frame can be extracted with AVAssetImageGenerator
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            let testTimeSec = max(0.0, durSec - 0.08)
-            let testTime = CMTime(seconds: testTimeSec, preferredTimescale: 600)
-            _ = try await generator.image(at: testTime)
-
+            _ = try generator.copyCGImage(at: testTime, actualTime: nil)
             return (true, nil)
         } catch {
-            return (false, "Export output validation failed: \(error.localizedDescription)")
+            return (false, "Export output validation failed to decode video frames: \(error.localizedDescription)")
         }
     }
 }

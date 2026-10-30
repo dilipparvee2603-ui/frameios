@@ -2718,7 +2718,7 @@ struct ExportSettingsSheet: View {
 
     @State private var selectedResolution: ExportResolutionPreset = .res1080p
     @State private var selectedFps: ExportFrameRate = .fps30
-    @State private var selectedCodec: ExportCodec = .h264
+    @State private var selectedCodec: EditorCodec = .h264
     @State private var selectedQuality: ExportQuality = .high
     @State private var saveToCameraRoll: Bool = true
 
@@ -2815,7 +2815,7 @@ struct ExportSettingsSheet: View {
                                 .foregroundColor(.textSecondary)
 
                             HStack(spacing: 8) {
-                                ForEach(ExportCodec.allCases) { codec in
+                                ForEach(EditorCodec.allCases) { codec in
                                     let isSel = selectedCodec == codec
                                     Button(action: { selectedCodec = codec }) {
                                         VStack(spacing: 2) {

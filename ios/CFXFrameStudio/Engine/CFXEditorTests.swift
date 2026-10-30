@@ -281,7 +281,7 @@ public final class CFXEditorTests {
                 resolutionPreset: .res4k,
                 aspectRatio: .ratio16x9,
                 frameRate: .fps60,
-                codec: .hevc,
+                codec: EditorCodec.hevc,
                 quality: .high
             )
             let valResult1 = validConfig.validate()
@@ -290,7 +290,7 @@ public final class CFXEditorTests {
                 resolutionPreset: .res4k,
                 aspectRatio: .ratio16x9,
                 frameRate: .fps60,
-                codec: .h264,
+                codec: EditorCodec.h264,
                 quality: .high
             )
             let valResult2 = invalidConfig.validate()
@@ -301,9 +301,9 @@ public final class CFXEditorTests {
 
         // 11. Export Dynamic Bitrate Scaling
         do {
-            let config720 = ProjectExportConfig(resolutionPreset: .res720p, aspectRatio: .ratio16x9, frameRate: .fps30, codec: .h264, quality: .high)
-            let config1080 = ProjectExportConfig(resolutionPreset: .res1080p, aspectRatio: .ratio16x9, frameRate: .fps30, codec: .h264, quality: .high)
-            let config4k = ProjectExportConfig(resolutionPreset: .res4k, aspectRatio: .ratio16x9, frameRate: .fps30, codec: .h264, quality: .high)
+            let config720 = ProjectExportConfig(resolutionPreset: .res720p, aspectRatio: .ratio16x9, frameRate: .fps30, codec: EditorCodec.h264, quality: .high)
+            let config1080 = ProjectExportConfig(resolutionPreset: .res1080p, aspectRatio: .ratio16x9, frameRate: .fps30, codec: EditorCodec.h264, quality: .high)
+            let config4k = ProjectExportConfig(resolutionPreset: .res4k, aspectRatio: .ratio16x9, frameRate: .fps30, codec: EditorCodec.h264, quality: .high)
 
             let b720 = config720.bitrateMbps
             let b1080 = config1080.bitrateMbps
