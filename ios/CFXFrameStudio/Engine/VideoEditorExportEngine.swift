@@ -397,60 +397,55 @@ final class VideoEditorExportEngine {
                 vFilters.append("vflip")
             }
 
-            // E. Color Grading (Exposure, Temperature, Tint, Brightness, Contrast, Saturation) & Opacity
+            // E. Color Grading (Exposure, Temperature, Tint, Brightness, Contrast, Saturation)
             let expMultiplier = pow(2.0, clip.color.exposure)
             let baseContrast = clip.color.contrast * expMultiplier
             let baseBrightness = clip.color.brightness + (0.05 * clip.color.exposure)
 
+            // Temperature (Kelvin white balance)
             if clip.color.temperature != 6500.0 {
                 let tempK = Int(round(max(2000.0, min(10000.0, clip.color.temperature))))
                 vFilters.append("colortemperature=temperature=\(tempK)")
             }
 
-            let opPoints: [(timeMs: Int64, value: Double, easing: KeyframeEasing)] = clip.hasKeyframes()
-                ? clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity, easing: $0.easing) }
-                : []
-            let hasOpacityAnim = opPoints.contains { abs($0.value - 1.0) > 0.01 }
-            let isStaticOpacity = abs(clip.transform.opacity - 1.0) > 0.01
+            // Tint (Green-Magenta balance on midtones)
+            if abs(clip.color.tint) > 0.1 {
+                let tintVal = max(-1.0, min(1.0, clip.color.tint / 100.0))
+                vFilters.append("colorbalance=gm=\(String(format: "%.3f", tintVal))")
+            }
 
-            if clip.hasKeyframes() {
-                let contrastPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: ($0.contrast) * expMultiplier, easing: $0.easing) }
+            // Contrast, Brightness, Saturation (evaluated purely without modifying opacity)
+            let hasColorKeyframes = clip.hasKeyframes() && clip.sortedKeyframes.contains {
+                $0.brightness != 0.0 || abs($0.contrast - 1.0) > 0.005 || abs($0.saturation - 1.0) > 0.005
+            }
+
+            if hasColorKeyframes {
+                let contrastPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.contrast * expMultiplier, easing: $0.easing) }
                 let brightnessPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.brightness + (0.05 * clip.color.exposure), easing: $0.easing) }
                 let saturationPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.saturation, easing: $0.easing) }
 
-                let hasColorAnim = contrastPoints.contains { abs($0.value - 1.0) > 0.01 } ||
-                                   brightnessPoints.contains { abs($0.value) > 0.01 } ||
-                                   saturationPoints.contains { abs($0.value - 1.0) > 0.01 }
+                let rawContrastExpr = buildFFmpegTimeExpression(points: contrastPoints, defaultValue: baseContrast)
+                let rawBrightnessExpr = buildFFmpegTimeExpression(points: brightnessPoints, defaultValue: baseBrightness)
+                let rawSaturationExpr = buildFFmpegTimeExpression(points: saturationPoints, defaultValue: clip.color.saturation)
 
-                if hasColorAnim || hasOpacityAnim {
-                    let rawContrastExpr = buildFFmpegTimeExpression(points: contrastPoints, defaultValue: baseContrast)
-                    let rawBrightnessExpr = buildFFmpegTimeExpression(points: brightnessPoints, defaultValue: baseBrightness)
-                    let rawSaturationExpr = buildFFmpegTimeExpression(points: saturationPoints, defaultValue: clip.color.saturation)
+                vFilters.append("eq=eval=frame:contrast='\(rawContrastExpr)':brightness='\(rawBrightnessExpr)':saturation='\(rawSaturationExpr)'")
+            } else if baseContrast != 1.0 || baseBrightness != 0.0 || clip.color.saturation != 1.0 {
+                vFilters.append("eq=contrast=\(String(format: "%.4f", baseContrast)):brightness=\(String(format: "%.4f", baseBrightness)):saturation=\(String(format: "%.4f", clip.color.saturation))")
+            }
 
-                    if hasOpacityAnim {
-                        let alphaExpr = buildFFmpegTimeExpression(points: opPoints, defaultValue: 1.0)
-                        let cExpr = "(\(rawContrastExpr))*(\(alphaExpr))"
-                        let bExpr = "(\(rawBrightnessExpr))+0.5*((\(alphaExpr))-1.0)"
-                        vFilters.append("eq=eval=frame:contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(rawSaturationExpr)'")
-                    } else if isStaticOpacity {
-                        let staticOp = String(format: "%.4f", max(0.0, min(1.0, clip.transform.opacity)))
-                        let cExpr = "(\(rawContrastExpr))*\(staticOp)"
-                        let bExpr = "(\(rawBrightnessExpr))+0.5*(\(staticOp)-1.0)"
-                        vFilters.append("eq=eval=frame:contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(rawSaturationExpr)'")
-                    } else {
-                        vFilters.append("eq=eval=frame:contrast='\(rawContrastExpr)':brightness='\(rawBrightnessExpr)':saturation='\(rawSaturationExpr)'")
-                    }
-                } else if baseContrast != 1.0 || baseBrightness != 0.0 || clip.color.saturation != 1.0 || isStaticOpacity {
-                    let op = isStaticOpacity ? max(0.0, min(1.0, clip.transform.opacity)) : 1.0
-                    let effContrast = baseContrast * op
-                    let effBrightness = baseBrightness + 0.5 * (op - 1.0)
-                    vFilters.append("eq=contrast=\(String(format: "%.4f", effContrast)):brightness=\(String(format: "%.4f", effBrightness)):saturation=\(String(format: "%.4f", clip.color.saturation))")
-                }
-            } else if baseContrast != 1.0 || baseBrightness != 0.0 || clip.color.saturation != 1.0 || isStaticOpacity {
-                let op = isStaticOpacity ? max(0.0, min(1.0, clip.transform.opacity)) : 1.0
-                let effContrast = baseContrast * op
-                let effBrightness = baseBrightness + 0.5 * (op - 1.0)
-                vFilters.append("eq=contrast=\(String(format: "%.4f", effContrast)):brightness=\(String(format: "%.4f", effBrightness)):saturation=\(String(format: "%.4f", clip.color.saturation))")
+            // F. Real Alpha Compositing for Opacity
+            let opPoints: [(timeMs: Int64, value: Double, easing: KeyframeEasing)] = clip.hasKeyframes()
+                ? clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity, easing: $0.easing) }
+                : []
+            let hasOpacityAnim = opPoints.count >= 2 && opPoints.contains { abs($0.value - opPoints[0].value) > 0.005 }
+            let staticOpacity = max(0.0, min(1.0, opPoints.first?.value ?? clip.transform.opacity))
+
+            if hasOpacityAnim {
+                let rawAlphaExpr = buildFFmpegTimeExpression(points: opPoints, defaultValue: clip.transform.opacity)
+                let alphaExprGeq = rawAlphaExpr.replacingOccurrences(of: "t", with: "T")
+                vFilters.append("format=yuva420p,geq=a='255*(\(alphaExprGeq))'")
+            } else if staticOpacity < 0.995 {
+                vFilters.append("format=yuva420p,colorchannelmixer=aa=\(String(format: "%.4f", staticOpacity))")
             }
 
             // F. Position Offset & Overlay onto Black Canvas
@@ -478,10 +473,10 @@ final class VideoEditorExportEngine {
             let yExpr = "(H-h)/2+(\(yOffsetExpr))"
             let durFormatted = String(format: "%.3f", clipDurationSec)
 
-            // Video overlay onto black background with eof_action=pass, exact framerate and duration trim
+            // Video overlay onto black background with eof_action=pass, auto alpha blending, exact framerate and duration trim
             filterComplexParts.append("color=c=black:s=\(targetW)x\(targetH):d=\(durFormatted):r=\(config.targetFps)[bg\(idx)]")
             filterComplexParts.append("[\(idx):v]setpts=PTS-STARTPTS,\(vFilterStr)[fg\(idx)]")
-            filterComplexParts.append("[bg\(idx)][fg\(idx)]overlay=x='\(xExpr)':y='\(yExpr)':eof_action=pass,fps=\(config.targetFps),setsar=1,trim=0:\(durFormatted),setpts=PTS-STARTPTS[v\(idx)]")
+            filterComplexParts.append("[bg\(idx)][fg\(idx)]overlay=x='\(xExpr)':y='\(yExpr)':eof_action=pass:format=auto,fps=\(config.targetFps),setsar=1,trim=0:\(durFormatted),setpts=PTS-STARTPTS[v\(idx)]")
 
             // 2. Audio Filters with apad to guarantee duration matching
             if hasAudioTrack && !clip.isMuted {
@@ -653,6 +648,7 @@ final class VideoEditorExportEngine {
                 expectedWidth: targetW,
                 expectedHeight: targetH,
                 expectedFps: config.targetFps,
+                expectedCodec: config.codec,
                 shouldHaveAudio: project.clips.contains { !$0.isMuted } || !validAudioTracks.isEmpty
             )
 
@@ -732,13 +728,14 @@ final class VideoEditorExportEngine {
         return expr
     }
 
-    /// Validates the exported video file: exists, non-zero size, playable, correct dimensions, duration within tolerance, and final frame decodable
+    /// Validates the exported video file: exists, non-zero size, playable, correct dimensions, duration within tolerance, frame rate, and final frame decodable
     func validateExportedFile(
         url: URL,
         expectedDurationSec: Double,
         expectedWidth: Int,
         expectedHeight: Int,
         expectedFps: Int,
+        expectedCodec: EditorCodec,
         shouldHaveAudio: Bool
     ) -> (isValid: Bool, error: String?) {
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -775,6 +772,12 @@ final class VideoEditorExportEngine {
         // Validate dimensions within 4px alignment margin
         if abs(actualW - expectedWidth) > 4 || abs(actualH - expectedHeight) > 4 {
             return (false, "Export validation error: Output dimensions (\(actualW)x\(actualH)) do not match expected (\(expectedWidth)x\(expectedHeight)).")
+        }
+
+        // Validate frame rate if available
+        let actualFps = Double(videoTrack.nominalFrameRate)
+        if actualFps > 0 && abs(actualFps - Double(expectedFps)) > 5.0 {
+            return (false, "Export validation error: Output frame rate (\(Int(round(actualFps))) fps) deviates from expected (\(expectedFps) fps).")
         }
 
         if shouldHaveAudio {
