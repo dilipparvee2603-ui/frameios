@@ -62,6 +62,17 @@ jobs:
           path: ios/build.log
           retention-days: 7
 
+      - name: Push Build Log on Failure
+        if: failure()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B build-log
+          cp ios/build.log ./build-log.txt || true
+          git add -f build-log.txt
+          git commit -m "ci: capture xcodebuild error log"
+          git push origin build-log --force
+
       - name: Package .IPA for Sideloading
         run: |
           cd ios
