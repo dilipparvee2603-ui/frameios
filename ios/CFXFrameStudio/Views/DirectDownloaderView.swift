@@ -8,6 +8,7 @@ struct DirectDownloaderView: View {
     @StateObject private var igEngine = InstagramDownloadEngine()
     @StateObject private var twitterEngine = TwitterDownloadEngine()
     @StateObject private var tiktokEngine = TikTokDownloadEngine()
+    @ObservedObject private var notificationManager = NotificationManager.shared
 
     @State private var inputUrl: String = ""
     @State private var showShareSheet: Bool = false
@@ -142,6 +143,8 @@ struct DirectDownloaderView: View {
         .navigationBarBackButtonHidden(true)
         .onAppear {
             refreshRecentDownloads()
+            notificationManager.setup()
+            notificationManager.requestAuthorization()
         }
         .onChange(of: engine.downloadedFileUrl) { newUrl in
             if newUrl != nil {
@@ -190,6 +193,23 @@ struct DirectDownloaderView: View {
             Spacer()
 
             HStack(spacing: 8) {
+                Button(action: {
+                    notificationManager.requestAuthorization { granted in
+                        if !granted {
+                            if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(settingsUrl)
+                            }
+                        }
+                    }
+                }) {
+                    Image(systemName: notificationManager.isAuthorized ? "bell.fill" : "bell.slash")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(notificationManager.isAuthorized ? .emeraldAccent : .textMuted)
+                        .frame(width: 36, height: 36)
+                        .background(Color.surfaceCard)
+                        .clipShape(Circle())
+                }
+
                 Button(action: { pasteFromClipboard() }) {
                     Image(systemName: "doc.on.clipboard")
                         .font(.system(size: 14, weight: .bold))

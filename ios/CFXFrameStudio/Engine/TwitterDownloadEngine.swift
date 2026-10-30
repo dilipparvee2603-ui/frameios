@@ -453,6 +453,7 @@ final class TwitterDownloadEngine: ObservableObject {
 
         self.isBatchDownloading = false
         self.batchStatusMessage = "All \(items.count) items saved to Camera Roll!"
+        NotificationManager.shared.notifyBatchDownloadCompleted(count: items.count, platform: "Twitter / X")
         AppLogger.shared.log(tag: "TWITTER", message: "Saved all \(items.count) items to Photos", isError: false)
     }
 }

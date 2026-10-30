@@ -341,6 +341,7 @@ final class TikTokDownloadEngine: ObservableObject {
 
         self.isBatchDownloading = false
         self.batchStatusMessage = "Saved all \(items.count) items to Camera Roll!"
+        NotificationManager.shared.notifyBatchDownloadCompleted(count: items.count, platform: "TikTok")
         AppLogger.shared.log(tag: "TIKTOK", message: "Saved all \(items.count) items to Photos", isError: false)
     }
 }

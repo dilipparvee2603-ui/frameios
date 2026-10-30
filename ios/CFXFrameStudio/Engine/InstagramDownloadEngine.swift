@@ -586,6 +586,7 @@ final class InstagramDownloadEngine: ObservableObject {
 
         self.isBatchDownloading = false
         self.batchStatusMessage = "All \(items.count) carousel items saved to Photos!"
+        NotificationManager.shared.notifyBatchDownloadCompleted(count: items.count, platform: "Instagram")
     }
 }
 

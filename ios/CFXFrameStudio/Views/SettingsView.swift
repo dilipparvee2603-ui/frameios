@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var storage = StorageManager.shared
+    @ObservedObject private var notificationManager = NotificationManager.shared
     @StateObject private var logger = AppLogger.shared
 
     @State private var showConfirmWipeAll: Bool = false
@@ -29,6 +30,9 @@ struct SettingsView: View {
 
                         // Diagnostic & Error Logs Section
                         errorLogSection
+
+                        // Notifications Section
+                        notificationsSection
 
                         // App Version & Info
                         aboutSection
@@ -478,6 +482,58 @@ struct SettingsView: View {
                                 .stroke(Color.borderHairline, lineWidth: 1)
                         )
                     }
+                }
+            }
+        }
+    }
+
+    // MARK: - Notifications Section
+
+    private var notificationsSection: some View {
+        GlassCard(cornerRadius: 14, padding: 14) {
+            HStack {
+                ZStack {
+                    Circle()
+                        .fill(notificationManager.isAuthorized ? Color.emeraldAccent.opacity(0.15) : Color.skyAccent.opacity(0.15))
+                        .frame(width: 32, height: 32)
+                    Image(systemName: notificationManager.isAuthorized ? "bell.badge.fill" : "bell.slash.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(notificationManager.isAuthorized ? .emeraldAccent : .skyAccent)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Download Notifications")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.textPrimary)
+                    Text(notificationManager.isAuthorized ? "Lock Screen alerts & sounds active" : "Disabled • Tap to enable notifications")
+                        .font(.system(size: 11))
+                        .foregroundColor(.textMuted)
+                }
+
+                Spacer()
+
+                Button(action: {
+                    if notificationManager.isAuthorized {
+                        NotificationManager.shared.notifyDownloadCompleted(
+                            filename: "Sample_Video.mp4",
+                            savedToPhotos: true,
+                            fileSizeFormatted: "38.2 MB"
+                        )
+                    } else {
+                        notificationManager.requestAuthorization { granted in
+                            if !granted, let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(settingsUrl)
+                            }
+                        }
+                    }
+                }) {
+                    Text(notificationManager.isAuthorized ? "Test Alert" : "Enable")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(notificationManager.isAuthorized ? .emeraldAccent : .white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(notificationManager.isAuthorized ? Color.emeraldAccent.opacity(0.18) : Color.skyAccent)
+                        .cornerRadius(6)
                 }
             }
         }

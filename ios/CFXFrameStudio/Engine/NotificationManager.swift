@@ -1,0 +1,128 @@
+import Foundation
+import UserNotifications
+import UIKit
+
+/// Manages local push notifications for CFX FrameStudio (e.g. download completion on Lock Screen and Notification Center)
+final class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
+    static let shared = NotificationManager()
+
+    @Published var isAuthorized: Bool = false
+
+    private override init() {
+        super.init()
+    }
+
+    /// Configures the notification center delegate and refreshes authorization status
+    func setup() {
+        UNUserNotificationCenter.current().delegate = self
+        checkAuthorizationStatus()
+    }
+
+    /// Queries the system for the current notification permission state
+    func checkAuthorizationStatus() {
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+            DispatchQueue.main.async {
+                self?.isAuthorized = (settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)
+            }
+        }
+    }
+
+    /// Requests user authorization for Lock Screen alerts, Notification Center banners, and sounds
+    func requestAuthorization(completion: ((Bool) -> Void)? = nil) {
+        let options: UNAuthorizationOptions = [.alert, .sound, .badge]
+        UNUserNotificationCenter.current().requestAuthorization(options: options) { [weak self] granted, error in
+            DispatchQueue.main.async {
+                self?.isAuthorized = granted
+                completion?(granted)
+            }
+        }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    /// Delivers notifications as a prominent banner and sound even when the app is currently active in the foreground
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        if #available(iOS 14.0, *) {
+            completionHandler([.banner, .sound, .list, .badge])
+        } else {
+            completionHandler([.alert, .sound, .badge])
+        }
+    }
+
+    /// Handles user tapping on a notification from the Lock Screen or Notification Center
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        completionHandler()
+    }
+
+    // MARK: - Downloader Notification Triggers
+
+    /// Posts a rich completion notification appearing on the Lock Screen, dynamic banner, and Notification Center
+    func notifyDownloadCompleted(filename: String, savedToPhotos: Bool, fileSizeFormatted: String? = nil) {
+        let content = UNMutableNotificationContent()
+        content.title = "✓ Download Complete"
+        
+        let sizeText = (fileSizeFormatted != nil && !fileSizeFormatted!.isEmpty) ? " (\(fileSizeFormatted!))" : ""
+        let storageDestination = savedToPhotos ? "Saved to Camera Roll & Files" : "Saved to CFX Files"
+        content.body = "“\(filename)” finished downloading\(sizeText). \(storageDestination)."
+        content.sound = .default
+
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .timeSensitive
+        }
+
+        scheduleNotification(content: content)
+    }
+
+    /// Posts a failure notification alerting the user on the Lock Screen if a background download fails
+    func notifyDownloadFailed(filename: String?, error: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "✕ Download Failed"
+        
+        let fileText = (filename != nil && !filename!.isEmpty) ? " for “\(filename!)”" : ""
+        content.body = "Download\(fileText) could not be completed: \(error)"
+        content.sound = .default
+
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .timeSensitive
+        }
+
+        scheduleNotification(content: content)
+    }
+
+    /// Posts a notification when a carousel / batch social download completes
+    func notifyBatchDownloadCompleted(count: Int, platform: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "✓ \(platform) Batch Complete"
+        content.body = "All \(count) \(platform) items were downloaded and saved to your Camera Roll."
+        content.sound = .default
+
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .timeSensitive
+        }
+
+        scheduleNotification(content: content)
+    }
+
+    private func scheduleNotification(content: UNNotificationContent) {
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: trigger
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("[NotificationManager] Error posting notification: \(error.localizedDescription)")
+            }
+        }
+    }
+}

@@ -79,6 +79,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
     }
 
     func startDownload(urlString: String, customFilename: String? = nil) {
+        NotificationManager.shared.requestAuthorization()
         guard let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme == "http" || url.scheme == "https" else {
             self.errorMessage = "Please enter a valid HTTP or HTTPS direct link."
@@ -99,6 +100,7 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
     }
 
     func startYouTubeDownload(option: YouTubeQualityOption, videoTitle: String) {
+        NotificationManager.shared.requestAuthorization()
         reset()
         beginBackgroundTask()
         self.isDownloading = true
@@ -178,6 +180,10 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                 self.errorMessage = "Download Error: \(error.localizedDescription)"
                 self.cleanupTempFiles()
                 self.endBackgroundTask()
+                NotificationManager.shared.notifyDownloadFailed(
+                    filename: safeTitle,
+                    error: error.localizedDescription
+                )
             }
         }
     }
@@ -522,6 +528,10 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
                 self.isDownloading = false
                 self.errorMessage = "Download Error: \(err.localizedDescription)"
                 self.cleanupTempFiles()
+                NotificationManager.shared.notifyDownloadFailed(
+                    filename: self.customTargetFilename ?? task.response?.suggestedFilename,
+                    error: err.localizedDescription
+                )
             }
         }
     }
@@ -604,6 +614,15 @@ final class DirectDownloadEngine: NSObject, ObservableObject, URLSessionDownload
         } else {
             self.savedToPhotos = false
         }
+
+        let filename = destinationUrl.lastPathComponent
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: destinationUrl.path)[.size] as? Int64) ?? 0
+        let sizeFormatted = fileSize > 0 ? ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file) : nil
+        NotificationManager.shared.notifyDownloadCompleted(
+            filename: filename,
+            savedToPhotos: self.savedToPhotos,
+            fileSizeFormatted: sizeFormatted
+        )
     }
 
     // MARK: - Inspection & Photos Routing
