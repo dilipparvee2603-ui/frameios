@@ -443,7 +443,7 @@ final class VideoEditorExportEngine {
             if hasOpacityAnim {
                 let rawAlphaExpr = buildFFmpegTimeExpression(points: opPoints, defaultValue: clip.transform.opacity)
                 let alphaExprGeq = rawAlphaExpr.replacingOccurrences(of: "t", with: "T")
-                vFilters.append("format=yuva420p,geq=a='255*(\(alphaExprGeq))'")
+                vFilters.append("format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='255*(\(alphaExprGeq))'")
             } else if staticOpacity < 0.995 {
                 vFilters.append("format=yuva420p,colorchannelmixer=aa=\(String(format: "%.4f", staticOpacity))")
             }
