@@ -176,7 +176,7 @@ struct UniversalPlayerView: View {
             rippleFeedbackOverlay
 
             // 5. On-Screen Buffering / Status
-            if engine.isBuffering || engine.statusMessage != nil {
+            if engine.isBuffering || (engine.statusMessage != nil && !engine.isPlaying) {
                 loadingOverlay
             }
 

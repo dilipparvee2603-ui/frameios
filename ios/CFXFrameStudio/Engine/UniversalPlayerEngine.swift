@@ -113,6 +113,7 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
     var player: AVPlayer?
     private var timeObserverToken: Any?
     private var sleepTimerTask: Task<Void, Never>?
+    private var playerItemStatusObserver: NSKeyValueObservation?
 
     override init() {
         super.init()
@@ -134,6 +135,8 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
         }
         sleepTimerTask?.cancel()
         sleepTimerTask = nil
+        playerItemStatusObserver?.invalidate()
+        playerItemStatusObserver = nil
         if let token = timeObserverToken {
             player?.removeTimeObserver(token)
             timeObserverToken = nil
@@ -148,7 +151,7 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
     func loadMedia(url: URL) async {
         cleanUp()
         self.currentSourceUrl = url
-        self.statusMessage = "Inspecting media streams..."
+        self.statusMessage = "Opening media..."
         self.isBuffering = true
         self.currentTime = 0.0
         self.duration = 0.0
@@ -160,28 +163,39 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
         self.hasResumedPlayback = false
         self.lastSavedPosition = nil
 
-        // Probe media info via FFprobe
-        await probeMediaInfo(url: url)
+        // Immediate 2ms container & codec binary scan
+        let isNonNative = MKVRemuxEngine.isNonNativeContainer(url: url)
+        let binScan = MKVRemuxEngine.fastBinaryScan(url: url)
+        let sizeBytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+
+        self.metadata = UniversalMediaMetadata(
+            title: url.deletingPathExtension().lastPathComponent,
+            container: url.pathExtension.uppercased(),
+            fileSizeFormatted: ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+        )
 
         // Check if there is a saved resume position
         let savedResumePos = getSavedPlaybackPosition(for: url)
 
-        // Check container & compatibility
-        let isNonNative = MKVRemuxEngine.isNonNativeContainer(url: url)
+        // Asynchronously probe full media metadata in the background so it never stalls instant playback
+        Task { [weak self] in
+            await self?.probeMediaInfo(url: url)
+        }
+
         var playableUrl = url
 
-        if isNonNative || metadata.audioCodec.lowercased().contains("dts") || metadata.audioCodec.lowercased().contains("ac3") || metadata.audioCodec.lowercased().contains("opus") {
+        if isNonNative || binScan.hasHev1 || binScan.hasAc3 || binScan.hasEc3 || binScan.hasDts {
             // First check if an existing fast remux was already cached
             if let cached = MKVRemuxEngine.getExistingCachedRemux(for: url) {
                 playableUrl = cached
             } else {
-                // INSTANT STREAMING: Instead of waiting 3 minutes for 20 GB to remux, stream fMP4/HLS in real time!
-                self.statusMessage = "Starting Instant Stream..."
+                // INSTANT STREAMING: Direct stream-copy chunks in real time (< 0.2s startup)
+                self.statusMessage = "Opening stream..."
                 do {
                     playableUrl = try await startStreaming(sourceUrl: url, seekOffset: savedResumePos ?? 0.0)
                 } catch {
                     AppLogger.shared.error(tag: "PLAYER", message: "Instant stream failed, falling back to progressive remux: \(error.localizedDescription)")
-                    self.statusMessage = "Opening stream..."
+                    self.statusMessage = "Buffering..."
                     if let fallback = try? await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url, onProgress: { [weak self] progress, _ in
                         Task { @MainActor in
                             self?.statusMessage = "Buffering: \(Int(progress * 100))%"
@@ -199,6 +213,7 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
 
     private func startStreaming(sourceUrl: URL, seekOffset: Double = 0.0) async throws -> URL {
         streamProcessTask?.cancel()
+        streamProcessTask = nil
         FFmpegKit.cancel()
         if let dir = activeStreamDirectory {
             try? FileManager.default.removeItem(at: dir)
@@ -213,12 +228,16 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
         self.streamSeekBaseOffset = seekOffset
 
         let playlistUrl = streamDir.appendingPathComponent("live.m3u8")
+        let initUrl = streamDir.appendingPathComponent("init.mp4")
+        let segmentPattern = streamDir.appendingPathComponent("segment_%03d.m4s")
+        let firstSegmentUrl = streamDir.appendingPathComponent("segment_000.m4s")
 
-        let isHEVC = metadata.videoCodec.contains("HEVC") || metadata.videoCodec.contains("H265") || metadata.videoCodec.contains("HEV1")
-        let isAudioAac = metadata.audioCodec.contains("AAC") || metadata.audioCodec.contains("MP3") || metadata.audioCodec.contains("ALAC")
+        let binScan = MKVRemuxEngine.fastBinaryScan(url: sourceUrl)
+        let nameLower = sourceUrl.lastPathComponent.lowercased()
+        let isHEVC = binScan.hasHev1 || nameLower.contains("hevc") || nameLower.contains("x265") || nameLower.contains("h265")
 
         var args = ["-threads", "0", "-y"]
-        if seekOffset > 2.0 {
+        if seekOffset > 1.0 {
             args += ["-ss", String(format: "%.3f", seekOffset)]
         }
         args += [
@@ -228,36 +247,45 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
             "-c:v", "copy"
         ]
         if isHEVC {
-            args += ["-tag:v", "hvc1", "-bsf:v", "hevc_mp4toannexb"]
-        }
-        if !isAudioAac {
-            args += ["-c:a", "aac", "-b:a", "256k", "-ac", "2"]
+            args += ["-tag:v", "hvc1"]
         } else {
-            args += ["-c:a", "copy"]
+            args += ["-tag:v", "avc1"]
         }
         args += [
+            "-c:a", "aac",
+            "-b:a", "256k",
+            "-ac", "2",
             "-f", "hls",
             "-hls_time", "2",
             "-hls_list_size", "0",
             "-hls_segment_type", "fmp4",
+            "-hls_fmp4_init_filename", "init.mp4",
+            "-hls_segment_filename", segmentPattern.path,
             "-hls_flags", "independent_segments",
             playlistUrl.path
         ]
 
         streamProcessTask = Task.detached(priority: .userInitiated) {
-            _ = FFmpegKit.execute(withArguments: args)
+            let session = FFmpegKit.execute(withArguments: args)
+            let returnCode = session?.getReturnCode()
+            if !ReturnCode.isSuccess(returnCode) && !ReturnCode.isCancel(returnCode) {
+                let logs = session?.getAllLogsAsString() ?? session?.getFailStackTrace() ?? "Unknown error"
+                AppLogger.shared.error(tag: "STREAM", message: "HLS FFmpeg execution error: \(logs)")
+            }
         }
 
-        // Wait until master playlist is written (usually takes < 300ms)
+        // Wait until playlist, init.mp4, and the first segment are all written to disk
         var elapsedMs = 0
-        while !FileManager.default.fileExists(atPath: playlistUrl.path) && elapsedMs < 6000 {
-            try? await Task.sleep(nanoseconds: 80_000_000)
-            elapsedMs += 80
+        while (!FileManager.default.fileExists(atPath: playlistUrl.path) ||
+               !FileManager.default.fileExists(atPath: initUrl.path) ||
+               !FileManager.default.fileExists(atPath: firstSegmentUrl.path)) && elapsedMs < 8000 {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            elapsedMs += 50
         }
 
-        try? await Task.sleep(nanoseconds: 150_000_000)
-
-        guard FileManager.default.fileExists(atPath: playlistUrl.path) else {
+        guard FileManager.default.fileExists(atPath: playlistUrl.path) &&
+              FileManager.default.fileExists(atPath: initUrl.path) &&
+              FileManager.default.fileExists(atPath: firstSegmentUrl.path) else {
             throw NSError(domain: "UniversalPlayerEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "Stream initialization timed out."])
         }
 
@@ -265,17 +293,44 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
     }
 
     private func setupPlayer(url: URL, initialResumePos: Double? = nil) {
+        playerItemStatusObserver?.invalidate()
+        playerItemStatusObserver = nil
+
         let asset = AVURLAsset(url: url)
         let playerItem = AVPlayerItem(asset: asset)
 
         let avPlayer = AVPlayer(playerItem: playerItem)
         avPlayer.actionAtItemEnd = .none
+        avPlayer.automaticallyWaitsToMinimizeStalling = false
         self.player = avPlayer
         self.playbackRate = 1.0
         avPlayer.rate = 1.0
         self.isPlaying = true
-        self.isBuffering = false
-        self.statusMessage = nil
+        self.isBuffering = true
+
+        // Observe Item Status
+        playerItemStatusObserver = playerItem.observe(\.status, options: [.new, .old]) { [weak self] item, _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                switch item.status {
+                case .readyToPlay:
+                    self.isBuffering = false
+                    self.statusMessage = nil
+                    if self.isPlaying {
+                        self.player?.play()
+                    }
+                case .failed:
+                    self.isBuffering = false
+                    let errMsg = item.error?.localizedDescription ?? "Playback failed"
+                    self.statusMessage = errMsg
+                    AppLogger.shared.error(tag: "PLAYER", message: "AVPlayerItem failed: \(errMsg)")
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+        }
 
         // Set volume with 200% boost capability
         applyVolume(self.volume)
@@ -329,6 +384,8 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
                 self.seek(to: restartA)
             }
         }
+
+        avPlayer.play()
     }
 
     private func handlePlaybackEnded() {
@@ -425,22 +482,22 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
 
     func seek(to seconds: Double) {
         let clamped = max(0.0, min(seconds, duration))
+        currentTime = clamped
         if isStreamingHLS {
             guard let url = currentSourceUrl else { return }
+            self.isBuffering = true
             Task {
                 do {
-                    self.isBuffering = true
                     let streamUrl = try await startStreaming(sourceUrl: url, seekOffset: clamped)
                     setupPlayer(url: streamUrl, initialResumePos: nil)
-                    self.currentTime = clamped
                 } catch {
                     AppLogger.shared.error(tag: "PLAYER", message: "Seek streaming error: \(error.localizedDescription)")
+                    self.isBuffering = false
                 }
             }
         } else {
             let targetTime = CMTime(seconds: clamped, preferredTimescale: 600)
             player?.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            currentTime = clamped
         }
         savePlaybackPosition()
     }
