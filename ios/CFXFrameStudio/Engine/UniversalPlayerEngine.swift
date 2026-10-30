@@ -182,11 +182,13 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
                 } catch {
                     AppLogger.shared.error(tag: "PLAYER", message: "Instant stream failed, falling back to progressive remux: \(error.localizedDescription)")
                     self.statusMessage = "Opening stream..."
-                    playableUrl = try? await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { [weak self] progress, _ in
+                    if let fallback = try? await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url, onProgress: { [weak self] progress, _ in
                         Task { @MainActor in
                             self?.statusMessage = "Buffering: \(Int(progress * 100))%"
                         }
-                    } ?? url
+                    }) {
+                        playableUrl = fallback
+                    }
                 }
             }
         }
