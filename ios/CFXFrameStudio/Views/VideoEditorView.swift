@@ -87,6 +87,7 @@ struct VideoEditorView: View {
     @State private var dragTrimInitialInMs: Int64? = nil
     @State private var dragTrimInitialOutMs: Int64? = nil
     @State private var dragPlayheadInitialMs: Int64? = nil
+    @State private var dragKeyframeInitialTimeMs: Int64? = nil
     @State private var selectedKeyframeEasing: KeyframeEasing = .easeInOut
     @State private var lastTimelineScrollTime: TimeInterval = 0
 
@@ -1001,7 +1002,7 @@ struct VideoEditorView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isSelected ? Color.brandAccent : Color.borderHairline, lineWidth: isSelected ? 2.5 : 1)
 
-            // Diamond Keyframe Markers overlay on clip track
+            // Diamond Keyframe Markers overlay on clip track (Tappable & Draggable along track)
             if !clip.keyframes.isEmpty {
                 ZStack(alignment: .leading) {
                     ForEach(clip.sortedKeyframes) { kf in
@@ -1010,19 +1011,44 @@ struct VideoEditorView: View {
                         let clipStart = project.timelineStartTime(forClipIndex: index)
                         let isKeyframeActive = selectedKeyframeId == kf.id || abs((clipStart + kf.timeMs) - playheadMs) <= 60
 
-                        Button(action: {
+                        ZStack {
+                            Image(systemName: "rhombus.fill")
+                                .font(.system(size: isKeyframeActive ? 14 : 9, weight: .heavy))
+                                .foregroundColor(isKeyframeActive ? Color.amberAccent : Color.white.opacity(0.85))
+                                .shadow(color: Color.black, radius: 2)
+                        }
+                        .frame(width: 24, height: 28)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
                             selectedClipIndex = index
                             selectedKeyframeId = kf.id
                             playheadMs = clipStart + kf.timeMs
                             syncPlayheadToPlayer(preservePlayback: playerModel.isPlaying)
-                        }) {
-                            Image(systemName: "rhombus.fill")
-                                .font(.system(size: isKeyframeActive ? 12 : 8, weight: .bold))
-                                .foregroundColor(isKeyframeActive ? Color.amberAccent : Color.white.opacity(0.85))
-                                .shadow(color: Color.black, radius: 2)
                         }
-                        .buttonStyle(.plain)
-                        .offset(x: markerX, y: 16)
+                        .gesture(
+                            DragGesture(minimumDistance: 3)
+                                .onChanged { val in
+                                    if dragKeyframeInitialTimeMs == nil {
+                                        recordUndo()
+                                        selectedClipIndex = index
+                                        selectedKeyframeId = kf.id
+                                        dragKeyframeInitialTimeMs = kf.timeMs
+                                    }
+                                    guard let initialMs = dragKeyframeInitialTimeMs else { return }
+                                    let deltaRatio = val.translation.width / max(1, width)
+                                    let deltaMs = Int64(deltaRatio * CGFloat(clip.timelineDurationMs))
+                                    let targetTimeMs = max(0, min(clip.timelineDurationMs, initialMs + deltaMs))
+                                    project.clips[index].moveKeyframe(id: kf.id, newTimeMs: targetTimeMs)
+                                    playheadMs = clipStart + targetTimeMs
+                                    syncPreviewStateWithPlayhead()
+                                    syncPlayheadToPlayer(preservePlayback: false)
+                                }
+                                .onEnded { _ in
+                                    dragKeyframeInitialTimeMs = nil
+                                    ProjectStorageManager.shared.saveProject(project)
+                                }
+                        )
+                        .offset(x: markerX - 8, y: 12)
                     }
                 }
             }
@@ -1612,42 +1638,113 @@ struct VideoEditorView: View {
     // MARK: - Color Inspector
     @ViewBuilder
     private func colorInspector(clip: EditorClip) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("COLOR GRADING")
-                .font(.system(size: 11, weight: .heavy))
-                .foregroundColor(.amberAccent)
+        let clipStart = project.timelineStartTime(forClipIndex: selectedClipIndex)
+        let clipLocalMs = max(0, min(clip.timelineDurationMs, playheadMs - clipStart))
+        let animColor = clip.evaluatedColor(at: clipLocalMs)
 
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Contrast")
-                    .font(.system(size: 10))
-                    .foregroundColor(.textSecondary)
-                    .frame(width: 60, alignment: .leading)
+                Text("COLOR GRADING")
+                    .font(.system(size: 11, weight: .heavy))
+                    .foregroundColor(.amberAccent)
+                Spacer()
+                Button("Reset Color") {
+                    recordUndo()
+                    if clip.hasKeyframes() {
+                        project.clips[selectedClipIndex].addOrUpdateKeyframe(
+                            at: clipLocalMs,
+                            brightness: 0.0,
+                            contrast: 1.0,
+                            saturation: 1.0,
+                            easing: selectedKeyframeEasing
+                        )
+                    } else {
+                        project.clips[selectedClipIndex].color = .identity
+                    }
+                    syncPreviewStateWithPlayhead()
+                    ProjectStorageManager.shared.saveProject(project)
+                }
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.textMuted)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.elevatedSurface)
+                .clipShape(Capsule())
+            }
+
+            // Contrast Slider
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Contrast")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.textSecondary)
+                    Spacer()
+                    Text(String(format: "%.2fx", animColor.contrast))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.brandAccent)
+                }
                 Slider(value: Binding(
-                    get: { project.clips[selectedClipIndex].color.contrast },
-                    set: { project.clips[selectedClipIndex].color.contrast = $0 }
+                    get: { animColor.contrast },
+                    set: { newContrast in
+                        if clip.hasKeyframes() {
+                            project.clips[selectedClipIndex].addOrUpdateKeyframe(at: clipLocalMs, contrast: newContrast, easing: selectedKeyframeEasing)
+                        } else {
+                            project.clips[selectedClipIndex].color.contrast = newContrast
+                        }
+                        syncPreviewStateWithPlayhead()
+                    }
                 ), in: 0.5...1.8)
+                .accentColor(.brandAccent)
             }
 
-            HStack {
-                Text("Brightness")
-                    .font(.system(size: 10))
-                    .foregroundColor(.textSecondary)
-                    .frame(width: 60, alignment: .leading)
+            // Brightness Slider
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Brightness")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.textSecondary)
+                    Spacer()
+                    Text(String(format: "%+.2f", animColor.brightness))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.skyAccent)
+                }
                 Slider(value: Binding(
-                    get: { project.clips[selectedClipIndex].color.brightness },
-                    set: { project.clips[selectedClipIndex].color.brightness = $0 }
+                    get: { animColor.brightness },
+                    set: { newBrightness in
+                        if clip.hasKeyframes() {
+                            project.clips[selectedClipIndex].addOrUpdateKeyframe(at: clipLocalMs, brightness: newBrightness, easing: selectedKeyframeEasing)
+                        } else {
+                            project.clips[selectedClipIndex].color.brightness = newBrightness
+                        }
+                        syncPreviewStateWithPlayhead()
+                    }
                 ), in: -0.5...0.5)
+                .accentColor(.skyAccent)
             }
 
-            HStack {
-                Text("Saturation")
-                    .font(.system(size: 10))
-                    .foregroundColor(.textSecondary)
-                    .frame(width: 60, alignment: .leading)
+            // Saturation Slider
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Saturation")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.textSecondary)
+                    Spacer()
+                    Text(String(format: "%.2fx", animColor.saturation))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.emeraldAccent)
+                }
                 Slider(value: Binding(
-                    get: { project.clips[selectedClipIndex].color.saturation },
-                    set: { project.clips[selectedClipIndex].color.saturation = $0 }
+                    get: { animColor.saturation },
+                    set: { newSat in
+                        if clip.hasKeyframes() {
+                            project.clips[selectedClipIndex].addOrUpdateKeyframe(at: clipLocalMs, saturation: newSat, easing: selectedKeyframeEasing)
+                        } else {
+                            project.clips[selectedClipIndex].color.saturation = newSat
+                        }
+                        syncPreviewStateWithPlayhead()
+                    }
                 ), in: 0.0...2.0)
+                .accentColor(.emeraldAccent)
             }
         }
     }
@@ -1715,6 +1812,7 @@ struct VideoEditorView: View {
                         } else {
                             project.clips[selectedClipIndex].transform.scale = 1.0
                         }
+                        syncPreviewStateWithPlayhead()
                     }
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.textMuted)
@@ -1733,6 +1831,7 @@ struct VideoEditorView: View {
                             } else {
                                 project.clips[selectedClipIndex].transform.scale = newScale
                             }
+                            syncPreviewStateWithPlayhead()
                         }
                     ),
                     in: 0.3...3.5,
@@ -1751,6 +1850,7 @@ struct VideoEditorView: View {
                             } else {
                                 project.clips[selectedClipIndex].transform.scale = z
                             }
+                            syncPreviewStateWithPlayhead()
                         }) {
                             Text(String(format: "%.1fx", z))
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -1785,6 +1885,7 @@ struct VideoEditorView: View {
                             project.clips[selectedClipIndex].transform.offsetX = 0.0
                             project.clips[selectedClipIndex].transform.offsetY = 0.0
                         }
+                        syncPreviewStateWithPlayhead()
                     }
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.textMuted)
@@ -1805,6 +1906,7 @@ struct VideoEditorView: View {
                             } else {
                                 project.clips[selectedClipIndex].transform.offsetY -= 10.0
                             }
+                            syncPreviewStateWithPlayhead()
                         }) {
                             Image(systemName: "chevron.up")
                                 .font(.system(size: 12, weight: .black))
@@ -1823,6 +1925,7 @@ struct VideoEditorView: View {
                                 } else {
                                     project.clips[selectedClipIndex].transform.offsetX -= 10.0
                                 }
+                                syncPreviewStateWithPlayhead()
                             }) {
                                 Image(systemName: "chevron.left")
                                     .font(.system(size: 12, weight: .black))
@@ -1840,6 +1943,7 @@ struct VideoEditorView: View {
                                     project.clips[selectedClipIndex].transform.offsetX = 0.0
                                     project.clips[selectedClipIndex].transform.offsetY = 0.0
                                 }
+                                syncPreviewStateWithPlayhead()
                             }) {
                                 Image(systemName: "circle.grid.cross.fill")
                                     .font(.system(size: 10))
@@ -1856,6 +1960,7 @@ struct VideoEditorView: View {
                                 } else {
                                     project.clips[selectedClipIndex].transform.offsetX += 10.0
                                 }
+                                syncPreviewStateWithPlayhead()
                             }) {
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 12, weight: .black))
@@ -1874,6 +1979,7 @@ struct VideoEditorView: View {
                             } else {
                                 project.clips[selectedClipIndex].transform.offsetY += 10.0
                             }
+                            syncPreviewStateWithPlayhead()
                         }) {
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 12, weight: .black))
@@ -1909,6 +2015,7 @@ struct VideoEditorView: View {
                     } else {
                         project.clips[selectedClipIndex].transform.rotation = clip.transform.rotation.next
                     }
+                    syncPreviewStateWithPlayhead()
                     ProjectStorageManager.shared.saveProject(project)
                 }) {
                     Label("Rotate 90°", systemImage: "rotate.right")
@@ -1923,6 +2030,7 @@ struct VideoEditorView: View {
                 Button(action: {
                     recordUndo()
                     project.clips[selectedClipIndex].transform.flipH.toggle()
+                    syncPreviewStateWithPlayhead()
                 }) {
                     Label(clip.transform.flipH ? "Flipped H" : "Flip H", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
                         .font(.system(size: 11, weight: .bold))
@@ -1936,6 +2044,7 @@ struct VideoEditorView: View {
                 Button(action: {
                     recordUndo()
                     project.clips[selectedClipIndex].transform.flipV.toggle()
+                    syncPreviewStateWithPlayhead()
                 }) {
                     Label(clip.transform.flipV ? "Flipped V" : "Flip V", systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down")
                         .font(.system(size: 11, weight: .bold))
@@ -1961,6 +2070,7 @@ struct VideoEditorView: View {
                     } else {
                         project.clips[selectedClipIndex].transform = .identity
                     }
+                    syncPreviewStateWithPlayhead()
                     ProjectStorageManager.shared.saveProject(project)
                 }) {
                     Text("Reset All")
@@ -1996,6 +2106,7 @@ struct VideoEditorView: View {
                             } else {
                                 project.clips[selectedClipIndex].transform.opacity = newOpacity
                             }
+                            syncPreviewStateWithPlayhead()
                         }
                     ),
                     in: 0.0...1.0,

@@ -339,6 +339,88 @@ public final class CFXEditorTests {
             record("Audio Padding & Multi-Clip Concat Duration Formatting", passed: isFormatted)
         }
 
+        // 14. All 8 Keyframe Properties: Data Model, Evaluation & Boundary Holds
+        do {
+            var clip = EditorClip(
+                sourceUrl: URL(fileURLWithPath: "/dummy.mp4"),
+                filename: "dummy.mp4",
+                sourceDurationMs: 10000,
+                sourceInPointMs: 0,
+                sourceOutPointMs: 10000
+            )
+
+            // Start keyframe with initial 8 properties
+            clip.addOrUpdateKeyframe(
+                at: 1000,
+                positionX: -50.0,
+                positionY: 20.0,
+                scale: 1.0,
+                rotationDegrees: 0.0,
+                opacity: 1.0,
+                brightness: -0.2,
+                contrast: 0.8,
+                saturation: 0.5,
+                easing: .linear
+            )
+
+            // End keyframe with animated 8 properties
+            clip.addOrUpdateKeyframe(
+                at: 3000,
+                positionX: 50.0,
+                positionY: -20.0,
+                scale: 2.0,
+                rotationDegrees: 180.0,
+                opacity: 0.5,
+                brightness: 0.2,
+                contrast: 1.2,
+                saturation: 1.5,
+                easing: .linear
+            )
+
+            // Evaluate midpoint at 2000ms (50% progress linear)
+            let midTransform = clip.evaluatedTransform(at: Double(2000))
+            let midColor = clip.evaluatedColor(at: Double(2000))
+
+            let midXPass = abs(midTransform.offsetX - 0.0) < 0.01
+            let midYPass = abs(midTransform.offsetY - 0.0) < 0.01
+            let midScalePass = abs(midTransform.scale - 1.5) < 0.01
+            let midRotPass = abs(midTransform.rotationDegrees - 90.0) < 0.01
+            let midOpPass = abs(midTransform.opacity - 0.75) < 0.01
+            let midBrightPass = abs(midColor.brightness - 0.0) < 0.01
+            let midContrastPass = abs(midColor.contrast - 1.0) < 0.01
+            let midSatPass = abs(midColor.saturation - 1.0) < 0.01
+
+            let all8PropertiesPass = midXPass && midYPass && midScalePass && midRotPass &&
+                                    midOpPass && midBrightPass && midContrastPass && midSatPass
+            record("All 8 Keyframe Animated Properties (Transform & Color Grading)", passed: all8PropertiesPass)
+        }
+
+        // 15. Keyframe Marker Move & Timeline Boundary Clamping
+        do {
+            var clip = EditorClip(
+                sourceUrl: URL(fileURLWithPath: "/dummy.mp4"),
+                filename: "dummy.mp4",
+                sourceDurationMs: 5000,
+                sourceInPointMs: 0,
+                sourceOutPointMs: 5000
+            )
+
+            let kf = clip.addOrUpdateKeyframe(at: 2000, scale: 1.5)
+            // Attempt to move beyond duration
+            clip.moveKeyframe(id: kf.id, newTimeMs: 8000)
+            let clampedHigh = clip.keyframe(byId: kf.id)?.timeMs == 5000
+
+            // Attempt to move negative
+            clip.moveKeyframe(id: kf.id, newTimeMs: -500)
+            let clampedLow = clip.keyframe(byId: kf.id)?.timeMs == 0
+
+            // Normal move
+            clip.moveKeyframe(id: kf.id, newTimeMs: 2500)
+            let normalMove = clip.keyframe(byId: kf.id)?.timeMs == 2500
+
+            record("Keyframe Move Clamping & Timeline Reordering", passed: clampedHigh && clampedLow && normalMove)
+        }
+
         let passedCount = results.values.filter { $0 }.count
         let totalCount = results.count
         return TestReport(
