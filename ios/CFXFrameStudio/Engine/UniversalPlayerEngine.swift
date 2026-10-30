@@ -109,7 +109,7 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
     }
 
     deinit {
-        cleanUp()
+        sleepTimerTask?.cancel()
     }
 
     func cleanUp() {
@@ -150,13 +150,13 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
             self.statusMessage = "Opening high-speed stream..."
             do {
                 // High-speed direct stream conversion (uses cache if already opened once)
-                playableUrl = try await MKVRemuxEngine.shared.remuxToHardwareMP4(sourceUrl: url) { [weak self] progress in
+                playableUrl = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { [weak self] progress, _ in
                     Task { @MainActor in
                         self?.statusMessage = "Buffering: \(Int(progress * 100))%"
                     }
                 }
             } catch {
-                AppLogger.error("Stream preparation failed: \(error.localizedDescription)")
+                AppLogger.shared.error(tag: "PLAYER", message: "Stream preparation failed: \(error.localizedDescription)")
                 self.statusMessage = "Playback error: \(error.localizedDescription)"
                 self.isBuffering = false
                 return
@@ -189,7 +189,9 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
             object: playerItem,
             queue: .main
         ) { [weak self] _ in
-            self?.handlePlaybackEnded()
+            Task { @MainActor in
+                self?.handlePlaybackEnded()
+            }
         }
 
         // Time Observer (60fps accuracy)
