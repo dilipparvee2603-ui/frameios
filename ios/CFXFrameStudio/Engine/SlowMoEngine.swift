@@ -62,13 +62,11 @@ final class SlowMoEngine {
         FFmpegKit.cancel()
     }
 
-    /// Generates smooth percentage-based slow-motion video with optical flow or frame blending
+    /// Generates smooth percentage-based or speed-ramp slow-motion video with optical flow or frame blending
     func createSlowMotion(
         sourceUrl: URL,
-        speedPercentage: Double, // 1.0 to 100.0 (e.g. 50.0 for 2x slow-mo, 25.0 for 4x)
+        speedConfig: ClipSpeedConfiguration,
         targetFps: Int = 60,
-        interpolationMode: SlowMoInterpolationMode = .opticalFlow,
-        audioMode: SlowMoAudioMode = .pitchPreserved,
         inPointMs: Int64 = 0,
         outPointMs: Int64 = 0,
         totalSourceDurationMs: Int64 = 0,
@@ -82,10 +80,6 @@ final class SlowMoEngine {
 
         try? FileManager.default.removeItem(at: outputUrl)
 
-        let clampedPercentage = max(1.0, min(1600.0, speedPercentage))
-        let speedMultiplier = clampedPercentage / 100.0
-        let setptsMultiplier = 1.0 / speedMultiplier
-
         let startSec = Double(max(0, inPointMs)) / 1000.0
         let endSec: Double
         if outPointMs > inPointMs {
@@ -97,24 +91,76 @@ final class SlowMoEngine {
         }
 
         let clipDuration = max(0.1, (endSec > startSec) ? (endSec - startSec) : Double(totalSourceDurationMs) / 1000.0)
-        let expectedOutputDurationSec = clipDuration * setptsMultiplier
 
-        // Construct video filter graph
+        let isVariableRamp = speedConfig.isRamp && speedConfig.rampPoints.count >= 2
+        let expectedOutputDurationSec: Double
         let videoFilter: String
-        if speedMultiplier >= 1.0 {
-            // Fast motion / hyperlapse: accelerate PTS and conform to target FPS
-            videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,fps=\(targetFps)"
+        let effectiveAverageSpeed: Double
+
+        if isVariableRamp {
+            let sortedPoints = speedConfig.rampPoints.sorted { $0.normalizedPosition < $1.normalizedPosition }
+            expectedOutputDurationSec = max(0.1, clipDuration * speedConfig.timelineDurationExpansionFactor())
+            effectiveAverageSpeed = max(0.05, clipDuration / expectedOutputDurationSec)
+
+            // Construct piecewise monotonic setpts expression over T (source time in seconds)
+            var segExpressions: [(tMax: Double, expr: String)] = []
+            var currentOutTime = 0.0
+
+            for i in 0..<(sortedPoints.count - 1) {
+                let p0 = sortedPoints[i]
+                let p1 = sortedPoints[i + 1]
+                let t0 = p0.normalizedPosition * clipDuration
+                let t1 = p1.normalizedPosition * clipDuration
+                let span = max(0.001, t1 - t0)
+                let avgSpeed = max(0.05, (p0.speedMultiplier + p1.speedMultiplier) / 2.0)
+                let segExpr = "\(String(format: "%.6f", currentOutTime))+(T-\(String(format: "%.6f", t0)))/\(String(format: "%.6f", avgSpeed))"
+                segExpressions.append((tMax: t1, expr: segExpr))
+                currentOutTime += span / avgSpeed
+            }
+
+            // Build nested if(lt(T, ...)) expression
+            var ptsExpr = segExpressions.last?.expr ?? "T/\(String(format: "%.6f", effectiveAverageSpeed))"
+            for i in stride(from: segExpressions.count - 2, through: 0, by: -1) {
+                let seg = segExpressions[i]
+                ptsExpr = "if(lt(T,\(String(format: "%.6f", seg.tMax))),\(seg.expr),\(ptsExpr))"
+            }
+
+            let ptsFilter = "setpts='(\(ptsExpr))/TB'"
+            let minRampSpeed = sortedPoints.map { $0.speedMultiplier }.min() ?? 1.0
+
+            if minRampSpeed < 1.0 {
+                switch speedConfig.interpolationMode {
+                case .opticalFlow:
+                    videoFilter = "\(ptsFilter),minterpolate=fps=\(targetFps):mi_mode=mci:mc_mode=obmc:me_mode=bidir"
+                case .frameBlend:
+                    videoFilter = "\(ptsFilter),tblend=all_mode=average,framerate=fps=\(targetFps)"
+                case .sensorNative:
+                    videoFilter = "\(ptsFilter),fps=\(targetFps)"
+                case .nearest:
+                    videoFilter = ptsFilter
+                }
+            } else {
+                videoFilter = "\(ptsFilter),fps=\(targetFps)"
+            }
         } else {
-            // Slow motion: apply requested interpolation mode
-            switch interpolationMode {
-            case .opticalFlow:
-                videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,minterpolate=fps=\(targetFps):mi_mode=mci:mc_mode=obmc:me_mode=bidir"
-            case .frameBlend:
-                videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,tblend=all_mode=average,framerate=fps=\(targetFps)"
-            case .sensorNative:
-                videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,fps=\(targetFps)"
-            case .nearest:
-                videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS"
+            let clampedSpeed = max(0.05, min(16.0, speedConfig.speedMultiplier))
+            effectiveAverageSpeed = clampedSpeed
+            let setptsMultiplier = 1.0 / clampedSpeed
+            expectedOutputDurationSec = clipDuration * setptsMultiplier
+
+            if clampedSpeed >= 1.0 {
+                videoFilter = "setpts=\(String(format: "%.6f", setptsMultiplier))*PTS,fps=\(targetFps)"
+            } else {
+                switch speedConfig.interpolationMode {
+                case .opticalFlow:
+                    videoFilter = "setpts=\(String(format: "%.6f", setptsMultiplier))*PTS,minterpolate=fps=\(targetFps):mi_mode=mci:mc_mode=obmc:me_mode=bidir"
+                case .frameBlend:
+                    videoFilter = "setpts=\(String(format: "%.6f", setptsMultiplier))*PTS,tblend=all_mode=average,framerate=fps=\(targetFps)"
+                case .sensorNative:
+                    videoFilter = "setpts=\(String(format: "%.6f", setptsMultiplier))*PTS,fps=\(targetFps)"
+                case .nearest:
+                    videoFilter = "setpts=\(String(format: "%.6f", setptsMultiplier))*PTS"
+                }
             }
         }
 
@@ -146,17 +192,17 @@ final class SlowMoEngine {
         ]
 
         // Audio filter
-        if audioMode == .muted {
+        if speedConfig.audioMode == .muted {
             args += ["-an"]
-        } else if audioMode == .pitchPreserved {
-            let atempoChain = buildAtempoChain(speed: speedMultiplier)
+        } else if speedConfig.audioMode == .pitchPreserved {
+            let atempoChain = buildAtempoChain(speed: effectiveAverageSpeed)
             args += [
                 "-af", atempoChain,
                 "-c:a", "aac",
                 "-b:a", "320k"
             ]
-        } else if audioMode == .vinylPitch {
-            let targetSampleRate = max(8000, min(96000, Int(round(44100.0 * speedMultiplier))))
+        } else if speedConfig.audioMode == .vinylPitch {
+            let targetSampleRate = max(8000, min(96000, Int(round(44100.0 * effectiveAverageSpeed))))
             let pitchFilter = "asetrate=\(targetSampleRate),aresample=44100"
             args += [
                 "-af", pitchFilter,
@@ -218,6 +264,34 @@ final class SlowMoEngine {
             try? FileManager.default.removeItem(at: outputUrl)
             return SlowMoResult(success: false, outputUrl: nil, errorMessage: "Processing error:\n\(lastLines)")
         }
+    }
+
+    /// Backward-compatible overload for percentage-based slow-motion
+    func createSlowMotion(
+        sourceUrl: URL,
+        speedPercentage: Double,
+        targetFps: Int = 60,
+        interpolationMode: SlowMoInterpolationMode = .opticalFlow,
+        audioMode: SlowMoAudioMode = .pitchPreserved,
+        inPointMs: Int64 = 0,
+        outPointMs: Int64 = 0,
+        totalSourceDurationMs: Int64 = 0,
+        onProgress: @escaping (Double, String) -> Void
+    ) async -> SlowMoResult {
+        var config = ClipSpeedConfiguration()
+        config.speedMultiplier = max(0.01, speedPercentage / 100.0)
+        config.isRamp = false
+        config.interpolationMode = interpolationMode
+        config.audioMode = audioMode
+        return await createSlowMotion(
+            sourceUrl: sourceUrl,
+            speedConfig: config,
+            targetFps: targetFps,
+            inPointMs: inPointMs,
+            outPointMs: outPointMs,
+            totalSourceDurationMs: totalSourceDurationMs,
+            onProgress: onProgress
+        )
     }
 
     /// Public method to export an applied slow-mo video to the user's Photos Camera Roll

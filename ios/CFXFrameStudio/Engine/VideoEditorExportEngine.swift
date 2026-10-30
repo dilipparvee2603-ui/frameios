@@ -167,13 +167,21 @@ struct EditorExportResult {
 final class VideoEditorExportEngine {
     static let shared = VideoEditorExportEngine()
 
+    private let stateLock = NSLock()
     private var isCancelled: Bool = false
     private var isExportingActive: Bool = false
+    private var activeSessionId: Int64? = nil
 
     private init() {}
 
     func cancel() {
+        stateLock.lock()
         isCancelled = true
+        let sid = activeSessionId
+        stateLock.unlock()
+        if let sid = sid {
+            FFmpegKit.cancel(sid)
+        }
         FFmpegKit.cancel()
     }
 
@@ -193,20 +201,39 @@ final class VideoEditorExportEngine {
         }
     }
 
-    /// Renders an entire VideoProject with all clips, trims, slow-mo speeds, optical-flow interpolation, transforms, color grading, and audio tracks
+    /// Renders an entire VideoProject with all clips, trims, slow-mo speeds, optical-flow interpolation, transforms, color grading, transitions, text overlays, and audio tracks
     func exportProject(
         project: VideoProject,
         config: ProjectExportConfig,
         onProgress: @escaping (Double, String) -> Void
     ) async -> EditorExportResult {
         // Prevent concurrent export operations
+        stateLock.lock()
         guard !isExportingActive else {
+            stateLock.unlock()
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "An export is already in progress.")
         }
         isExportingActive = true
-        defer { isExportingActive = false }
-
         isCancelled = false
+        stateLock.unlock()
+
+        var temporaryFilesToDelete: [URL] = []
+
+        defer {
+            stateLock.lock()
+            isExportingActive = false
+            activeSessionId = nil
+            stateLock.unlock()
+
+            // Safe cleanup: ONLY delete generated temporary files; never delete original media
+            for fileUrl in temporaryFilesToDelete {
+                if !project.clips.contains(where: { $0.sourceUrl == fileUrl }) &&
+                   !project.audioTracks.contains(where: { $0.url == fileUrl }) {
+                    try? FileManager.default.removeItem(at: fileUrl)
+                }
+            }
+        }
+
         guard !project.clips.isEmpty else {
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Project contains no video clips.")
         }
@@ -224,17 +251,20 @@ final class VideoEditorExportEngine {
 
         onProgress(0.05, "Preparing media clips & timeline...")
 
-        // Step 1: Process individual clips (apply slow-mo / optical flow or high-speed conform)
+        // Step 1: Process individual clips (apply slow-mo / variable speed ramps or direct trims)
         var preparedClipUrls: [URL] = []
         let totalClips = project.clips.count
 
         for (idx, clip) in project.clips.enumerated() {
-            if isCancelled {
+            stateLock.lock()
+            let cancelled = isCancelled
+            stateLock.unlock()
+            if cancelled {
                 return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Export cancelled")
             }
 
-            let clipProgressBase = 0.05 + (Double(idx) / Double(totalClips)) * 0.65
-            let clipProgressSpan = (1.0 / Double(totalClips)) * 0.65
+            let clipProgressBase = 0.05 + (Double(idx) / Double(totalClips)) * 0.60
+            let clipProgressSpan = (1.0 / Double(totalClips)) * 0.60
 
             let renderedClipUrl: URL
             let hasSpeedRetime = abs(clip.speedConfig.speedMultiplier - 1.0) > 0.01 || clip.speedConfig.isRamp
@@ -243,10 +273,8 @@ final class VideoEditorExportEngine {
                 onProgress(clipProgressBase, "Rendering Retimed Motion (Clip \(idx + 1)/\(totalClips))...")
                 let slowMoResult = await SlowMoEngine.shared.createSlowMotion(
                     sourceUrl: clip.sourceUrl,
-                    speedPercentage: clip.speedConfig.speedMultiplier * 100.0,
+                    speedConfig: clip.speedConfig,
                     targetFps: config.targetFps,
-                    interpolationMode: clip.speedConfig.interpolationMode,
-                    audioMode: clip.speedConfig.audioMode,
                     inPointMs: clip.sourceInPointMs,
                     outPointMs: clip.sourceOutPointMs,
                     totalSourceDurationMs: clip.sourceDurationMs,
@@ -260,14 +288,16 @@ final class VideoEditorExportEngine {
                     return EditorExportResult(
                         success: false,
                         outputUrl: nil,
-                        errorMessage: "Failed to render Clip \(idx + 1): \(slowMoResult.errorMessage ?? "Unknown engine error")"
+                        errorMessage: "Failed to render Clip \(idx + 1): \(slowMoResult.errorMessage ?? "Slow-motion engine error")"
                     )
                 }
+                temporaryFilesToDelete.append(resUrl)
                 renderedClipUrl = resUrl
             } else {
                 // High-performance direct trim to temp file using hardware VideoToolbox
                 onProgress(clipProgressBase, "Preparing Clip \(idx + 1)/\(totalClips)...")
                 let tempClipOut = tempDir.appendingPathComponent("CFX_Prep_\(idx)_\(timestamp).mp4")
+                temporaryFilesToDelete.append(tempClipOut)
                 try? FileManager.default.removeItem(at: tempClipOut)
 
                 let startSec = String(format: "%.3f", Double(clip.sourceInPointMs) / 1000.0)
@@ -280,27 +310,38 @@ final class VideoEditorExportEngine {
                     "-i", clip.sourceUrl.path,
                     "-c:v", config.codec.ffmpegEncoder,
                     "-b:v", "\(Int(config.bitrateMbps))M",
+                    "-allow_sw", "1",
                     "-pix_fmt", "yuv420p",
                     "-c:a", "aac",
                     "-b:a", "192k",
                     tempClipOut.path
                 ]
                 let session = FFmpegKit.execute(withArguments: trimArgs)
-                if ReturnCode.isSuccess(session?.getReturnCode()) && FileManager.default.fileExists(atPath: tempClipOut.path) {
-                    renderedClipUrl = tempClipOut
-                } else {
-                    renderedClipUrl = clip.sourceUrl
+                stateLock.lock()
+                activeSessionId = session?.getSessionId()
+                stateLock.unlock()
+
+                guard ReturnCode.isSuccess(session?.getReturnCode()) && FileManager.default.fileExists(atPath: tempClipOut.path) else {
+                    return EditorExportResult(
+                        success: false,
+                        outputUrl: nil,
+                        errorMessage: "Failed to prepare and trim Clip \(idx + 1). Original source media preserved."
+                    )
                 }
+                renderedClipUrl = tempClipOut
             }
 
             preparedClipUrls.append(renderedClipUrl)
         }
 
-        if isCancelled {
+        stateLock.lock()
+        let cancelled = isCancelled
+        stateLock.unlock()
+        if cancelled {
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Export cancelled")
         }
 
-        onProgress(0.75, "Compositing clips & color grading...")
+        onProgress(0.70, "Compositing clips, transforms & color grading...")
 
         // Step 2: Composite & Normalize all clips into target canvas dimensions
         let targetW = config.targetWidth
@@ -313,7 +354,7 @@ final class VideoEditorExportEngine {
 
         var concatArgs: [String] = ["-threads", "0", "-y"]
         var filterComplexParts: [String] = []
-        var concatStreams = ""
+        var clipDurations: [Double] = []
         var totalExpectedDurationSec: Double = 0.0
 
         for (idx, clipUrl) in preparedClipUrls.enumerated() {
@@ -328,30 +369,51 @@ final class VideoEditorExportEngine {
             // 1. Video Filters
             var vFilters: [String] = []
 
-            // A. Rotation & Flip
-            if clip.hasKeyframes() {
-                let rotPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.rotationDegrees, easing: $0.easing) }
-                let hasRotationAnim = rotPoints.contains { abs($0.value) > 0.01 }
-                if hasRotationAnim {
-                    let rotExpr = buildFFmpegTimeExpression(points: rotPoints, defaultValue: Double(clip.transform.rotation.rawValue))
-                    vFilters.append("rotate='(\(rotExpr))*PI/180':ow='rotw((\(rotExpr))*PI/180)':oh='roth((\(rotExpr))*PI/180)':c=black")
-                } else {
-                    switch clip.transform.rotation {
-                    case .r90: vFilters.append("transpose=1")
-                    case .r180: vFilters.append("transpose=1,transpose=1")
-                    case .r270: vFilters.append("transpose=2")
-                    case .r0: break
-                    }
-                }
-            } else {
-                switch clip.transform.rotation {
-                case .r90: vFilters.append("transpose=1")
-                case .r180: vFilters.append("transpose=1,transpose=1")
-                case .r270: vFilters.append("transpose=2")
-                case .r0: break
-                }
+            // A. Fit & Fill (Aspect Ratio conformation)
+            switch clip.transform.fitMode {
+            case .fit:
+                vFilters.append("scale=\(targetW):\(targetH):force_original_aspect_ratio=decrease")
+            case .fill:
+                vFilters.append("scale=\(targetW):\(targetH):force_original_aspect_ratio=increase,crop=\(targetW):\(targetH)")
             }
 
+            // B. Zoom / Scale
+            if clip.hasKeyframes() {
+                let scalePoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.scale, easing: $0.easing) }
+                if scalePoints.contains(where: { abs($0.value - 1.0) > 0.01 }) {
+                    let zoomExpr = buildFFmpegTimeExpression(points: scalePoints, defaultValue: clip.transform.scale)
+                    vFilters.append("scale=eval=frame:w='trunc(iw*(\(zoomExpr))/2)*2':h='trunc(ih*(\(zoomExpr))/2)*2'")
+                } else if abs(clip.transform.scale - 1.0) > 0.01 {
+                    let z = max(0.2, min(5.0, clip.transform.scale))
+                    vFilters.append("scale=w='trunc(iw*\(String(format: "%.4f", z))/2)*2':h='trunc(ih*\(String(format: "%.4f", z))/2)*2'")
+                }
+            } else if abs(clip.transform.scale - 1.0) > 0.01 {
+                let z = max(0.2, min(5.0, clip.transform.scale))
+                vFilters.append("scale=w='trunc(iw*\(String(format: "%.4f", z))/2)*2':h='trunc(ih*\(String(format: "%.4f", z))/2)*2'")
+            }
+
+            // C. Rotation (with uncropped expansion)
+            let rotExpr: String?
+            if clip.hasKeyframes() {
+                let rotPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.rotationDegrees, easing: $0.easing) }
+                if rotPoints.contains(where: { abs($0.value) > 0.01 }) {
+                    rotExpr = buildFFmpegTimeExpression(points: rotPoints, defaultValue: Double(clip.transform.rotation.rawValue))
+                } else if clip.transform.rotation != .r0 {
+                    rotExpr = "\(clip.transform.rotation.rawValue)"
+                } else {
+                    rotExpr = nil
+                }
+            } else if clip.transform.rotation != .r0 {
+                rotExpr = "\(clip.transform.rotation.rawValue)"
+            } else {
+                rotExpr = nil
+            }
+
+            if let rExpr = rotExpr {
+                vFilters.append("rotate=a='(\(rExpr))*PI/180':ow='rotw((\(rExpr))*PI/180)':oh='roth((\(rExpr))*PI/180)':c=none")
+            }
+
+            // D. Flips
             if clip.transform.flipH {
                 vFilters.append("hflip")
             }
@@ -359,7 +421,16 @@ final class VideoEditorExportEngine {
                 vFilters.append("vflip")
             }
 
-            // B. Color grading & Opacity (Supports per-clip keyframed contrast, brightness, saturation, opacity)
+            // E. Color Grading (Exposure, Temperature, Tint, Brightness, Contrast, Saturation) & Opacity
+            let expMultiplier = pow(2.0, clip.color.exposure)
+            let baseContrast = clip.color.contrast * expMultiplier
+            let baseBrightness = clip.color.brightness + (0.05 * clip.color.exposure)
+
+            if clip.color.temperature != 6500.0 {
+                let tempK = Int(round(max(2000.0, min(10000.0, clip.color.temperature))))
+                vFilters.append("colortemperature=temperature=\(tempK)")
+            }
+
             let opPoints: [(timeMs: Int64, value: Double, easing: KeyframeEasing)] = clip.hasKeyframes()
                 ? clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity, easing: $0.easing) }
                 : []
@@ -367,17 +438,17 @@ final class VideoEditorExportEngine {
             let isStaticOpacity = abs(clip.transform.opacity - 1.0) > 0.01
 
             if clip.hasKeyframes() {
-                let contrastPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.contrast ?? clip.color.contrast, easing: $0.easing) }
-                let brightnessPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.brightness ?? clip.color.brightness, easing: $0.easing) }
-                let saturationPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.saturation ?? clip.color.saturation, easing: $0.easing) }
+                let contrastPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: ($0.contrast) * expMultiplier, easing: $0.easing) }
+                let brightnessPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.brightness + (0.05 * clip.color.exposure), easing: $0.easing) }
+                let saturationPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.saturation, easing: $0.easing) }
 
                 let hasColorAnim = contrastPoints.contains { abs($0.value - 1.0) > 0.01 } ||
                                    brightnessPoints.contains { abs($0.value) > 0.01 } ||
                                    saturationPoints.contains { abs($0.value - 1.0) > 0.01 }
 
                 if hasColorAnim || hasOpacityAnim {
-                    let rawContrastExpr = buildFFmpegTimeExpression(points: contrastPoints, defaultValue: clip.color.contrast)
-                    let rawBrightnessExpr = buildFFmpegTimeExpression(points: brightnessPoints, defaultValue: clip.color.brightness)
+                    let rawContrastExpr = buildFFmpegTimeExpression(points: contrastPoints, defaultValue: baseContrast)
+                    let rawBrightnessExpr = buildFFmpegTimeExpression(points: brightnessPoints, defaultValue: baseBrightness)
                     let rawSaturationExpr = buildFFmpegTimeExpression(points: saturationPoints, defaultValue: clip.color.saturation)
 
                     if hasOpacityAnim {
@@ -386,29 +457,27 @@ final class VideoEditorExportEngine {
                         let bExpr = "(\(rawBrightnessExpr))+0.5*((\(alphaExpr))-1.0)"
                         vFilters.append("eq=eval=frame:contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(rawSaturationExpr)'")
                     } else if isStaticOpacity {
-                        let staticOp = String(format: "%.3f", max(0.0, min(1.0, clip.transform.opacity)))
+                        let staticOp = String(format: "%.4f", max(0.0, min(1.0, clip.transform.opacity)))
                         let cExpr = "(\(rawContrastExpr))*\(staticOp)"
                         let bExpr = "(\(rawBrightnessExpr))+0.5*(\(staticOp)-1.0)"
                         vFilters.append("eq=eval=frame:contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(rawSaturationExpr)'")
                     } else {
                         vFilters.append("eq=eval=frame:contrast='\(rawContrastExpr)':brightness='\(rawBrightnessExpr)':saturation='\(rawSaturationExpr)'")
                     }
-                } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 || isStaticOpacity {
+                } else if baseContrast != 1.0 || baseBrightness != 0.0 || clip.color.saturation != 1.0 || isStaticOpacity {
                     let op = isStaticOpacity ? max(0.0, min(1.0, clip.transform.opacity)) : 1.0
-                    let effContrast = clip.color.contrast * op
-                    let effBrightness = clip.color.brightness + 0.5 * (op - 1.0)
-                    vFilters.append("eq=contrast=\(String(format: "%.2f", effContrast)):brightness=\(String(format: "%.2f", effBrightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
+                    let effContrast = baseContrast * op
+                    let effBrightness = baseBrightness + 0.5 * (op - 1.0)
+                    vFilters.append("eq=contrast=\(String(format: "%.4f", effContrast)):brightness=\(String(format: "%.4f", effBrightness)):saturation=\(String(format: "%.4f", clip.color.saturation))")
                 }
-            } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 || isStaticOpacity {
+            } else if baseContrast != 1.0 || baseBrightness != 0.0 || clip.color.saturation != 1.0 || isStaticOpacity {
                 let op = isStaticOpacity ? max(0.0, min(1.0, clip.transform.opacity)) : 1.0
-                let effContrast = clip.color.contrast * op
-                let effBrightness = clip.color.brightness + 0.5 * (op - 1.0)
-                vFilters.append("eq=contrast=\(String(format: "%.2f", effContrast)):brightness=\(String(format: "%.2f", effBrightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
+                let effContrast = baseContrast * op
+                let effBrightness = baseBrightness + 0.5 * (op - 1.0)
+                vFilters.append("eq=contrast=\(String(format: "%.4f", effContrast)):brightness=\(String(format: "%.4f", effBrightness)):saturation=\(String(format: "%.4f", clip.color.saturation))")
             }
 
-            // C. Conform & Scale with Zoom and Pan Offset onto canvas using overlay on black background
-            let zoom = max(0.2, min(5.0, clip.transform.scale))
-
+            // F. Position Offset & Overlay onto Black Canvas
             let xOffsetExpr: String
             let yOffsetExpr: String
 
@@ -425,21 +494,12 @@ final class VideoEditorExportEngine {
             }
 
             let clipDurationSec = max(0.1, Double(clip.timelineDurationMs) / 1000.0)
+            clipDurations.append(clipDurationSec)
             totalExpectedDurationSec += clipDurationSec
 
-            vFilters.append("scale=\(targetW):\(targetH):force_original_aspect_ratio=decrease")
-            if clip.hasKeyframes() {
-                let scalePoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.scale, easing: $0.easing) }
-                let zoomExpr = buildFFmpegTimeExpression(points: scalePoints, defaultValue: clip.transform.scale)
-                vFilters.append("scale=eval=frame:w='trunc(iw*(\(zoomExpr))/2)*2':h='trunc(ih*(\(zoomExpr))/2)*2'")
-            } else {
-                vFilters.append("scale=w='trunc(iw*\(String(format: "%.2f", zoom))/2)*2':h='trunc(ih*\(String(format: "%.2f", zoom))/2)*2'")
-            }
             let vFilterStr = vFilters.joined(separator: ",")
-
             let xExpr = "(W-w)/2+(\(xOffsetExpr))"
             let yExpr = "(H-h)/2+(\(yOffsetExpr))"
-
             let durFormatted = String(format: "%.3f", clipDurationSec)
 
             // Video overlay onto black background with eof_action=pass, exact framerate and duration trim
@@ -447,7 +507,7 @@ final class VideoEditorExportEngine {
             filterComplexParts.append("[\(idx):v]setpts=PTS-STARTPTS,\(vFilterStr)[fg\(idx)]")
             filterComplexParts.append("[bg\(idx)][fg\(idx)]overlay=x='\(xExpr)':y='\(yExpr)':eof_action=pass,fps=\(config.targetFps),setsar=1,trim=0:\(durFormatted),setpts=PTS-STARTPTS[v\(idx)]")
 
-            // 2. Audio Filters with apad to guarantee perfect duration matching
+            // 2. Audio Filters with apad to guarantee duration matching
             if hasAudioTrack && !clip.isMuted {
                 let vol = String(format: "%.2f", clip.volume)
                 filterComplexParts.append("[\(idx):a]asetpts=PTS-STARTPTS,volume=\(vol),aformat=sample_rates=48000:channel_layouts=stereo,apad[a_pad\(idx)]")
@@ -456,19 +516,122 @@ final class VideoEditorExportEngine {
                 // Generate silent audio of exact duration so multi-clip concat never fails or desyncs
                 filterComplexParts.append("aevalsrc=0:d=\(durFormatted):s=48000:c=stereo,atrim=0:\(durFormatted),asetpts=PTS-STARTPTS[a\(idx)]")
             }
-
-            concatStreams += "[v\(idx)][a\(idx)]"
         }
 
-        let concatFilter = "\(concatStreams)concat=n=\(preparedClipUrls.count):v=1:a=1[outv][outa]"
-        filterComplexParts.append(concatFilter)
+        // Step 3: Handle Clip Transitions (Cross Dissolve, Fade Black, Fade White) or Direct Cut
+        let hasTransitions = project.clips.dropLast().contains { $0.transitionOut != .cut }
+        var masterVideoStream = "[master_v_raw]"
+        var masterAudioStream = "[master_a_raw]"
+
+        if hasTransitions && preparedClipUrls.count >= 2 {
+            var currentVTag = "[v0]"
+            var currentATag = "[a0]"
+            var currentOffset = clipDurations[0]
+
+            for i in 0..<(preparedClipUrls.count - 1) {
+                let clip = project.clips[i]
+                let transType = clip.transitionOut
+                let transDurSec = min(Double(clip.transitionDurationMs) / 1000.0, min(clipDurations[i], clipDurations[i + 1]) * 0.45)
+                let nextVTag = "[v\(i + 1)]"
+                let nextATag = "[a\(i + 1)]"
+                let outVTag = (i == preparedClipUrls.count - 2) ? masterVideoStream : "[vx\(i + 1)]"
+                let outATag = (i == preparedClipUrls.count - 2) ? masterAudioStream : "[ax\(i + 1)]"
+
+                let xfadeName: String
+                switch transType {
+                case .crossDissolve: xfadeName = "fade"
+                case .fadeBlack: xfadeName = "fadeblack"
+                case .fadeWhite: xfadeName = "fadewhite"
+                case .cut: xfadeName = "wipeleft"
+                }
+
+                if transType != .cut && transDurSec > 0.05 {
+                    let transOffset = max(0.0, currentOffset - transDurSec)
+                    filterComplexParts.append("\(currentVTag)\(nextVTag)xfade=transition=\(xfadeName):duration=\(String(format: "%.3f", transDurSec)):offset=\(String(format: "%.3f", transOffset))\(outVTag)")
+                    filterComplexParts.append("\(currentATag)\(nextATag)acrossfade=d=\(String(format: "%.3f", transDurSec))\(outATag)")
+                    currentOffset = transOffset + clipDurations[i + 1]
+                    totalExpectedDurationSec -= transDurSec
+                } else {
+                    // Direct cut fallback for this pair
+                    filterComplexParts.append("\(currentVTag)\(currentATag)\(nextVTag)\(nextATag)concat=n=2:v=1:a=1\(outVTag)\(outATag)")
+                    currentOffset += clipDurations[i + 1]
+                }
+
+                currentVTag = outVTag
+                currentATag = outATag
+            }
+        } else {
+            // Direct concat
+            var concatStreams = ""
+            for idx in 0..<preparedClipUrls.count {
+                concatStreams += "[v\(idx)][a\(idx)]"
+            }
+            filterComplexParts.append("\(concatStreams)concat=n=\(preparedClipUrls.count):v=1:a=1\(masterVideoStream)\(masterAudioStream)")
+        }
+
+        // Step 4: Text Overlays Rendering (with drawtext)
+        var finalVideoStream = masterVideoStream
+        let validTextOverlays = project.textOverlays.filter { !$0.text.isEmpty && $0.timelineEndMs > $0.timelineStartMs }
+
+        if !validTextOverlays.isEmpty {
+            var currentV = masterVideoStream
+            for (tIdx, overlay) in validTextOverlays.enumerated() {
+                let outTag = "[v_text\(tIdx)]"
+                let escapedText = overlay.text.replacingOccurrences(of: "'", with: "\\'").replacingOccurrences(of: ":", with: "\\:")
+                let scaledFontSize = max(14, Int(round(overlay.fontSize * CGFloat(overlay.scale) * CGFloat(targetH) / 640.0)))
+                let startSec = String(format: "%.3f", Double(overlay.timelineStartMs) / 1000.0)
+                let endSec = String(format: "%.3f", Double(overlay.timelineEndMs) / 1000.0)
+                let posXExpr = "(w*\(String(format: "%.3f", overlay.posX))-text_w/2)"
+                let posYExpr = "(h*\(String(format: "%.3f", overlay.posY))-text_h/2)"
+                var dtArgs = "text='\(escapedText)':fontsize=\(scaledFontSize):fontcolor=0x\(overlay.textColorHex):x=\(posXExpr):y=\(posYExpr):enable='between(t,\(startSec),\(endSec))'"
+                if let bgHex = overlay.backgroundColorHex, !bgHex.isEmpty {
+                    dtArgs += ":box=1:boxcolor=0x\(bgHex)@0.75:boxborderw=6"
+                }
+                filterComplexParts.append("\(currentV)drawtext=\(dtArgs)\(outTag)")
+                currentV = outTag
+            }
+            finalVideoStream = currentV
+        }
+
+        // Step 5: Secondary Audio Tracks Mixing
+        let validAudioTracks = project.audioTracks.filter {
+            !$0.isMuted && FileManager.default.fileExists(atPath: $0.url.path) && $0.durationMs > 0
+        }
+        var finalAudioStream = masterAudioStream
+
+        if !validAudioTracks.isEmpty {
+            var amixStreams = masterAudioStream
+            for (aIdx, track) in validAudioTracks.enumerated() {
+                let inIdx = preparedClipUrls.count + aIdx
+                concatArgs += ["-i", track.url.path]
+                let secTag = "[sec_a\(aIdx)]"
+                let dSec = String(format: "%.3f", Double(track.durationMs) / 1000.0)
+                var aFilters = ["atrim=0:\(dSec)", "asetpts=PTS-STARTPTS"]
+                if track.fadeInMs > 0 {
+                    aFilters.append("afade=t=in:st=0:d=\(String(format: "%.3f", Double(track.fadeInMs) / 1000.0))")
+                }
+                if track.fadeOutMs > 0 {
+                    let outStart = max(0.0, (Double(track.durationMs) - Double(track.fadeOutMs)) / 1000.0)
+                    aFilters.append("afade=t=out:st=\(String(format: "%.3f", outStart)):d=\(String(format: "%.3f", Double(track.fadeOutMs) / 1000.0))")
+                }
+                aFilters.append("volume=\(String(format: "%.2f", track.volume))")
+                if track.timelineStartMs > 0 {
+                    aFilters.append("adelay=\(track.timelineStartMs)|\(track.timelineStartMs)")
+                }
+                filterComplexParts.append("[\(inIdx):a]\(aFilters.joined(separator: ","))\(secTag)")
+                amixStreams += secTag
+            }
+            let outMixTag = "[amix_out]"
+            filterComplexParts.append("\(amixStreams)amix=inputs=\(1 + validAudioTracks.count):duration=first:dropout_transition=2\(outMixTag)")
+            finalAudioStream = outMixTag
+        }
 
         let filterComplexString = filterComplexParts.joined(separator: ";")
 
         concatArgs += [
             "-filter_complex", filterComplexString,
-            "-map", "[outv]",
-            "-map", "[outa]",
+            "-map", finalVideoStream,
+            "-map", finalAudioStream,
             "-c:v", config.codec.ffmpegEncoder,
             "-b:v", "\(Int(config.bitrateMbps))M",
             "-maxrate", "\(Int(config.bitrateMbps * 1.35))M",
@@ -484,30 +647,47 @@ final class VideoEditorExportEngine {
             outputUrl.path
         ]
 
-        onProgress(0.85, "Encoding master video with VideoToolbox (\(config.codec.shortLabel))...")
+        onProgress(0.85, "Encoding master video (\(config.codec.shortLabel))...")
 
         let session = FFmpegKit.execute(withArguments: concatArgs)
-        let code = session?.getReturnCode()
+        stateLock.lock()
+        activeSessionId = session?.getSessionId()
+        stateLock.unlock()
+        var code = session?.getReturnCode()
 
-        // Clean up intermediate clip renders
-        for clipUrl in preparedClipUrls {
-            try? FileManager.default.removeItem(at: clipUrl)
+        // Fallback: If hardware encoder failed, retry with software encoder
+        if !ReturnCode.isSuccess(code) && !ReturnCode.isCancel(code) {
+            onProgress(0.88, "Retrying with software encoder fallback...")
+            let swEncoder = (config.codec == .hevc) ? "libx265" : "libx264"
+            var swArgs = concatArgs
+            if let encIdx = swArgs.firstIndex(of: "-c:v"), encIdx + 1 < swArgs.count {
+                swArgs[encIdx + 1] = swEncoder
+            }
+            let swSession = FFmpegKit.execute(withArguments: swArgs)
+            stateLock.lock()
+            activeSessionId = swSession?.getSessionId()
+            stateLock.unlock()
+            code = swSession?.getReturnCode()
         }
 
-        if isCancelled || ReturnCode.isCancel(code) {
+        stateLock.lock()
+        let wasCancelled = isCancelled
+        stateLock.unlock()
+
+        if wasCancelled || ReturnCode.isCancel(code) {
             try? FileManager.default.removeItem(at: outputUrl)
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Export cancelled")
         }
 
         if ReturnCode.isSuccess(code), FileManager.default.fileExists(atPath: outputUrl.path) {
-            onProgress(0.92, "Validating exported output integrity...")
+            onProgress(0.94, "Validating exported output integrity...")
             let valResult = validateExportedFile(
                 url: outputUrl,
                 expectedDurationSec: totalExpectedDurationSec,
                 expectedWidth: targetW,
                 expectedHeight: targetH,
                 expectedFps: config.targetFps,
-                shouldHaveAudio: project.clips.contains { !$0.isMuted }
+                shouldHaveAudio: project.clips.contains { !$0.isMuted } || !validAudioTracks.isEmpty
             )
 
             guard valResult.isValid else {
@@ -515,12 +695,18 @@ final class VideoEditorExportEngine {
                 return EditorExportResult(success: false, outputUrl: nil, errorMessage: valResult.error)
             }
 
-            onProgress(0.96, "Saving to Camera Roll...")
+            var photosNotice: String? = nil
             if config.saveToCameraRoll {
-                _ = try? await DirectDownloadEngine().saveVideoToPhotos(url: outputUrl)
+                onProgress(0.97, "Saving to Camera Roll...")
+                do {
+                    _ = try await DirectDownloadEngine().saveVideoToPhotos(url: outputUrl)
+                } catch {
+                    photosNotice = "Export rendered successfully, but could not save to Photos: \(error.localizedDescription)"
+                }
             }
+
             onProgress(1.0, "Complete!")
-            return EditorExportResult(success: true, outputUrl: outputUrl, errorMessage: nil)
+            return EditorExportResult(success: true, outputUrl: outputUrl, errorMessage: photosNotice)
         } else {
             let logs = session?.getAllLogsAsString() ?? "Composition encoding failed"
             let err = logs.split(separator: "\n").suffix(6).joined(separator: "\n")
@@ -529,22 +715,22 @@ final class VideoEditorExportEngine {
         }
     }
 
-    /// Evaluates piecewise keyframe interpolation expression over time `t` (seconds) matching preview easing curves
-    private func buildFFmpegTimeExpression(
+    /// Evaluates piecewise keyframe interpolation expression over time `t` (seconds) matching preview easing curves exactly
+    func buildFFmpegTimeExpression(
         points: [(timeMs: Int64, value: Double, easing: KeyframeEasing)],
         defaultValue: Double,
         multiplier: Double = 1.0
     ) -> String {
         let sorted = points.sorted { $0.timeMs < $1.timeMs }
         guard !sorted.isEmpty else {
-            return String(format: "%.3f", defaultValue * multiplier)
+            return String(format: "%.6f", defaultValue * multiplier)
         }
         if sorted.count == 1 {
             let v = sorted[0].value * multiplier
-            return String(format: "%.3f", v)
+            return String(format: "%.6f", v)
         }
 
-        var expr = String(format: "%.3f", sorted.last!.value * multiplier)
+        var expr = String(format: "%.6f", sorted.last!.value * multiplier)
         for i in stride(from: sorted.count - 2, through: 0, by: -1) {
             let k0 = sorted[i]
             let k1 = sorted[i + 1]
@@ -552,9 +738,10 @@ final class VideoEditorExportEngine {
             let t1 = Double(k1.timeMs) / 1000.0
             let v0 = k0.value * multiplier
             let v1 = k1.value * multiplier
-            let span = max(0.001, t1 - t0)
+            let span = max(0.0001, t1 - t0)
 
-            let pExpr = "((t-\(String(format: "%.3f", t0)))/\(String(format: "%.3f", span)))"
+            // Normalized progress p in [0, 1]
+            let pExpr = "((t-\(String(format: "%.6f", t0)))/\(String(format: "%.6f", span)))"
             let easeExpr: String
             switch k0.easing {
             case .linear:
@@ -562,24 +749,26 @@ final class VideoEditorExportEngine {
             case .easeIn:
                 easeExpr = "(\(pExpr)*\(pExpr))"
             case .easeOut:
-                easeExpr = "(1-(1-\(pExpr))*(1-\(pExpr)))"
+                easeExpr = "(\(pExpr)*(2-\(pExpr)))"
             case .easeInOut:
-                easeExpr = "if(lt(\(pExpr),0.5),2*\(pExpr)*\(pExpr),1-2*(1-\(pExpr))*(1-\(pExpr)))"
-            case .smooth:
+                // Smoothstep: 3p^2 - 2p^3 (matches Swift KeyframeEasing.easeInOut)
                 easeExpr = "(\(pExpr)*\(pExpr)*(3-2*\(pExpr)))"
+            case .smooth:
+                // Cosine ease: (1 - cos(PI * p)) / 2 (matches Swift KeyframeEasing.smooth)
+                easeExpr = "((1-cos(PI*\(pExpr)))/2)"
             }
 
-            let segExpr = "\(String(format: "%.3f", v0))+(\(String(format: "%.3f", v1 - v0)))*\(easeExpr)"
-            expr = "if(lt(t,\(String(format: "%.3f", t1))),\(segExpr),\(expr))"
+            let segExpr = "\(String(format: "%.6f", v0))+(\(String(format: "%.6f", v1 - v0)))*\(easeExpr)"
+            expr = "if(lt(t,\(String(format: "%.6f", t1))),\(segExpr),\(expr))"
         }
         let firstT = Double(sorted.first!.timeMs) / 1000.0
         let firstV = sorted.first!.value * multiplier
-        expr = "if(lt(t,\(String(format: "%.3f", firstT))),\(String(format: "%.3f", firstV)),\(expr))"
+        expr = "if(lt(t,\(String(format: "%.6f", firstT))),\(String(format: "%.6f", firstV)),\(expr))"
         return expr
     }
 
-    /// Validates the exported video file: exists, non-zero size, playable, correct dimensions, duration, framerate, and final frame present
-    private func validateExportedFile(
+    /// Validates the exported video file: exists, non-zero size, playable, correct dimensions, duration within tolerance, and final frame decodable
+    func validateExportedFile(
         url: URL,
         expectedDurationSec: Double,
         expectedWidth: Int,
@@ -601,6 +790,12 @@ final class VideoEditorExportEngine {
             return (false, "Export validation error: Output video duration is zero.")
         }
 
+        // Validate duration within acceptable margin (1.0s or 15% tolerance)
+        let durTolerance = max(1.0, expectedDurationSec * 0.15)
+        if abs(durSec - expectedDurationSec) > durTolerance {
+            return (false, "Export validation error: Output duration (\(String(format: "%.2f", durSec))s) deviates too far from expected (\(String(format: "%.2f", expectedDurationSec))s).")
+        }
+
         let videoTracks = asset.tracks(withMediaType: .video)
         guard let videoTrack = videoTracks.first else {
             return (false, "Export validation error: No valid video track found in output file.")
@@ -612,14 +807,15 @@ final class VideoEditorExportEngine {
         let actualW = Int(abs(transformedSize.width))
         let actualH = Int(abs(transformedSize.height))
 
-        if abs(actualW - expectedWidth) > 16 && abs(actualH - expectedHeight) > 16 {
-            // Non-fatal dimension warning
+        // Validate dimensions within 4px alignment margin
+        if abs(actualW - expectedWidth) > 4 || abs(actualH - expectedHeight) > 4 {
+            return (false, "Export validation error: Output dimensions (\(actualW)x\(actualH)) do not match expected (\(expectedWidth)x\(expectedHeight)).")
         }
 
         if shouldHaveAudio {
             let audioTracks = asset.tracks(withMediaType: .audio)
             if audioTracks.isEmpty {
-                // Audio track check
+                return (false, "Export validation error: Expected audio track was not present in the exported file.")
             }
         }
 

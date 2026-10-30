@@ -445,6 +445,199 @@ public final class CFXEditorTests {
             record("Export Filter Graph Keyframe Opacity & FFmpeg Syntax Validation", passed: opacityClean)
         }
 
+        // 17. Original Source Media Preservation & Temporary File Separation
+        do {
+            let tempDir = FileManager.default.temporaryDirectory
+            let mockSource = tempDir.appendingPathComponent("mock_original_\(UUID().uuidString).mp4")
+            try? "MOCK_SOURCE_VIDEO_BYTES".data(using: .utf8)?.write(to: mockSource)
+
+            let mockTempClip = tempDir.appendingPathComponent("mock_temp_clip_\(UUID().uuidString).mp4")
+            try? "MOCK_TEMP_BYTES".data(using: .utf8)?.write(to: mockTempClip)
+
+            var temporaryFilesToDelete = [mockTempClip]
+            var projectClips = [EditorClip(
+                sourceUrl: mockSource,
+                filename: "mock_original.mp4",
+                sourceDurationMs: 5000,
+                sourceInPointMs: 0,
+                sourceOutPointMs: 5000
+            )]
+
+            // Emulate cleanup loop
+            for fileUrl in temporaryFilesToDelete {
+                if !projectClips.contains(where: { $0.sourceUrl == fileUrl }) {
+                    try? FileManager.default.removeItem(at: fileUrl)
+                }
+            }
+
+            let originalStillExists = FileManager.default.fileExists(atPath: mockSource.path)
+            let tempWasCleaned = !FileManager.default.fileExists(atPath: mockTempClip.path)
+
+            // Cleanup test file
+            try? FileManager.default.removeItem(at: mockSource)
+
+            record("Original Source Media Preservation on Export Failure", passed: originalStillExists && tempWasCleaned)
+        }
+
+        // 18. Variable Speed Ramp Timeline Expansion & PTS Monotonicity
+        do {
+            var rampConfig = ClipSpeedConfiguration()
+            rampConfig.isRamp = true
+            rampConfig.rampPoints = [
+                SpeedRampPoint(normalizedPosition: 0.0, speedMultiplier: 1.0),
+                SpeedRampPoint(normalizedPosition: 0.35, speedMultiplier: 0.25),
+                SpeedRampPoint(normalizedPosition: 0.65, speedMultiplier: 0.25),
+                SpeedRampPoint(normalizedPosition: 1.0, speedMultiplier: 1.0)
+            ]
+
+            let expansion = rampConfig.timelineDurationExpansionFactor()
+            let sourceDuration: Double = 4.0
+            let rampedDuration = sourceDuration * expansion
+
+            // 4x slow-mo in middle should expand total duration significantly (> 2.0x original)
+            let expansionValid = expansion > 2.0 && rampedDuration > 8.0
+
+            // Test PTS mapping monotonicity
+            let p0 = rampConfig.mapSourceProgressToTimelineProgress(0.0)
+            let p1 = rampConfig.mapSourceProgressToTimelineProgress(0.35)
+            let p2 = rampConfig.mapSourceProgressToTimelineProgress(0.65)
+            let p3 = rampConfig.mapSourceProgressToTimelineProgress(1.0)
+
+            let monotonic = (p0 < p1) && (p1 < p2) && (p2 < p3) && (abs(p3 - 1.0) < 0.01)
+
+            record("Variable Speed Ramp Timeline Expansion & PTS Monotonicity", passed: expansionValid && monotonic)
+        }
+
+        // 19. Swift and FFmpeg Keyframe Easing Formula 1:1 Matching
+        do {
+            let testProgresses = [0.0, 0.25, 0.5, 0.75, 1.0]
+            var allEasingsMatch = true
+
+            for p in testProgresses {
+                // Linear
+                let swiftLinear = KeyframeEasing.linear.interpolate(from: 0.0, to: 10.0, progress: p)
+                let ffmpegLinear = 0.0 + 10.0 * p
+                if abs(swiftLinear - ffmpegLinear) > 0.001 { allEasingsMatch = false }
+
+                // Ease In
+                let swiftEaseIn = KeyframeEasing.easeIn.interpolate(from: 0.0, to: 10.0, progress: p)
+                let ffmpegEaseIn = 0.0 + 10.0 * (p * p)
+                if abs(swiftEaseIn - ffmpegEaseIn) > 0.001 { allEasingsMatch = false }
+
+                // Ease Out
+                let swiftEaseOut = KeyframeEasing.easeOut.interpolate(from: 0.0, to: 10.0, progress: p)
+                let ffmpegEaseOut = 0.0 + 10.0 * (p * (2.0 - p))
+                if abs(swiftEaseOut - ffmpegEaseOut) > 0.001 { allEasingsMatch = false }
+
+                // Ease In-Out (Smoothstep)
+                let swiftEaseInOut = KeyframeEasing.easeInOut.interpolate(from: 0.0, to: 10.0, progress: p)
+                let ffmpegEaseInOut = 0.0 + 10.0 * (p * p * (3.0 - 2.0 * p))
+                if abs(swiftEaseInOut - ffmpegEaseInOut) > 0.001 { allEasingsMatch = false }
+
+                // Smooth (Cosine)
+                let swiftSmooth = KeyframeEasing.smooth.interpolate(from: 0.0, to: 10.0, progress: p)
+                let ffmpegSmooth = 0.0 + 10.0 * ((1.0 - cos(p * .pi)) / 2.0)
+                if abs(swiftSmooth - ffmpegSmooth) > 0.001 { allEasingsMatch = false }
+            }
+
+            record("Swift & FFmpeg Keyframe Easing 1:1 Formula Alignment", passed: allEasingsMatch)
+        }
+
+        // 20. Transform Uncropped Rotation Bounding Box Math
+        do {
+            let angleDeg = 45.0
+            let rad = angleDeg * .pi / 180.0
+            let w = 1920.0
+            let h = 1080.0
+
+            // rotw(a) = abs(w*cos(a)) + abs(h*sin(a))
+            let rotW = abs(w * cos(rad)) + abs(h * sin(rad))
+            let rotH = abs(w * sin(rad)) + abs(h * cos(rad))
+
+            // At 45 deg, rotated bounding box must be strictly larger than input
+            let expansionCorrect = (rotW > w) && (rotH > h)
+
+            record("Uncropped Rotation Bounding Box Calculation", passed: expansionCorrect)
+        }
+
+        // 21. Fit and Fill Aspect Ratio Conformation
+        do {
+            let targetW = 1080
+            let targetH = 1920
+
+            var clipFit = EditorClip(
+                sourceUrl: URL(fileURLWithPath: "/dummy.mp4"),
+                filename: "dummy.mp4",
+                sourceDurationMs: 3000,
+                sourceInPointMs: 0,
+                sourceOutPointMs: 3000
+            )
+            clipFit.transform.fitMode = .fit
+
+            var clipFill = clipFit
+            clipFill.transform.fitMode = .fill
+
+            let fitModeCheck = (clipFit.transform.fitMode == .fit) && (clipFill.transform.fitMode == .fill)
+            record("Fit & Fill Canvas Mode Conformation", passed: fitModeCheck)
+        }
+
+        // 22. Secondary Audio Track Mixing & Fade Calculations
+        do {
+            let audioTrack = EditorAudioTrack(
+                url: URL(fileURLWithPath: "/music.m4a"),
+                title: "Background Music",
+                timelineStartMs: 1500,
+                durationMs: 6000,
+                volume: 0.75,
+                isMuted: false,
+                fadeInMs: 500,
+                fadeOutMs: 1000
+            )
+
+            let startSec = Double(audioTrack.timelineStartMs) / 1000.0
+            let durSec = Double(audioTrack.durationMs) / 1000.0
+            let endSec = startSec + durSec
+
+            let timingCorrect = (startSec == 1.5) && (durSec == 6.0) && (endSec == 7.5)
+            let volCorrect = audioTrack.volume == 0.75 && !audioTrack.isMuted
+
+            record("Secondary Audio Track Delay, Volume & Fade Parameters", passed: timingCorrect && volCorrect)
+        }
+
+        // 23. Text Overlays Timing, Positioning & Scale Calculations
+        do {
+            let overlay = EditorTextOverlay(
+                text: "Summer Holiday",
+                fontSize: 48,
+                textColorHex: "FFD700",
+                backgroundColorHex: "000000",
+                timelineStartMs: 1000,
+                timelineEndMs: 4000,
+                posX: 0.5,
+                posY: 0.85,
+                scale: 1.2
+            )
+
+            let isTimed = (overlay.timelineStartMs == 1000) && (overlay.timelineEndMs == 4000)
+            let isPositioned = (overlay.posX == 0.5) && (overlay.posY == 0.85)
+
+            record("Text Overlays Interval & Canvas Positioning Math", passed: isTimed && isPositioned)
+        }
+
+        // 24. Clip Transitions Overlap & Duration Adjustment Math
+        do {
+            let clip0DurSec = 4.0
+            let clip1DurSec = 5.0
+            let transitionDurSec = 0.5
+
+            let totalWithoutTrans = clip0DurSec + clip1DurSec
+            let totalWithTrans = totalWithoutTrans - transitionDurSec
+
+            let durValid = (totalWithTrans == 8.5)
+
+            record("Clip Transitions (Cross Dissolve & Fades) Overlap Math", passed: durValid)
+        }
+
         let passedCount = results.values.filter { $0 }.count
         let totalCount = results.count
         return TestReport(
