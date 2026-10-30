@@ -215,6 +215,26 @@ struct VideoEditorView: View {
                 ShareActivityView(activityItems: [url])
             }
         }
+        .sheet(isPresented: $showExportModal) {
+            ExportSettingsSheet(
+                project: project,
+                aspectRatio: project.canvasAspectRatio,
+                onStartExport: { config in
+                    showExportModal = false
+                    startProjectExport(config: config)
+                }
+            )
+        }
+        .alert("Export Error", isPresented: Binding(
+            get: { exportErrorMessage != nil },
+            set: { if !$0 { exportErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { exportErrorMessage = nil }
+        } message: {
+            if let msg = exportErrorMessage {
+                Text(msg)
+            }
+        }
         .photosPicker(isPresented: $showPhotosPicker, selection: $selectedPhotosItem, matching: .videos)
         .onChange(of: selectedPhotosItem) { newItem in
             guard let item = newItem else { return }
@@ -326,7 +346,11 @@ struct VideoEditorView: View {
             .disabled(!undoManager.canRedo)
 
             // Export Button (Fixed non-wrapping capsule)
-            Button(action: { startProjectExport() }) {
+            Button(action: {
+                if !project.clips.isEmpty {
+                    showExportModal = true
+                }
+            }) {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 11, weight: .bold))
@@ -343,6 +367,7 @@ struct VideoEditorView: View {
                     Capsule().stroke(project.clips.isEmpty ? Color.borderHairline : Color.clear, lineWidth: 1)
                 )
             }
+            .disabled(project.clips.isEmpty)
             .fixedSize()
             .layoutPriority(10)
             .disabled(project.clips.isEmpty || isExporting)
@@ -2250,16 +2275,10 @@ struct VideoEditorView: View {
         }
     }
 
-    private func startProjectExport() {
+    private func startProjectExport(config: ProjectExportConfig) {
         isExporting = true
         exportProgress = 0.0
         exportStatusMessage = "Initializing render pipeline..."
-
-        let config = ProjectExportConfig(
-            resolution: project.canvasAspectRatio,
-            targetFps: project.targetFps,
-            saveToCameraRoll: true
-        )
 
         Task {
             let result = await VideoEditorExportEngine.shared.exportProject(
@@ -2686,5 +2705,254 @@ struct TrianglePointer: Shape {
         path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
         path.closeSubpath()
         return path
+    }
+}
+
+// MARK: - Export Settings Modal Sheet
+struct ExportSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let project: VideoProject
+    let aspectRatio: AspectRatioPreset
+    let onStartExport: (ProjectExportConfig) -> Void
+
+    @State private var selectedResolution: ExportResolutionPreset = .res1080p
+    @State private var selectedFps: ExportFrameRate = .fps30
+    @State private var selectedCodec: ExportCodec = .h264
+    @State private var selectedQuality: ExportQuality = .high
+    @State private var saveToCameraRoll: Bool = true
+
+    private var currentConfig: ProjectExportConfig {
+        ProjectExportConfig(
+            resolutionPreset: selectedResolution,
+            aspectRatio: aspectRatio,
+            frameRate: selectedFps,
+            codec: selectedCodec,
+            quality: selectedQuality,
+            saveToCameraRoll: saveToCameraRoll
+        )
+    }
+
+    private var validation: (isValid: Bool, error: String?) {
+        currentConfig.validate()
+    }
+
+    private var estimatedFileSizeMB: Double {
+        let totalSec = Double(project.totalTimelineDurationMs) / 1000.0
+        let bitrateMbps = currentConfig.bitrateMbps
+        return (totalSec * bitrateMbps) / 8.0
+    }
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.voidCanvas.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        // 1. Resolution Selection (720p, 1080p, 4K)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("RESOLUTION")
+                                .font(.system(size: 11, weight: .heavy))
+                                .foregroundColor(.textSecondary)
+
+                            HStack(spacing: 8) {
+                                ForEach(ExportResolutionPreset.allCases) { res in
+                                    let isSel = selectedResolution == res
+                                    Button(action: { selectedResolution = res }) {
+                                        VStack(spacing: 3) {
+                                            Text(res.shortLabel)
+                                                .font(.system(size: 13, weight: .bold))
+                                            let dims = res.dimensions(for: aspectRatio)
+                                            Text("\(dims.width)x\(dims.height)")
+                                                .font(.system(size: 9.5, design: .monospaced))
+                                                .foregroundColor(isSel ? .white.opacity(0.85) : .textTertiary)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                        .background(isSel ? Color.brandAccent : Color.surfaceCard)
+                                        .foregroundColor(isSel ? .white : .textPrimary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(isSel ? Color.brandAccent : Color.borderHairline, lineWidth: 1)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Frame Rate (24, 30, 60 FPS)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("FRAME RATE")
+                                .font(.system(size: 11, weight: .heavy))
+                                .foregroundColor(.textSecondary)
+
+                            HStack(spacing: 8) {
+                                ForEach(ExportFrameRate.allCases) { fps in
+                                    let isSel = selectedFps == fps
+                                    Button(action: { selectedFps = fps }) {
+                                        Text("\(fps.rawValue) FPS")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 10)
+                                            .background(isSel ? Color.brandAccent : Color.surfaceCard)
+                                            .foregroundColor(isSel ? .white : .textPrimary)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 10)
+                                                    .stroke(isSel ? Color.brandAccent : Color.borderHairline, lineWidth: 1)
+                                            )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Video Codec (H.264, HEVC)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("ENCODING CODEC")
+                                .font(.system(size: 11, weight: .heavy))
+                                .foregroundColor(.textSecondary)
+
+                            HStack(spacing: 8) {
+                                ForEach(ExportCodec.allCases) { codec in
+                                    let isSel = selectedCodec == codec
+                                    Button(action: { selectedCodec = codec }) {
+                                        VStack(spacing: 2) {
+                                            Text(codec.shortLabel)
+                                                .font(.system(size: 12.5, weight: .bold))
+                                            Text(codec == .h264 ? "Universal" : "Smaller Size")
+                                                .font(.system(size: 9))
+                                                .foregroundColor(isSel ? .white.opacity(0.85) : .textTertiary)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                        .background(isSel ? Color.brandAccent : Color.surfaceCard)
+                                        .foregroundColor(isSel ? .white : .textPrimary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(isSel ? Color.brandAccent : Color.borderHairline, lineWidth: 1)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4. Export Quality / Bitrate
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("QUALITY & BITRATE")
+                                .font(.system(size: 11, weight: .heavy))
+                                .foregroundColor(.textSecondary)
+
+                            Picker("Quality", selection: $selectedQuality) {
+                                ForEach(ExportQuality.allCases) { q in
+                                    Text(q.rawValue).tag(q)
+                                }
+                            }
+                            .pickerStyle(SegmentedPickerStyle())
+                        }
+
+                        // 5. Save to Camera Roll
+                        Toggle(isOn: $saveToCameraRoll) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "photo.on.rectangle")
+                                    .foregroundColor(.brandAccent)
+                                Text("Save Video to Photos Camera Roll")
+                                    .font(.system(size: 13, weight: .semibold))
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        // 6. Output Specifications Summary Card
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("EXPORT SPECIFICATIONS")
+                                    .font(.system(size: 10, weight: .heavy))
+                                    .foregroundColor(.textTertiary)
+                                Spacer()
+                                Text(aspectRatio.badgeText)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.skyAccent)
+                            }
+
+                            Divider().background(Color.borderHairline)
+
+                            HStack {
+                                Text("Dimensions:")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.textSecondary)
+                                Spacer()
+                                Text("\(currentConfig.targetWidth) × \(currentConfig.targetHeight) px")
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.textPrimary)
+                            }
+
+                            HStack {
+                                Text("Target Bitrate:")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.textSecondary)
+                                Spacer()
+                                Text("\(Int(currentConfig.bitrateMbps)) Mbps")
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.textPrimary)
+                            }
+
+                            HStack {
+                                Text("Estimated Size:")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.textSecondary)
+                                Spacer()
+                                Text(String(format: "~%.1f MB", max(0.5, estimatedFileSizeMB)))
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.amberAccent)
+                            }
+
+                            if let err = validation.error {
+                                Text(err)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.red)
+                                    .padding(.top, 4)
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.surfaceCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.borderHairline, lineWidth: 1)
+                        )
+
+                        // Start Export CTA Button
+                        Button(action: {
+                            onStartExport(currentConfig)
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Start Export")
+                                    .font(.system(size: 14, weight: .heavy))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(validation.isValid ? AnyView(LinearGradient.brandGradient) : AnyView(Color.surfaceCard))
+                            .foregroundColor(validation.isValid ? .white : .textTertiary)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(!validation.isValid)
+                        .padding(.top, 8)
+                    }
+                    .padding(18)
+                }
+            }
+            .navigationTitle("Export Video")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundColor(.textSecondary)
+                }
+            }
+        }
     }
 }

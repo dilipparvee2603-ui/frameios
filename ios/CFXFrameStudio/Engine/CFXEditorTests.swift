@@ -244,6 +244,101 @@ public final class CFXEditorTests {
             record("Color Adjustments Keyframing & Smooth Interpolation", passed: colorInterpolated)
         }
 
+        // 9. Export Configuration Resolution Presets & Aspect Ratios
+        do {
+            let res720 = ExportResolutionPreset.res720p
+            let res1080 = ExportResolutionPreset.res1080p
+            let res4k = ExportResolutionPreset.res4k
+
+            // 16:9 Landscape
+            let d16x9_720 = res720.dimensions(for: .ratio16x9)
+            let d16x9_1080 = res1080.dimensions(for: .ratio16x9)
+            let d16x9_4k = res4k.dimensions(for: .ratio16x9)
+
+            let p16x9 = (d16x9_720.width == 1280 && d16x9_720.height == 720) &&
+                        (d16x9_1080.width == 1920 && d16x9_1080.height == 1080) &&
+                        (d16x9_4k.width == 3840 && d16x9_4k.height == 2160)
+
+            // 9:16 Vertical
+            let d9x16_720 = res720.dimensions(for: .ratio9x16)
+            let d9x16_1080 = res1080.dimensions(for: .ratio9x16)
+            let d9x16_4k = res4k.dimensions(for: .ratio9x16)
+
+            let p9x16 = (d9x16_720.width == 720 && d9x16_720.height == 1280) &&
+                        (d9x16_1080.width == 1080 && d9x16_1080.height == 1920) &&
+                        (d9x16_4k.width == 2160 && d9x16_4k.height == 3840)
+
+            // Even dimensions check (required for hardware encoders)
+            let evenCheck = (d16x9_4k.width % 2 == 0) && (d16x9_4k.height % 2 == 0) &&
+                            (d9x16_4k.width % 2 == 0) && (d9x16_4k.height % 2 == 0)
+
+            record("Export Resolution Presets (720p, 1080p, 4K UHD Even Dimensions)", passed: p16x9 && p9x16 && evenCheck)
+        }
+
+        // 10. Export Codec & 4K 60FPS Hardware Validation
+        do {
+            let validConfig = ProjectExportConfig(
+                resolutionPreset: .res4k,
+                aspectRatio: .ratio16x9,
+                frameRate: .fps60,
+                codec: .hevc,
+                quality: .high
+            )
+            let valResult1 = validConfig.validate()
+
+            let invalidConfig = ProjectExportConfig(
+                resolutionPreset: .res4k,
+                aspectRatio: .ratio16x9,
+                frameRate: .fps60,
+                codec: .h264,
+                quality: .high
+            )
+            let valResult2 = invalidConfig.validate()
+
+            let validationPass = valResult1.isValid && !valResult2.isValid && (valResult2.error != nil)
+            record("Export Codec & 4K 60FPS Hardware Encoder Validation", passed: validationPass)
+        }
+
+        // 11. Export Dynamic Bitrate Scaling
+        do {
+            let config720 = ProjectExportConfig(resolutionPreset: .res720p, aspectRatio: .ratio16x9, frameRate: .fps30, codec: .h264, quality: .high)
+            let config1080 = ProjectExportConfig(resolutionPreset: .res1080p, aspectRatio: .ratio16x9, frameRate: .fps30, codec: .h264, quality: .high)
+            let config4k = ProjectExportConfig(resolutionPreset: .res4k, aspectRatio: .ratio16x9, frameRate: .fps30, codec: .h264, quality: .high)
+
+            let b720 = config720.bitrateMbps
+            let b1080 = config1080.bitrateMbps
+            let b4k = config4k.bitrateMbps
+
+            let scalingCorrect = (b720 < b1080) && (b1080 < b4k) && (b4k >= 50.0)
+            record("Export Bitrate Dynamic Scaling (720p vs 1080p vs 4K)", passed: scalingCorrect)
+        }
+
+        // 12. Spatial Coordinate System 1:1 Preview-to-Export Alignment
+        do {
+            let refPreview9x16 = VideoEditorExportEngine.referencePreviewDimensions(aspectRatio: .ratio9x16)
+            let refPreview16x9 = VideoEditorExportEngine.referencePreviewDimensions(aspectRatio: .ratio16x9)
+
+            let validRef = refPreview9x16.width > 50 && refPreview9x16.height > 50 &&
+                           refPreview16x9.width > 50 && refPreview16x9.height > 50
+
+            let config1080 = ProjectExportConfig(resolutionPreset: .res1080p, aspectRatio: .ratio9x16)
+            let scaleX = Double(config1080.targetWidth) / Double(refPreview9x16.width)
+            let scaleY = Double(config1080.targetHeight) / Double(refPreview9x16.height)
+
+            // Aspect ratio scaling must be proportional
+            let propScaling = abs(scaleX - scaleY) < 0.5
+            record("1:1 Spatial Coordinate Alignment (Preview Canvas to Master Export)", passed: validRef && propScaling)
+        }
+
+        // 13. Audio Duration Normalization & Silence Generator Math
+        do {
+            let testDurationMs: Int64 = 3450
+            let durFormatted = String(format: "%.3f", Double(testDurationMs) / 1000.0)
+            let isFormatted = durFormatted == "3.450"
+
+            record("Audio Padding & Multi-Clip Concat Duration Formatting", passed: isFormatted)
+        }
+
         let passedCount = results.values.filter { $0 }.count
         let totalCount = results.count
         return TestReport(

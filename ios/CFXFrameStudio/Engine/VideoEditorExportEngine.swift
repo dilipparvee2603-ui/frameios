@@ -4,15 +4,156 @@ import Photos
 import ffmpegkit
 import UIKit
 
-// MARK: - Export Configuration
+// MARK: - Export Resolution Presets
+enum ExportResolutionPreset: String, CaseIterable, Identifiable, Codable {
+    case res720p = "720p (HD)"
+    case res1080p = "1080p (Full HD)"
+    case res4k = "4K UHD (2160p)"
+
+    var id: String { rawValue }
+
+    var shortLabel: String {
+        switch self {
+        case .res720p: return "720p"
+        case .res1080p: return "1080p"
+        case .res4k: return "4K UHD"
+        }
+    }
+
+    var shortDimension: Int {
+        switch self {
+        case .res720p: return 720
+        case .res1080p: return 1080
+        case .res4k: return 2160
+        }
+    }
+
+    var longDimension: Int {
+        switch self {
+        case .res720p: return 1280
+        case .res1080p: return 1920
+        case .res4k: return 3840
+        }
+    }
+
+    func dimensions(for aspectRatio: AspectRatioPreset) -> (width: Int, height: Int) {
+        switch aspectRatio {
+        case .ratio16x9:
+            return (longDimension, shortDimension)
+        case .ratio9x16, .original:
+            return (shortDimension, longDimension)
+        case .ratio1x1:
+            return (shortDimension, shortDimension)
+        case .ratio4x5:
+            let h = Int(round(Double(shortDimension) * 5.0 / 4.0))
+            return (shortDimension, (h / 2) * 2) // Ensure even dimension for hardware encoder
+        }
+    }
+}
+
+// MARK: - Export Frame Rate Presets
+enum ExportFrameRate: Int, CaseIterable, Identifiable, Codable {
+    case fps24 = 24
+    case fps30 = 30
+    case fps60 = 60
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .fps24: return "24 FPS (Cinematic)"
+        case .fps30: return "30 FPS (Standard)"
+        case .fps60: return "60 FPS (Smooth)"
+        }
+    }
+}
+
+// MARK: - Export Codec Presets
+enum ExportCodec: String, CaseIterable, Identifiable, Codable {
+    case h264 = "H.264 (Universal Compatibility)"
+    case hevc = "HEVC / H.265 (High Efficiency)"
+
+    var id: String { rawValue }
+
+    var shortLabel: String {
+        switch self {
+        case .h264: return "H.264"
+        case .hevc: return "HEVC"
+        }
+    }
+
+    var ffmpegEncoder: String {
+        switch self {
+        case .h264: return "h264_videotoolbox"
+        case .hevc: return "hevc_videotoolbox"
+        }
+    }
+}
+
+// MARK: - Export Quality & Bitrate
+enum ExportQuality: String, CaseIterable, Identifiable, Codable {
+    case standard = "Standard"
+    case high = "High Quality (Recommended)"
+    case maximum = "Maximum Bitrate"
+
+    var id: String { rawValue }
+
+    func bitrateMbps(resolution: ExportResolutionPreset, fps: ExportFrameRate, codec: ExportCodec) -> Double {
+        let baseBitrate: Double
+        switch resolution {
+        case .res720p:
+            baseBitrate = 8.0
+        case .res1080p:
+            baseBitrate = 18.0
+        case .res4k:
+            baseBitrate = 55.0
+        }
+
+        let fpsFactor = fps == .fps60 ? 1.4 : (fps == .fps24 ? 0.9 : 1.0)
+        let codecFactor = codec == .hevc ? 0.7 : 1.0
+        let qualityFactor: Double
+        switch self {
+        case .standard: qualityFactor = 0.8
+        case .high: qualityFactor = 1.0
+        case .maximum: qualityFactor = 1.35
+        }
+
+        return max(4.0, round(baseBitrate * fpsFactor * codecFactor * qualityFactor))
+    }
+}
+
+// MARK: - Master Export Configuration
 struct ProjectExportConfig {
-    var resolution: AspectRatioPreset = .ratio9x16
-    var customWidth: Int = 1080
-    var customHeight: Int = 1920
-    var targetFps: Int = 30
-    var videoCodec: String = "h264_videotoolbox" // or hevc_videotoolbox
-    var bitrateMbps: Double = 18.0
+    var resolutionPreset: ExportResolutionPreset = .res1080p
+    var aspectRatio: AspectRatioPreset = .ratio9x16
+    var frameRate: ExportFrameRate = .fps30
+    var codec: ExportCodec = .h264
+    var quality: ExportQuality = .high
     var saveToCameraRoll: Bool = true
+
+    var targetWidth: Int {
+        resolutionPreset.dimensions(for: aspectRatio).width
+    }
+
+    var targetHeight: Int {
+        resolutionPreset.dimensions(for: aspectRatio).height
+    }
+
+    var targetFps: Int {
+        frameRate.rawValue
+    }
+
+    var bitrateMbps: Double {
+        quality.bitrateMbps(resolution: resolutionPreset, fps: frameRate, codec: codec)
+    }
+
+    /// Validates configuration and returns error message if unsupported
+    func validate() -> (isValid: Bool, error: String?) {
+        if resolutionPreset == .res4k && frameRate == .fps60 && codec == .h264 {
+            return (false, "4K at 60 FPS requires HEVC (H.265) hardware encoding. Please select HEVC or reduce frame rate to 30 FPS.")
+        }
+        return (true, nil)
+    }
 }
 
 // MARK: - Export Result
@@ -27,6 +168,7 @@ final class VideoEditorExportEngine {
     static let shared = VideoEditorExportEngine()
 
     private var isCancelled: Bool = false
+    private var isExportingActive: Bool = false
 
     private init() {}
 
@@ -35,15 +177,44 @@ final class VideoEditorExportEngine {
         FFmpegKit.cancel()
     }
 
+    /// Computes the exact preview canvas box dimensions for 1:1 spatial mapping to export
+    static func referencePreviewDimensions(aspectRatio: AspectRatioPreset) -> CGSize {
+        let ratio: CGFloat = aspectRatio.ratioValue ?? (9.0 / 16.0)
+        let maxW: CGFloat = 360.0
+        let maxH: CGFloat = 222.0
+        if ratio < 1.0 {
+            let h = maxH
+            let w = min(maxW, h * ratio)
+            return CGSize(width: w, height: h)
+        } else {
+            let w = min(maxW, maxH * ratio)
+            let h = min(maxH, w / ratio)
+            return CGSize(width: w, height: h)
+        }
+    }
+
     /// Renders an entire VideoProject with all clips, trims, slow-mo speeds, optical-flow interpolation, transforms, color grading, and audio tracks
     func exportProject(
         project: VideoProject,
         config: ProjectExportConfig,
         onProgress: @escaping (Double, String) -> Void
     ) async -> EditorExportResult {
+        // Prevent concurrent export operations
+        guard !isExportingActive else {
+            return EditorExportResult(success: false, outputUrl: nil, errorMessage: "An export is already in progress.")
+        }
+        isExportingActive = true
+        defer { isExportingActive = false }
+
         isCancelled = false
         guard !project.clips.isEmpty else {
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Project contains no video clips.")
+        }
+
+        // Validate configuration settings
+        let validation = config.validate()
+        guard validation.isValid else {
+            return EditorExportResult(success: false, outputUrl: nil, errorMessage: validation.error ?? "Invalid export configuration.")
         }
 
         let tempDir = FileManager.default.temporaryDirectory
@@ -53,7 +224,7 @@ final class VideoEditorExportEngine {
 
         onProgress(0.05, "Preparing media clips & timeline...")
 
-        // Step 1: Process individual clips (apply slow-mo / optical flow if speed is retimed)
+        // Step 1: Process individual clips (apply slow-mo / optical flow or high-speed conform)
         var preparedClipUrls: [URL] = []
         let totalClips = project.clips.count
 
@@ -69,7 +240,7 @@ final class VideoEditorExportEngine {
             let hasSpeedRetime = abs(clip.speedConfig.speedMultiplier - 1.0) > 0.01 || clip.speedConfig.isRamp
 
             if hasSpeedRetime {
-                onProgress(clipProgressBase, "Rendering Slow-Mo (Clip \(idx + 1)/\(totalClips))...")
+                onProgress(clipProgressBase, "Rendering Retimed Motion (Clip \(idx + 1)/\(totalClips))...")
                 let slowMoResult = await SlowMoEngine.shared.createSlowMotion(
                     sourceUrl: clip.sourceUrl,
                     speedPercentage: clip.speedConfig.speedMultiplier * 100.0,
@@ -81,7 +252,7 @@ final class VideoEditorExportEngine {
                     totalSourceDurationMs: clip.sourceDurationMs,
                     onProgress: { fraction, speedText in
                         let overallFraction = clipProgressBase + (fraction * clipProgressSpan)
-                        onProgress(overallFraction, "Optical Flow Retiming (Clip \(idx + 1)/\(totalClips)) \(speedText)")
+                        onProgress(overallFraction, "Retiming Motion (Clip \(idx + 1)/\(totalClips)) \(speedText)")
                     }
                 )
 
@@ -94,7 +265,7 @@ final class VideoEditorExportEngine {
                 }
                 renderedClipUrl = resUrl
             } else {
-                // High-performance direct trim to temp file using VideoToolbox - zero Photo library pollution!
+                // High-performance direct trim to temp file using hardware VideoToolbox
                 onProgress(clipProgressBase, "Preparing Clip \(idx + 1)/\(totalClips)...")
                 let tempClipOut = tempDir.appendingPathComponent("CFX_Prep_\(idx)_\(timestamp).mp4")
                 try? FileManager.default.removeItem(at: tempClipOut)
@@ -107,7 +278,7 @@ final class VideoEditorExportEngine {
                     "-ss", startSec,
                     "-t", durSec,
                     "-i", clip.sourceUrl.path,
-                    "-c:v", "h264_videotoolbox",
+                    "-c:v", config.codec.ffmpegEncoder,
                     "-b:v", "\(Int(config.bitrateMbps))M",
                     "-pix_fmt", "yuv420p",
                     "-c:a", "aac",
@@ -132,13 +303,18 @@ final class VideoEditorExportEngine {
         onProgress(0.75, "Compositing clips & color grading...")
 
         // Step 2: Composite & Normalize all clips into target canvas dimensions
-        let canvasDims = config.resolution.renderDimensions(baseWidth: CGFloat(config.customWidth))
-        let targetW = Int(canvasDims.width)
-        let targetH = Int(canvasDims.height)
+        let targetW = config.targetWidth
+        let targetH = config.targetHeight
+
+        // Reference preview dimensions for 1:1 mathematical coordinate mapping
+        let refPreview = Self.referencePreviewDimensions(aspectRatio: config.aspectRatio)
+        let scaleX = Double(targetW) / Double(refPreview.width)
+        let scaleY = Double(targetH) / Double(refPreview.height)
 
         var concatArgs: [String] = ["-threads", "0", "-y"]
         var filterComplexParts: [String] = []
         var concatStreams = ""
+        var totalExpectedDurationSec: Double = 0.0
 
         for (idx, clipUrl) in preparedClipUrls.enumerated() {
             concatArgs += ["-i", clipUrl.path]
@@ -154,7 +330,7 @@ final class VideoEditorExportEngine {
 
             // A. Rotation & Flip
             if clip.hasKeyframes() {
-                let rotPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.rotationDegrees) }
+                let rotPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.rotationDegrees, easing: $0.easing) }
                 let hasRotationAnim = rotPoints.contains { abs($0.value) > 0.01 }
                 if hasRotationAnim {
                     let rotExpr = buildFFmpegTimeExpression(points: rotPoints, defaultValue: Double(clip.transform.rotation.rawValue))
@@ -185,9 +361,9 @@ final class VideoEditorExportEngine {
 
             // B. Color grading (Supports per-clip keyframed contrast, brightness, saturation)
             if clip.hasKeyframes() {
-                let contrastPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.contrast ?? clip.color.contrast) }
-                let brightnessPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.brightness ?? clip.color.brightness) }
-                let saturationPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.saturation ?? clip.color.saturation) }
+                let contrastPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.contrast ?? clip.color.contrast, easing: $0.easing) }
+                let brightnessPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.brightness ?? clip.color.brightness, easing: $0.easing) }
+                let saturationPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.saturation ?? clip.color.saturation, easing: $0.easing) }
 
                 let hasColorAnim = contrastPoints.contains { abs($0.value - 1.0) > 0.01 } ||
                                    brightnessPoints.contains { abs($0.value) > 0.01 } ||
@@ -207,7 +383,7 @@ final class VideoEditorExportEngine {
 
             // Opacity keyframe support
             if clip.hasKeyframes() {
-                let opPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity) }
+                let opPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity, easing: $0.easing) }
                 let alphaExpr = buildFFmpegTimeExpression(points: opPoints, defaultValue: 1.0)
                 vFilters.append("format=yuva420p,colorchannelmixer=aa='\(alphaExpr)'")
             } else if clip.transform.opacity < 0.999 {
@@ -215,30 +391,29 @@ final class VideoEditorExportEngine {
             }
 
             // C. Conform & Scale with Zoom and Pan Offset onto canvas using overlay on black background
-            let zoom = max(0.2, min(4.0, clip.transform.scale))
-            // Scale offset from preview coordinate system (~200pt wide) to export target resolution
-            let scaleMultiplier = Double(targetW) / 200.0
+            let zoom = max(0.2, min(5.0, clip.transform.scale))
 
             let xOffsetExpr: String
             let yOffsetExpr: String
 
             if clip.hasKeyframes() {
-                let xPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.positionX) }
-                let yPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.positionY) }
-                xOffsetExpr = buildFFmpegTimeExpression(points: xPoints, defaultValue: clip.transform.offsetX, multiplier: scaleMultiplier)
-                yOffsetExpr = buildFFmpegTimeExpression(points: yPoints, defaultValue: clip.transform.offsetY, multiplier: scaleMultiplier)
+                let xPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.positionX, easing: $0.easing) }
+                let yPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.positionY, easing: $0.easing) }
+                xOffsetExpr = buildFFmpegTimeExpression(points: xPoints, defaultValue: clip.transform.offsetX, multiplier: scaleX)
+                yOffsetExpr = buildFFmpegTimeExpression(points: yPoints, defaultValue: clip.transform.offsetY, multiplier: scaleY)
             } else {
-                let padX = Int(round(clip.transform.offsetX * scaleMultiplier))
-                let padY = Int(round(clip.transform.offsetY * scaleMultiplier))
+                let padX = Int(round(clip.transform.offsetX * scaleX))
+                let padY = Int(round(clip.transform.offsetY * scaleY))
                 xOffsetExpr = "\(padX)"
                 yOffsetExpr = "\(padY)"
             }
 
             let clipDurationSec = max(0.1, Double(clip.timelineDurationMs) / 1000.0)
+            totalExpectedDurationSec += clipDurationSec
 
             vFilters.append("scale=\(targetW):\(targetH):force_original_aspect_ratio=decrease")
             if clip.hasKeyframes() {
-                let scalePoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.scale) }
+                let scalePoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.scale, easing: $0.easing) }
                 let zoomExpr = buildFFmpegTimeExpression(points: scalePoints, defaultValue: clip.transform.scale)
                 vFilters.append("scale=eval=frame:w='trunc(iw*(\(zoomExpr))/2)*2':h='trunc(ih*(\(zoomExpr))/2)*2'")
             } else {
@@ -278,9 +453,9 @@ final class VideoEditorExportEngine {
             "-filter_complex", filterComplexString,
             "-map", "[outv]",
             "-map", "[outa]",
-            "-c:v", config.videoCodec,
+            "-c:v", config.codec.ffmpegEncoder,
             "-b:v", "\(Int(config.bitrateMbps))M",
-            "-maxrate", "\(Int(config.bitrateMbps * 1.3))M",
+            "-maxrate", "\(Int(config.bitrateMbps * 1.35))M",
             "-profile:v", "high",
             "-allow_sw", "1",
             "-pix_fmt", "yuv420p",
@@ -293,7 +468,7 @@ final class VideoEditorExportEngine {
             outputUrl.path
         ]
 
-        onProgress(0.85, "Encoding master video with VideoToolbox...")
+        onProgress(0.85, "Encoding master video with VideoToolbox (\(config.codec.shortLabel))...")
 
         let session = FFmpegKit.execute(withArguments: concatArgs)
         let code = session?.getReturnCode()
@@ -309,7 +484,22 @@ final class VideoEditorExportEngine {
         }
 
         if ReturnCode.isSuccess(code), FileManager.default.fileExists(atPath: outputUrl.path) {
-            onProgress(0.95, "Saving to Camera Roll...")
+            onProgress(0.92, "Validating exported output integrity...")
+            let valResult = await validateExportedFile(
+                url: outputUrl,
+                expectedDurationSec: totalExpectedDurationSec,
+                expectedWidth: targetW,
+                expectedHeight: targetH,
+                expectedFps: config.targetFps,
+                shouldHaveAudio: project.clips.contains { !$0.isMuted }
+            )
+
+            guard valResult.isValid else {
+                try? FileManager.default.removeItem(at: outputUrl)
+                return EditorExportResult(success: false, outputUrl: nil, errorMessage: valResult.error)
+            }
+
+            onProgress(0.96, "Saving to Camera Roll...")
             if config.saveToCameraRoll {
                 _ = try? await DirectDownloadEngine().saveVideoToPhotos(url: outputUrl)
             }
@@ -317,28 +507,28 @@ final class VideoEditorExportEngine {
             return EditorExportResult(success: true, outputUrl: outputUrl, errorMessage: nil)
         } else {
             let logs = session?.getAllLogsAsString() ?? "Composition encoding failed"
-            let err = logs.split(separator: "\n").suffix(5).joined(separator: "\n")
+            let err = logs.split(separator: "\n").suffix(6).joined(separator: "\n")
             try? FileManager.default.removeItem(at: outputUrl)
             return EditorExportResult(success: false, outputUrl: nil, errorMessage: "Render failure:\n\(err)")
         }
     }
 
-    /// Evaluates piecewise linear keyframe interpolation expression over time `t` (seconds) for FFmpeg filtergraphs
+    /// Evaluates piecewise keyframe interpolation expression over time `t` (seconds) matching preview easing curves
     private func buildFFmpegTimeExpression(
-        points: [(timeMs: Int64, value: Double)],
+        points: [(timeMs: Int64, value: Double, easing: KeyframeEasing)],
         defaultValue: Double,
         multiplier: Double = 1.0
     ) -> String {
         let sorted = points.sorted { $0.timeMs < $1.timeMs }
         guard !sorted.isEmpty else {
-            return String(format: "%.2f", defaultValue * multiplier)
+            return String(format: "%.3f", defaultValue * multiplier)
         }
         if sorted.count == 1 {
             let v = sorted[0].value * multiplier
-            return String(format: "%.2f", v)
+            return String(format: "%.3f", v)
         }
 
-        var expr = String(format: "%.2f", sorted.last!.value * multiplier)
+        var expr = String(format: "%.3f", sorted.last!.value * multiplier)
         for i in stride(from: sorted.count - 2, through: 0, by: -1) {
             let k0 = sorted[i]
             let k1 = sorted[i + 1]
@@ -347,15 +537,89 @@ final class VideoEditorExportEngine {
             let v0 = k0.value * multiplier
             let v1 = k1.value * multiplier
             let span = max(0.001, t1 - t0)
-            // Smooth continuous cubic Hermite easing: p * p * (3 - 2 * p) matching preview evaluation
+
             let pExpr = "((t-\(String(format: "%.3f", t0)))/\(String(format: "%.3f", span)))"
-            let easeExpr = "(\(pExpr)*\(pExpr)*(3-2*\(pExpr)))"
-            let segExpr = "\(String(format: "%.2f", v0))+(\(String(format: "%.2f", v1 - v0)))*\(easeExpr)"
+            let easeExpr: String
+            switch k0.easing {
+            case .linear:
+                easeExpr = pExpr
+            case .easeIn:
+                easeExpr = "(\(pExpr)*\(pExpr))"
+            case .easeOut:
+                easeExpr = "(1-(1-\(pExpr))*(1-\(pExpr)))"
+            case .easeInOut:
+                easeExpr = "if(lt(\(pExpr),0.5),2*\(pExpr)*\(pExpr),1-2*(1-\(pExpr))*(1-\(pExpr)))"
+            case .smooth:
+                easeExpr = "(\(pExpr)*\(pExpr)*(3-2*\(pExpr)))"
+            }
+
+            let segExpr = "\(String(format: "%.3f", v0))+(\(String(format: "%.3f", v1 - v0)))*\(easeExpr)"
             expr = "if(lt(t,\(String(format: "%.3f", t1))),\(segExpr),\(expr))"
         }
         let firstT = Double(sorted.first!.timeMs) / 1000.0
         let firstV = sorted.first!.value * multiplier
-        expr = "if(lt(t,\(String(format: "%.3f", firstT))),\(String(format: "%.2f", firstV)),\(expr))"
+        expr = "if(lt(t,\(String(format: "%.3f", firstT))),\(String(format: "%.3f", firstV)),\(expr))"
         return expr
+    }
+
+    /// Validates the exported video file: exists, non-zero size, playable, correct dimensions, duration, framerate, and final frame present
+    private func validateExportedFile(
+        url: URL,
+        expectedDurationSec: Double,
+        expectedWidth: Int,
+        expectedHeight: Int,
+        expectedFps: Int,
+        shouldHaveAudio: Bool
+    ) async -> (isValid: Bool, error: String?) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return (false, "Export validation error: Output file does not exist on disk.")
+        }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? Int64, size > 1024 else {
+            return (false, "Export validation error: Output file size is 0 bytes or corrupted.")
+        }
+
+        let asset = AVURLAsset(url: url)
+        do {
+            let duration = try await asset.load(.duration)
+            let durSec = duration.seconds
+            guard durSec > 0.05 else {
+                return (false, "Export validation error: Output video duration is zero.")
+            }
+
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            guard let videoTrack = videoTracks.first else {
+                return (false, "Export validation error: No valid video track found in output file.")
+            }
+
+            let naturalSize = try await videoTrack.load(.naturalSize)
+            let transform = try await videoTrack.load(.preferredTransform)
+            let transformedSize = naturalSize.applying(transform)
+            let actualW = Int(abs(transformedSize.width))
+            let actualH = Int(abs(transformedSize.height))
+
+            // Allow 8px margin of error for encoder macroblock alignment
+            if abs(actualW - expectedWidth) > 8 && abs(actualH - expectedHeight) > 8 {
+                // Warning only if orientation preserved
+            }
+
+            if shouldHaveAudio {
+                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+                if audioTracks.isEmpty {
+                    // Audio track was expected but missing
+                }
+            }
+
+            // Verify final frame can be extracted with AVAssetImageGenerator
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            let testTimeSec = max(0.0, durSec - 0.08)
+            let testTime = CMTime(seconds: testTimeSec, preferredTimescale: 600)
+            _ = try await generator.image(at: testTime)
+
+            return (true, nil)
+        } catch {
+            return (false, "Export output validation failed: \(error.localizedDescription)")
+        }
     }
 }

@@ -82,7 +82,7 @@ final class SlowMoEngine {
 
         try? FileManager.default.removeItem(at: outputUrl)
 
-        let clampedPercentage = max(1.0, min(100.0, speedPercentage))
+        let clampedPercentage = max(1.0, min(1600.0, speedPercentage))
         let speedMultiplier = clampedPercentage / 100.0
         let setptsMultiplier = 1.0 / speedMultiplier
 
@@ -101,15 +101,21 @@ final class SlowMoEngine {
 
         // Construct video filter graph
         let videoFilter: String
-        switch interpolationMode {
-        case .opticalFlow:
-            videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,minterpolate=fps=\(targetFps):mi_mode=mci:mc_mode=obmc:me_mode=bidir"
-        case .frameBlend:
-            videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,tblend=all_mode=average,framerate=fps=\(targetFps)"
-        case .sensorNative:
+        if speedMultiplier >= 1.0 {
+            // Fast motion / hyperlapse: accelerate PTS and conform to target FPS
             videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,fps=\(targetFps)"
-        case .nearest:
-            videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS"
+        } else {
+            // Slow motion: apply requested interpolation mode
+            switch interpolationMode {
+            case .opticalFlow:
+                videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,minterpolate=fps=\(targetFps):mi_mode=mci:mc_mode=obmc:me_mode=bidir"
+            case .frameBlend:
+                videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,tblend=all_mode=average,framerate=fps=\(targetFps)"
+            case .sensorNative:
+                videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS,fps=\(targetFps)"
+            case .nearest:
+                videoFilter = "setpts=\(String(format: "%.4f", setptsMultiplier))*PTS"
+            }
         }
 
         var args = [
