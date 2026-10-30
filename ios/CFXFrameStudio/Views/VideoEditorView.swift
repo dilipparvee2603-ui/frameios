@@ -2054,8 +2054,8 @@ struct VideoEditorView: View {
             let anim = nextClip.evaluatedTransform(at: 0)
             self.previewState.update(
                 scale: anim.scale,
-                offsetX: anim.positionX,
-                offsetY: anim.positionY,
+                offsetX: anim.offsetX,
+                offsetY: anim.offsetY,
                 rotationDegrees: nextClip.hasKeyframes() ? anim.rotationDegrees : Double(nextClip.transform.rotation.rawValue),
                 opacity: anim.opacity
             )
