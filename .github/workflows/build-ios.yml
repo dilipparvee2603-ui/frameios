@@ -50,7 +50,12 @@ jobs:
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
             COMPILER_INDEX_STORE_ENABLE=NO > build.log 2>&1 || {
               echo "=== XCODEBUILD COMPILATION ERROR LOG ==="
-              grep -E "(error:|fatal error:)" build.log -B 1 -A 3 || tail -n 60 build.log
+              ERRORS=$(grep -E "(: error:|fatal error:)" build.log -C 2 || tail -n 60 build.log)
+              echo "$ERRORS"
+              echo "### Build Error" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
               exit 1
             }
 

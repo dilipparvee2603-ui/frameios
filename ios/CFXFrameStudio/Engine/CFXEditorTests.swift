@@ -584,6 +584,7 @@ public final class CFXEditorTests {
         // 22. Secondary Audio Track Mixing & Fade Calculations
         do {
             let audioTrack = EditorAudioTrack(
+                id: UUID(),
                 url: URL(fileURLWithPath: "/music.m4a"),
                 title: "Background Music",
                 timelineStartMs: 1500,
@@ -606,17 +607,16 @@ public final class CFXEditorTests {
 
         // 23. Text Overlays Timing, Positioning & Scale Calculations
         do {
-            let overlay = EditorTextOverlay(
-                text: "Summer Holiday",
-                fontSize: 48,
-                textColorHex: "FFD700",
-                backgroundColorHex: "000000",
-                timelineStartMs: 1000,
-                timelineEndMs: 4000,
-                posX: 0.5,
-                posY: 0.85,
-                scale: 1.2
-            )
+            var overlay = EditorTextOverlay()
+            overlay.text = "Summer Holiday"
+            overlay.fontSize = 48
+            overlay.textColorHex = "FFD700"
+            overlay.backgroundColorHex = "000000"
+            overlay.timelineStartMs = 1000
+            overlay.timelineEndMs = 4000
+            overlay.posX = 0.5
+            overlay.posY = 0.85
+            overlay.scale = 1.2
 
             let isTimed = (overlay.timelineStartMs == 1000) && (overlay.timelineEndMs == 4000)
             let isPositioned = (overlay.posX == 0.5) && (overlay.posY == 0.85)

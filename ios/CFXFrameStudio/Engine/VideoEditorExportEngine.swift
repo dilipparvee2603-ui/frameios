@@ -578,7 +578,7 @@ final class VideoEditorExportEngine {
             for (tIdx, overlay) in validTextOverlays.enumerated() {
                 let outTag = "[v_text\(tIdx)]"
                 let escapedText = overlay.text.replacingOccurrences(of: "'", with: "\\'").replacingOccurrences(of: ":", with: "\\:")
-                let scaledFontSize = max(14, Int(round(overlay.fontSize * CGFloat(overlay.scale) * CGFloat(targetH) / 640.0)))
+                let scaledFontSize = max(14, Int(round(Double(overlay.fontSize) * overlay.scale * Double(targetH) / 640.0)))
                 let startSec = String(format: "%.3f", Double(overlay.timelineStartMs) / 1000.0)
                 let endSec = String(format: "%.3f", Double(overlay.timelineEndMs) / 1000.0)
                 let posXExpr = "(w*\(String(format: "%.3f", overlay.posX))-text_w/2)"
