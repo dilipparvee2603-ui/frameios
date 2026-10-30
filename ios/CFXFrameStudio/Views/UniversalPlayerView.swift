@@ -119,7 +119,11 @@ struct UniversalPlayerView: View {
                 }
             }
         }
+        .navigationBarBackButtonHidden(true)
+        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(!showControls && engine.currentSourceUrl != nil)
+        .ignoresSafeArea()
         .sheet(isPresented: $showInspector) {
             mediaInspectorSheet
         }
@@ -201,6 +205,69 @@ struct UniversalPlayerView: View {
                     Spacer()
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            // 8. Resumed Playback Banner
+            if engine.hasResumedPlayback, let saved = engine.lastSavedPosition {
+                VStack {
+                    HStack(spacing: 10) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.amberAccent)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Resumed Playback")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                            Text("Continuing from \(formatTime(saved))")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.gray)
+                        }
+
+                        Spacer()
+
+                        Button("Start Over") {
+                            engine.seek(to: 0.0)
+                            if let url = engine.currentSourceUrl {
+                                engine.clearSavedPlaybackPosition(for: url)
+                            }
+                            withAnimation(.spring()) {
+                                engine.hasResumedPlayback = false
+                            }
+                        }
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.18))
+                        .foregroundColor(.white)
+                        .cornerRadius(6)
+
+                        Button {
+                            withAnimation(.easeOut) {
+                                engine.hasResumedPlayback = false
+                            }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(14)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 65)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                        withAnimation(.easeOut(duration: 0.4)) {
+                            engine.hasResumedPlayback = false
+                        }
+                    }
+                }
             }
         }
     }
@@ -506,19 +573,28 @@ struct UniversalPlayerView: View {
         }
     }
 
-    // MARK: - Controls Overlay (Top / Bottom Bars)
+    // MARK: - Controls Overlay (Top / Center / Bottom)
 
     @ViewBuilder
     private var controlsOverlay: some View {
-        VStack(spacing: 0) {
-            // Top Bar
-            topControlsBar
+        ZStack {
+            // 1. Top Bar
+            VStack {
+                topControlsBar
+                Spacer()
+            }
 
-            Spacer()
-
-            // Bottom Bar
+            // 2. Center Playback Transport (Floating in middle)
             if !engine.isControlsLocked {
-                bottomControlsBar
+                centerPlaybackControls
+            }
+
+            // 3. Bottom Bar (Scrubber + Tool Pills)
+            if !engine.isControlsLocked {
+                VStack {
+                    Spacer()
+                    bottomControlsBar
+                }
             }
         }
         .transition(.opacity)
@@ -529,7 +605,7 @@ struct UniversalPlayerView: View {
     @ViewBuilder
     private var topControlsBar: some View {
         HStack(spacing: 12) {
-            // Back Button
+            // Dismiss Button
             Button {
                 engine.cleanUp()
                 dismiss()
@@ -612,12 +688,88 @@ struct UniversalPlayerView: View {
                     .clipShape(Circle())
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 14)
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
         .background(
-            LinearGradient(colors: [Color.black.opacity(0.8), Color.clear], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [Color.black.opacity(0.85), Color.clear], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
         )
+    }
+
+    // MARK: - Center Playback Controls
+
+    @ViewBuilder
+    private var centerPlaybackControls: some View {
+        HStack(spacing: 28) {
+            // Frame Step Back
+            Button {
+                engine.stepFrame(forward: false)
+                restartControlsTimer()
+            } label: {
+                Image(systemName: "chevron.left.2")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
+            }
+
+            // 10s Skip Back
+            Button {
+                engine.seekRelative(seconds: -10)
+                restartControlsTimer()
+            } label: {
+                Image(systemName: "gobackward.10")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 50, height: 50)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
+            }
+
+            // Play / Pause (Large Tactile Hero Button)
+            Button {
+                engine.togglePlayPause()
+                restartControlsTimer()
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(LinearGradient.brandGradient)
+                        .frame(width: 68, height: 68)
+                        .shadow(color: .brandAccent.opacity(0.5), radius: 14)
+                    Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 28, weight: .heavy))
+                        .foregroundColor(.white)
+                        .offset(x: engine.isPlaying ? 0 : 3)
+                }
+            }
+
+            // 10s Skip Forward
+            Button {
+                engine.seekRelative(seconds: 10)
+                restartControlsTimer()
+            } label: {
+                Image(systemName: "goforward.10")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 50, height: 50)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
+            }
+
+            // Frame Step Forward
+            Button {
+                engine.stepFrame(forward: true)
+                restartControlsTimer()
+            } label: {
+                Image(systemName: "chevron.right.2")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
+            }
+        }
     }
 
     private func badgeTag(_ text: String, color: Color) -> some View {
@@ -634,9 +786,26 @@ struct UniversalPlayerView: View {
 
     @ViewBuilder
     private var bottomControlsBar: some View {
-        VStack(spacing: 12) {
-            // Scrubber Slider & Timestamps
-            VStack(spacing: 4) {
+        VStack(spacing: 8) {
+            // Row 1: Scrubber with Timecode Badges on Both Ends
+            HStack(spacing: 12) {
+                // Current Timecode (Tap to copy!)
+                Button(action: copyCurrentTimecode) {
+                    HStack(spacing: 4) {
+                        Text(formatTime(engine.currentTime))
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                        Image(systemName: showCopiedToast ? "checkmark.circle.fill" : "doc.on.doc")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(showCopiedToast ? .emeraldAccent : .skyAccent)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(8)
+                }
+
+                // Smooth Scrubber Slider Track
                 GeometryReader { sliderGeo in
                     ZStack(alignment: .leading) {
                         // Background track
@@ -644,12 +813,12 @@ struct UniversalPlayerView: View {
                             .fill(Color.white.opacity(0.2))
                             .frame(height: 5)
 
-                        // A-B Loop Indicator
+                        // A-B Loop Segment Highlight
                         if let a = engine.loopPointA, engine.duration > 0 {
                             let aPos = CGFloat(a / engine.duration) * sliderGeo.size.width
                             let bPos = engine.loopPointB.map { CGFloat($0 / engine.duration) * sliderGeo.size.width } ?? sliderGeo.size.width
                             Capsule()
-                                .fill(Color.amberAccent.opacity(0.5))
+                                .fill(Color.amberAccent.opacity(0.6))
                                 .frame(width: max(2, bPos - aPos), height: 5)
                                 .offset(x: aPos)
                         }
@@ -659,11 +828,11 @@ struct UniversalPlayerView: View {
                             .fill(Color.brandAccent)
                             .frame(width: engine.duration > 0 ? sliderGeo.size.width * CGFloat(engine.currentTime / engine.duration) : 0, height: 5)
 
-                        // Draggable thumb
+                        // Glowing Draggable Thumb
                         Circle()
                             .fill(Color.white)
                             .frame(width: 14, height: 14)
-                            .shadow(radius: 4)
+                            .shadow(color: .black.opacity(0.5), radius: 3)
                             .offset(x: engine.duration > 0 ? (sliderGeo.size.width * CGFloat(engine.currentTime / engine.duration)) - 7 : -7)
                     }
                     .frame(height: 20)
@@ -679,91 +848,20 @@ struct UniversalPlayerView: View {
                 }
                 .frame(height: 20)
 
-                HStack {
-                    Button(action: copyCurrentTimecode) {
-                        HStack(spacing: 4) {
-                            Text(formatTime(engine.currentTime))
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(.white)
-                            Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(showCopiedToast ? .emeraldAccent : .skyAccent)
-                        }
+                // Remaining Timecode
+                if engine.duration > 0 {
+                    Text("-" + formatTime(max(0, engine.duration - engine.currentTime)))
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundColor(.gray)
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color.white.opacity(0.12))
-                        .cornerRadius(6)
-                    }
-
-                    Spacer()
-
-                    if engine.duration > 0 {
-                        Text("-" + formatTime(max(0, engine.duration - engine.currentTime)))
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.gray)
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-
-            // Main Playback Controls
-            HStack(spacing: 24) {
-                // Frame Step Back
-                Button {
-                    engine.stepFrame(forward: false)
-                } label: {
-                    Image(systemName: "chevron.left.2")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundColor(.white)
-                }
-
-                // 10s Skip Back
-                Button {
-                    engine.seekRelative(seconds: -10)
-                } label: {
-                    Image(systemName: "gobackward.10")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-
-                // Play / Pause (Large Tactile Button)
-                Button {
-                    engine.togglePlayPause()
-                    restartControlsTimer()
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient.brandGradient)
-                            .frame(width: 58, height: 58)
-                            .shadow(color: .brandAccent.opacity(0.4), radius: 10)
-                        Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
-                            .offset(x: engine.isPlaying ? 0 : 2)
-                    }
-                }
-
-                // 10s Skip Forward
-                Button {
-                    engine.seekRelative(seconds: 10)
-                } label: {
-                    Image(systemName: "goforward.10")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-
-                // Frame Step Forward
-                Button {
-                    engine.stepFrame(forward: true)
-                } label: {
-                    Image(systemName: "chevron.right.2")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundColor(.white)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(8)
                 }
             }
 
-            // Secondary Controls Toolbar (Speed, A-B Loop, Sleep Timer)
-            HStack(spacing: 20) {
+            // Row 2: Compact Secondary Tool Pills
+            HStack(spacing: 12) {
                 // Playback Speed Menu
                 Menu {
                     ForEach([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0], id: \.self) { rate in
@@ -780,7 +878,7 @@ struct UniversalPlayerView: View {
                     }
                 } label: {
                     Text("\(engine.playbackRate, specifier: "%.2f")x")
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(engine.playbackRate != 1.0 ? Color.brandAccent : Color.white.opacity(0.15))
@@ -800,7 +898,7 @@ struct UniversalPlayerView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "repeat")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.system(size: 11, weight: .bold))
                         if engine.isLoopingAB {
                             Text("A-B Active")
                                 .font(.system(size: 11, weight: .heavy))
@@ -836,7 +934,7 @@ struct UniversalPlayerView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "moon.fill")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                         if engine.sleepTimerRemainingSeconds > 0 {
                             Text(String(format: "%02d:%02d", engine.sleepTimerRemainingSeconds / 60, engine.sleepTimerRemainingSeconds % 60))
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -866,11 +964,12 @@ struct UniversalPlayerView: View {
                     .foregroundColor(showCopiedToast ? .black : .white)
                     .cornerRadius(8)
                 }
+
+                Spacer()
             }
-            .padding(.top, 4)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 24)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 16)
         .background(
             LinearGradient(colors: [Color.clear, Color.black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
@@ -988,13 +1087,29 @@ struct UniversalPlayerView: View {
                                     }
                                 } label: {
                                     VStack(alignment: .leading, spacing: 6) {
-                                        ZStack {
+                                        ZStack(alignment: .bottomLeading) {
                                             RoundedRectangle(cornerRadius: 10)
                                                 .fill(Color.white.opacity(0.08))
                                                 .frame(width: 130, height: 80)
                                             Image(systemName: "play.circle.fill")
                                                 .font(.system(size: 28))
                                                 .foregroundColor(Color(hex: "FF8800"))
+                                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                                            if let pos = engine.getSavedPlaybackPosition(for: url) {
+                                                HStack(spacing: 3) {
+                                                    Image(systemName: "clock.arrow.circlepath")
+                                                        .font(.system(size: 8, weight: .bold))
+                                                    Text(formatTime(pos))
+                                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                                }
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.amberAccent.opacity(0.85))
+                                                .foregroundColor(.black)
+                                                .cornerRadius(4)
+                                                .padding(6)
+                                            }
                                         }
                                         Text(url.lastPathComponent)
                                             .font(.system(size: 11, weight: .semibold))
