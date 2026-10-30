@@ -16,6 +16,34 @@ struct VideoInfo: Identifiable {
     let totalFrames: Int64
     let videoCodec: String
     let audioCodec: String
+    let fileSizeBytes: Int64
+    let bitrateBps: Int64
+
+    init(
+        url: URL,
+        durationMs: Int64,
+        durationSec: Double,
+        width: Int,
+        height: Int,
+        fps: Double,
+        totalFrames: Int64,
+        videoCodec: String,
+        audioCodec: String,
+        fileSizeBytes: Int64 = 0,
+        bitrateBps: Int64 = 0
+    ) {
+        self.url = url
+        self.durationMs = durationMs
+        self.durationSec = durationSec
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.totalFrames = totalFrames
+        self.videoCodec = videoCodec
+        self.audioCodec = audioCodec
+        self.fileSizeBytes = fileSizeBytes
+        self.bitrateBps = bitrateBps
+    }
 
     var formattedDuration: String {
         let totalSeconds = Int(durationSec)
@@ -24,6 +52,22 @@ struct VideoInfo: Identifiable {
         let seconds = totalSeconds % 60
         let ms = Int(durationMs % 1000)
         return String(format: "%02d:%02d:%02d.%03d", hours, minutes, seconds, ms)
+    }
+
+    var formattedFileSize: String {
+        guard fileSizeBytes > 0 else { return "0 MB" }
+        return ByteCountFormatter.string(fromByteCount: fileSizeBytes, countStyle: .file)
+    }
+
+    var formattedBitrate: String {
+        guard bitrateBps > 0 else { return "0 kbps" }
+        let mbps = Double(bitrateBps) / 1_000_000.0
+        if mbps >= 1.0 {
+            return String(format: "%.1f Mbps", mbps)
+        } else {
+            let kbps = Double(bitrateBps) / 1000.0
+            return String(format: "%.0f kbps", kbps)
+        }
     }
 }
 
@@ -88,6 +132,16 @@ final class VideoEngine {
             }
         }
 
+        var fileSizeBytes: Int64 = 0
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? Int64, size > 0 {
+            fileSizeBytes = size
+        } else if let res = try? url.resourceValues(forKeys: [.fileSizeKey]),
+                  let size = res.fileSize, size > 0 {
+            fileSizeBytes = Int64(size)
+        }
+        let bitrateBps: Int64 = durationSec > 0.05 ? Int64(Double(fileSizeBytes * 8) / durationSec) : 0
+
         return VideoInfo(
             url: url,
             durationMs: durationMs,
@@ -97,7 +151,9 @@ final class VideoEngine {
             fps: fps,
             totalFrames: totalFrames,
             videoCodec: videoCodec,
-            audioCodec: audioCodec
+            audioCodec: audioCodec,
+            fileSizeBytes: fileSizeBytes,
+            bitrateBps: bitrateBps
         )
     }
 

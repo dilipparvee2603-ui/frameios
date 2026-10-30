@@ -214,9 +214,17 @@ struct VideoTrimmerView: View {
 
                                         let cutSec = Double(max(0, outPointMs - inPointMs)) / 1000.0
                                         let cutFrames = Int64(round(cutSec * info.fps))
-                                        Text(String(format: "Cut: %.2fs (%lld frames)", cutSec, cutFrames))
-                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                            .foregroundColor(.emeraldAccent)
+                                        let (estSizeStr, savingsPct) = calculateEstimatedOutputSize(info: info, cutSec: cutSec, includeAudio: includeAudioInExport)
+                                        HStack(spacing: 4) {
+                                            Text(String(format: "Cut: %.2fs (%lldf)", cutSec, cutFrames))
+                                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                                .foregroundColor(.emeraldAccent)
+                                            if savingsPct > 0 {
+                                                Text("• ~\(estSizeStr) (-\(savingsPct)%)")
+                                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                                    .foregroundColor(.skyAccent)
+                                            }
+                                        }
                                     }
 
                                     // Timeline Micro-Zoom Controls (1x Overview, 5x Fine, 20x Micro)
@@ -474,6 +482,56 @@ struct VideoTrimmerView: View {
                                                     .cornerRadius(6)
                                             }
                                         }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+
+                            // Real-Time Output File Size Estimator Card
+                            let cutDurationSec = Double(max(0, outPointMs - inPointMs)) / 1000.0
+                            let (estSize, savingsPct) = calculateEstimatedOutputSize(info: info, cutSec: cutDurationSec, includeAudio: includeAudioInExport)
+                            GlassCard(cornerRadius: 14, padding: 12) {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.emeraldAccent.opacity(0.15))
+                                            .frame(width: 38, height: 38)
+                                        Image(systemName: "internaldrive.fill")
+                                            .font(.system(size: 17, weight: .bold))
+                                            .foregroundColor(.emeraldAccent)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            Text("Estimated Output Size")
+                                                .font(.system(size: 13, weight: .bold))
+                                                .foregroundColor(.textPrimary)
+
+                                            if savingsPct > 0 {
+                                                Text("-\(savingsPct)% savings")
+                                                    .font(.system(size: 9.5, weight: .heavy))
+                                                    .foregroundColor(.emeraldAccent)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(Color.emeraldAccent.opacity(0.18))
+                                                    .clipShape(Capsule())
+                                            }
+                                        }
+
+                                        Text(info.fileSizeBytes > 0 ? "Source: \(info.formattedFileSize) (\(info.formattedBitrate))" : "Estimated from video bitrate")
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundColor(.textMuted)
+                                    }
+
+                                    Spacer()
+
+                                    VStack(alignment: .trailing, spacing: 1) {
+                                        Text("~\(estSize)")
+                                            .font(.system(size: 15, weight: .bold, design: .monospaced))
+                                            .foregroundColor(.emeraldAccent)
+                                        Text(selectedPrecisionMode == .fastPassthrough ? "Stream Copy" : "Frame-Accurate")
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundColor(.textTertiary)
                                     }
                                 }
                             }
@@ -926,6 +984,33 @@ struct VideoTrimmerView: View {
                 }
             }
         }
+    }
+
+    private func calculateEstimatedOutputSize(info: VideoInfo, cutSec: Double, includeAudio: Bool) -> (sizeStr: String, savingsPct: Int) {
+        guard info.durationSec > 0.05, cutSec > 0 else {
+            return ("0 MB", 0)
+        }
+
+        let ratio = min(1.0, max(0.0, cutSec / info.durationSec))
+        var estBytes: Double
+
+        if info.fileSizeBytes > 0 {
+            estBytes = Double(info.fileSizeBytes) * ratio
+            // If muting audio, reduce approximately 5% for audio stream overhead
+            if !includeAudio && info.audioCodec != "None" {
+                estBytes = max(1024, estBytes * 0.95)
+            }
+        } else {
+            // Default 15 Mbps video estimate if source size is unknown
+            let fallbackBitrateBps: Double = 15_000_000.0
+            estBytes = (fallbackBitrateBps / 8.0) * cutSec
+        }
+
+        let estInt64 = Int64(round(estBytes))
+        let sizeFormatted = ByteCountFormatter.string(fromByteCount: estInt64, countStyle: .file)
+        let savingsPct = max(0, min(99, Int(round((1.0 - ratio) * 100.0))))
+
+        return (sizeFormatted, savingsPct)
     }
 }
 
