@@ -2051,7 +2051,7 @@ struct VideoEditorView: View {
             playheadMs = startMs
 
             // Pre-seed preview state for next clip at time 0 so there is no single-frame glitch or jump
-            let anim = nextClip.evaluatedTransform(at: 0)
+            let anim = nextClip.evaluatedTransform(at: Double(0))
             self.previewState.update(
                 scale: anim.scale,
                 offsetX: anim.offsetX,
