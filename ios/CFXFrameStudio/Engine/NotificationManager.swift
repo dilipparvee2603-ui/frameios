@@ -2,11 +2,14 @@ import Foundation
 import UserNotifications
 import UIKit
 
-/// Manages local push notifications for CFX FrameStudio (e.g. download completion on Lock Screen and Notification Center)
+/// Manages local notifications for CFX FrameStudio with full Lock Screen, Dynamic Island / Banner, and Sound support
 final class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationManager()
 
     @Published var isAuthorized: Bool = false
+    @Published var isLockScreenEnabled: Bool = true
+    @Published var isSoundsEnabled: Bool = true
+    @Published var authorizationStatus: UNAuthorizationStatus = .notDetermined
 
     private override init() {
         super.init()
@@ -18,11 +21,14 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         checkAuthorizationStatus()
     }
 
-    /// Queries the system for the current notification permission state
+    /// Queries the system for the current notification permission state including Lock Screen & Sound settings
     func checkAuthorizationStatus() {
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
+                self?.authorizationStatus = settings.authorizationStatus
                 self?.isAuthorized = (settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)
+                self?.isLockScreenEnabled = (settings.lockScreenSetting == .enabled)
+                self?.isSoundsEnabled = (settings.soundSetting == .enabled)
             }
         }
     }
@@ -33,6 +39,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         UNUserNotificationCenter.current().requestAuthorization(options: options) { [weak self] granted, error in
             DispatchQueue.main.async {
                 self?.isAuthorized = granted
+                self?.checkAuthorizationStatus()
                 completion?(granted)
             }
         }
@@ -65,7 +72,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     // MARK: - Downloader Notification Triggers
 
     /// Posts a rich completion notification appearing on the Lock Screen, dynamic banner, and Notification Center
-    func notifyDownloadCompleted(filename: String, savedToPhotos: Bool, fileSizeFormatted: String? = nil) {
+    func notifyDownloadCompleted(filename: String, savedToPhotos: Bool, fileSizeFormatted: String? = nil, delay: TimeInterval? = nil) {
         let content = UNMutableNotificationContent()
         content.title = "✓ Download Complete"
         
@@ -74,15 +81,16 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         content.body = "“\(filename)” finished downloading\(sizeText). \(storageDestination)."
         content.sound = .default
 
+        // Use .active which lights up the Lock Screen and sounds immediately without requiring Apple's restricted time-sensitive entitlement
         if #available(iOS 15.0, *) {
-            content.interruptionLevel = .timeSensitive
+            content.interruptionLevel = .active
         }
 
-        scheduleNotification(content: content)
+        scheduleNotification(content: content, delay: delay)
     }
 
     /// Posts a failure notification alerting the user on the Lock Screen if a background download fails
-    func notifyDownloadFailed(filename: String?, error: String) {
+    func notifyDownloadFailed(filename: String?, error: String, delay: TimeInterval? = nil) {
         let content = UNMutableNotificationContent()
         content.title = "✕ Download Failed"
         
@@ -91,28 +99,49 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         content.sound = .default
 
         if #available(iOS 15.0, *) {
-            content.interruptionLevel = .timeSensitive
+            content.interruptionLevel = .active
         }
 
-        scheduleNotification(content: content)
+        scheduleNotification(content: content, delay: delay)
     }
 
     /// Posts a notification when a carousel / batch social download completes
-    func notifyBatchDownloadCompleted(count: Int, platform: String) {
+    func notifyBatchDownloadCompleted(count: Int, platform: String, delay: TimeInterval? = nil) {
         let content = UNMutableNotificationContent()
         content.title = "✓ \(platform) Batch Complete"
         content.body = "All \(count) \(platform) items were downloaded and saved to your Camera Roll."
         content.sound = .default
 
         if #available(iOS 15.0, *) {
-            content.interruptionLevel = .timeSensitive
+            content.interruptionLevel = .active
         }
 
-        scheduleNotification(content: content)
+        scheduleNotification(content: content, delay: delay)
     }
 
-    private func scheduleNotification(content: UNNotificationContent) {
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+    /// Helper to test Lock Screen delivery with a 4-second delay so the user can lock their phone
+    func testLockScreenNotification(delaySeconds: TimeInterval = 4.0) {
+        let content = UNMutableNotificationContent()
+        content.title = "✓ Download Complete"
+        content.body = "“Sample_Video.mp4” (42.5 MB) finished downloading. Saved to Camera Roll & Files."
+        content.sound = .default
+
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .active
+        }
+
+        scheduleNotification(content: content, delay: delaySeconds)
+    }
+
+    private func scheduleNotification(content: UNNotificationContent, delay: TimeInterval?) {
+        let trigger: UNNotificationTrigger?
+        if let delay = delay, delay > 0 {
+            trigger = UNTimeIntervalNotificationTrigger(timeInterval: delay, repeats: false)
+        } else {
+            // Immediate delivery: passing nil trigger is Apple's recommended way for immediate notification delivery
+            trigger = nil
+        }
+
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
             content: content,

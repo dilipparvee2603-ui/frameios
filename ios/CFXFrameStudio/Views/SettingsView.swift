@@ -123,6 +123,7 @@ struct SettingsView: View {
             }
             .onAppear {
                 storage.refreshStorage()
+                notificationManager.checkAuthorizationStatus()
             }
         }
         .preferredColorScheme(.dark)
@@ -489,51 +490,111 @@ struct SettingsView: View {
 
     // MARK: - Notifications Section
 
+    @State private var lockScreenTestScheduled: Bool = false
+
     private var notificationsSection: some View {
         GlassCard(cornerRadius: 14, padding: 14) {
-            HStack {
-                ZStack {
-                    Circle()
-                        .fill(notificationManager.isAuthorized ? Color.emeraldAccent.opacity(0.15) : Color.skyAccent.opacity(0.15))
-                        .frame(width: 32, height: 32)
-                    Image(systemName: notificationManager.isAuthorized ? "bell.badge.fill" : "bell.slash.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(notificationManager.isAuthorized ? .emeraldAccent : .skyAccent)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    ZStack {
+                        Circle()
+                            .fill(notificationManager.isAuthorized ? Color.emeraldAccent.opacity(0.15) : Color.skyAccent.opacity(0.15))
+                            .frame(width: 32, height: 32)
+                        Image(systemName: notificationManager.isAuthorized ? "bell.badge.fill" : "bell.slash.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(notificationManager.isAuthorized ? .emeraldAccent : .skyAccent)
+                    }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Download Notifications")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.textPrimary)
-                    Text(notificationManager.isAuthorized ? "Lock Screen alerts & sounds active" : "Disabled • Tap to enable notifications")
-                        .font(.system(size: 11))
-                        .foregroundColor(.textMuted)
-                }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Download Notifications")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.textPrimary)
+                        Text(notificationManager.isAuthorized ? "System banners, sounds & Lock Screen" : "Disabled • Tap to enable notifications")
+                            .font(.system(size: 11))
+                            .foregroundColor(.textMuted)
+                    }
 
-                Spacer()
+                    Spacer()
 
-                Button(action: {
-                    if notificationManager.isAuthorized {
-                        NotificationManager.shared.notifyDownloadCompleted(
-                            filename: "Sample_Video.mp4",
-                            savedToPhotos: true,
-                            fileSizeFormatted: "38.2 MB"
-                        )
-                    } else {
-                        notificationManager.requestAuthorization { granted in
-                            if !granted, let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(settingsUrl)
+                    if !notificationManager.isAuthorized {
+                        Button(action: {
+                            notificationManager.requestAuthorization { granted in
+                                if !granted, let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(settingsUrl)
+                                }
                             }
+                        }) {
+                            Text("Enable")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.skyAccent)
+                                .cornerRadius(6)
                         }
                     }
-                }) {
-                    Text(notificationManager.isAuthorized ? "Test Alert" : "Enable")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(notificationManager.isAuthorized ? .emeraldAccent : .white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(notificationManager.isAuthorized ? Color.emeraldAccent.opacity(0.18) : Color.skyAccent)
-                        .cornerRadius(6)
+                }
+
+                if notificationManager.isAuthorized {
+                    if !notificationManager.isLockScreenEnabled {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(Color(hex: "FF9500"))
+                            Text("Lock Screen alerts are turned off in iOS Settings.")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundColor(Color(hex: "FF9500"))
+                            Spacer()
+                            Button("Open Settings") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundColor(.skyAccent)
+                        }
+                        .padding(.top, 2)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            NotificationManager.shared.notifyDownloadCompleted(
+                                filename: "Sample_Video.mp4",
+                                savedToPhotos: true,
+                                fileSizeFormatted: "38.2 MB"
+                            )
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bell.fill")
+                                    .font(.system(size: 10))
+                                Text("Test In-App Alert")
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            .foregroundColor(.emeraldAccent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.emeraldAccent.opacity(0.16))
+                            .cornerRadius(6)
+                        }
+
+                        Button(action: {
+                            lockScreenTestScheduled = true
+                            NotificationManager.shared.testLockScreenNotification(delaySeconds: 5.0)
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "lock.iphone")
+                                    .font(.system(size: 10))
+                                Text(lockScreenTestScheduled ? "Lock Phone Now (5s)!" : "Test Lock Screen (5s)")
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            .foregroundColor(lockScreenTestScheduled ? .white : .skyAccent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(lockScreenTestScheduled ? Color.brandAccent : Color.skyAccent.opacity(0.16))
+                            .cornerRadius(6)
+                        }
+                    }
+                    .padding(.top, 4)
                 }
             }
         }
