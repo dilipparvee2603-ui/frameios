@@ -151,8 +151,6 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
     func loadMedia(url: URL) async {
         cleanUp()
         self.currentSourceUrl = url
-        self.statusMessage = "Opening media..."
-        self.isBuffering = true
         self.currentTime = 0.0
         self.duration = 0.0
         self.loopPointA = nil
@@ -183,14 +181,19 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
         }
 
         var playableUrl = url
+        let ext = url.pathExtension.lowercased()
+        let isNativeContainer = (ext == "mp4" || ext == "mov" || ext == "m4v")
+        let needsRemuxOrStream = isNonNative || (!isNativeContainer && (binScan.hasHev1 || binScan.hasAc3 || binScan.hasEc3 || binScan.hasDts)) || binScan.hasDts
 
-        if isNonNative || binScan.hasHev1 || binScan.hasAc3 || binScan.hasEc3 || binScan.hasDts {
+        if needsRemuxOrStream {
+            self.statusMessage = "Opening stream..."
+            self.isBuffering = true
+
             // First check if an existing fast remux was already cached
             if let cached = MKVRemuxEngine.getExistingCachedRemux(for: url) {
                 playableUrl = cached
             } else {
                 // INSTANT STREAMING: Direct stream-copy chunks in real time (< 0.2s startup)
-                self.statusMessage = "Opening stream..."
                 do {
                     playableUrl = try await startStreaming(sourceUrl: url, seekOffset: savedResumePos ?? 0.0)
                 } catch {
@@ -205,6 +208,10 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
                     }
                 }
             }
+        } else {
+            // 100% Native Apple format (Photos, Camera Roll, standard MP4/MOV) - zero buffering, direct playback!
+            self.statusMessage = nil
+            self.isBuffering = false
         }
 
         // Initialize AVPlayer
@@ -306,7 +313,7 @@ final class UniversalPlayerEngine: NSObject, ObservableObject {
         self.playbackRate = 1.0
         avPlayer.rate = 1.0
         self.isPlaying = true
-        self.isBuffering = true
+        self.isBuffering = isStreamingHLS
 
         // Observe Item Status
         playerItemStatusObserver = playerItem.observe(\.status, options: [.new, .old]) { [weak self] item, _ in
