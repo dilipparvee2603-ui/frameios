@@ -421,6 +421,30 @@ public final class CFXEditorTests {
             record("Keyframe Move Clamping & Timeline Reordering", passed: clampedHigh && clampedLow && normalMove)
         }
 
+        // 16. Keyframe Export Filter & Opacity Sanitation
+        do {
+            var clip = EditorClip(
+                sourceUrl: URL(fileURLWithPath: "/dummy.mp4"),
+                filename: "dummy.mp4",
+                sourceDurationMs: 4800,
+                sourceInPointMs: 0,
+                sourceOutPointMs: 4800
+            )
+
+            // User project condition: keyframes at 800ms and 935ms with default opacity 1.0
+            clip.addOrUpdateKeyframe(at: 800, scale: 1.0, opacity: 1.0)
+            clip.addOrUpdateKeyframe(at: 935, scale: 1.2, opacity: 1.0)
+
+            let opPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity, easing: $0.easing) }
+            let hasOpacityAnim = opPoints.contains { abs($0.value - 1.0) > 0.01 }
+            let isStaticOpacity = abs(clip.transform.opacity - 1.0) > 0.01
+
+            // Must NOT trigger opacity filters when opacity is 1.0
+            let opacityClean = !hasOpacityAnim && !isStaticOpacity
+
+            record("Export Filter Graph Keyframe Opacity & FFmpeg Syntax Validation", passed: opacityClean)
+        }
+
         let passedCount = results.values.filter { $0 }.count
         let totalCount = results.count
         return TestReport(

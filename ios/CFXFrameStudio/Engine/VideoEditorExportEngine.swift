@@ -359,7 +359,13 @@ final class VideoEditorExportEngine {
                 vFilters.append("vflip")
             }
 
-            // B. Color grading (Supports per-clip keyframed contrast, brightness, saturation)
+            // B. Color grading & Opacity (Supports per-clip keyframed contrast, brightness, saturation, opacity)
+            let opPoints: [(timeMs: Int64, value: Double, easing: KeyframeEasing)] = clip.hasKeyframes()
+                ? clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity, easing: $0.easing) }
+                : []
+            let hasOpacityAnim = opPoints.contains { abs($0.value - 1.0) > 0.01 }
+            let isStaticOpacity = abs(clip.transform.opacity - 1.0) > 0.01
+
             if clip.hasKeyframes() {
                 let contrastPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.contrast ?? clip.color.contrast, easing: $0.easing) }
                 let brightnessPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.brightness ?? clip.color.brightness, easing: $0.easing) }
@@ -369,25 +375,35 @@ final class VideoEditorExportEngine {
                                    brightnessPoints.contains { abs($0.value) > 0.01 } ||
                                    saturationPoints.contains { abs($0.value - 1.0) > 0.01 }
 
-                if hasColorAnim {
-                    let cExpr = buildFFmpegTimeExpression(points: contrastPoints, defaultValue: clip.color.contrast)
-                    let bExpr = buildFFmpegTimeExpression(points: brightnessPoints, defaultValue: clip.color.brightness)
-                    let sExpr = buildFFmpegTimeExpression(points: saturationPoints, defaultValue: clip.color.saturation)
-                    vFilters.append("eq=eval=frame:contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(sExpr)'")
-                } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
-                    vFilters.append("eq=contrast=\(String(format: "%.2f", clip.color.contrast)):brightness=\(String(format: "%.2f", clip.color.brightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
-                }
-            } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 {
-                vFilters.append("eq=contrast=\(String(format: "%.2f", clip.color.contrast)):brightness=\(String(format: "%.2f", clip.color.brightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
-            }
+                if hasColorAnim || hasOpacityAnim {
+                    let rawContrastExpr = buildFFmpegTimeExpression(points: contrastPoints, defaultValue: clip.color.contrast)
+                    let rawBrightnessExpr = buildFFmpegTimeExpression(points: brightnessPoints, defaultValue: clip.color.brightness)
+                    let rawSaturationExpr = buildFFmpegTimeExpression(points: saturationPoints, defaultValue: clip.color.saturation)
 
-            // Opacity keyframe support
-            if clip.hasKeyframes() {
-                let opPoints = clip.sortedKeyframes.map { (timeMs: $0.timeMs, value: $0.opacity, easing: $0.easing) }
-                let alphaExpr = buildFFmpegTimeExpression(points: opPoints, defaultValue: 1.0)
-                vFilters.append("format=yuva420p,colorchannelmixer=aa='\(alphaExpr)'")
-            } else if clip.transform.opacity < 0.999 {
-                vFilters.append("format=yuva420p,colorchannelmixer=aa=\(String(format: "%.3f", clip.transform.opacity))")
+                    if hasOpacityAnim {
+                        let alphaExpr = buildFFmpegTimeExpression(points: opPoints, defaultValue: 1.0)
+                        let cExpr = "(\(rawContrastExpr))*(\(alphaExpr))"
+                        let bExpr = "(\(rawBrightnessExpr))+0.5*((\(alphaExpr))-1.0)"
+                        vFilters.append("eq=eval=frame:contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(rawSaturationExpr)'")
+                    } else if isStaticOpacity {
+                        let staticOp = String(format: "%.3f", max(0.0, min(1.0, clip.transform.opacity)))
+                        let cExpr = "(\(rawContrastExpr))*\(staticOp)"
+                        let bExpr = "(\(rawBrightnessExpr))+0.5*(\(staticOp)-1.0)"
+                        vFilters.append("eq=eval=frame:contrast='\(cExpr)':brightness='\(bExpr)':saturation='\(rawSaturationExpr)'")
+                    } else {
+                        vFilters.append("eq=eval=frame:contrast='\(rawContrastExpr)':brightness='\(rawBrightnessExpr)':saturation='\(rawSaturationExpr)'")
+                    }
+                } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 || isStaticOpacity {
+                    let op = isStaticOpacity ? max(0.0, min(1.0, clip.transform.opacity)) : 1.0
+                    let effContrast = clip.color.contrast * op
+                    let effBrightness = clip.color.brightness + 0.5 * (op - 1.0)
+                    vFilters.append("eq=contrast=\(String(format: "%.2f", effContrast)):brightness=\(String(format: "%.2f", effBrightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
+                }
+            } else if clip.color.contrast != 1.0 || clip.color.brightness != 0.0 || clip.color.saturation != 1.0 || isStaticOpacity {
+                let op = isStaticOpacity ? max(0.0, min(1.0, clip.transform.opacity)) : 1.0
+                let effContrast = clip.color.contrast * op
+                let effBrightness = clip.color.brightness + 0.5 * (op - 1.0)
+                vFilters.append("eq=contrast=\(String(format: "%.2f", effContrast)):brightness=\(String(format: "%.2f", effBrightness)):saturation=\(String(format: "%.2f", clip.color.saturation))")
             }
 
             // C. Conform & Scale with Zoom and Pan Offset onto canvas using overlay on black background
