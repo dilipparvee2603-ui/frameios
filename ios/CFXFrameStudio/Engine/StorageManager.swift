@@ -86,9 +86,10 @@ final class StorageManager: ObservableObject {
         let t = deleteContents(of: temp)
         let c = deleteContents(of: caches)
         let d = deleteContents(of: docs)
+        let r = MKVRemuxEngine.clearRemuxCache()
         URLCache.shared.removeAllCachedResponses()
 
-        let total = t + c + d
+        let total = t + c + d + r
         refreshStorage()
         await MainActor.run {
             self.isClearing = false

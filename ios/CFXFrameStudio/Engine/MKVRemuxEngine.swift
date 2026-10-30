@@ -384,21 +384,84 @@ final class MKVRemuxEngine {
         return false
     }
 
+    // MARK: - Persistent Remux Cache Directory
+
+    /// Directory used for caching optimized/remuxed MP4 files.
+    /// Resides in the app's Caches directory so that it is purged whenever the user clears app cache.
+    static var cacheDirectory: URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = caches.appendingPathComponent("RemuxCache", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    /// Computes a unique, stable signature for a source video file based on filename, size, and header bytes
+    static func cacheFileUrl(for sourceUrl: URL) -> URL {
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: sourceUrl.path)[.size] as? Int64) ?? 0
+        let baseName = sourceUrl.deletingPathExtension().lastPathComponent
+        let sanitized = baseName.components(separatedBy: CharacterSet.alphanumerics.inverted).joined(separator: "_")
+        let safeName = sanitized.isEmpty ? "video" : sanitized
+
+        // Read up to 4096 bytes for quick content verification
+        var headerDigest: Int = 0
+        if let handle = try? FileHandle(forReadingFrom: sourceUrl) {
+            let chunk = handle.readData(ofLength: 4096)
+            try? handle.close()
+            headerDigest = abs(chunk.hashValue % 1_000_000)
+        }
+
+        let filename = "\(safeName)_\(fileSize)_\(headerDigest).mp4"
+        return cacheDirectory.appendingPathComponent(filename)
+    }
+
+    /// Checks if a valid, complete cached remux already exists for the given source file
+    static func getExistingCachedRemux(for sourceUrl: URL) -> URL? {
+        let cachedUrl = cacheFileUrl(for: sourceUrl)
+        if FileManager.default.fileExists(atPath: cachedUrl.path),
+           let attrs = try? FileManager.default.attributesOfItem(atPath: cachedUrl.path),
+           let size = attrs[.size] as? Int64,
+           size > 1024 {
+            return cachedUrl
+        }
+        return nil
+    }
+
+    /// Clears the entire Remux Cache directory
+    @discardableResult
+    static func clearRemuxCache() -> Int64 {
+        let dir = cacheDirectory
+        let fm = FileManager.default
+        var reclaimed: Int64 = 0
+        if let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) {
+            for item in items {
+                if let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+                    reclaimed += Int64(size)
+                }
+                try? fm.removeItem(at: item)
+            }
+        }
+        return reclaimed
+    }
+
     /// Remuxes or normalizes any video file to an Apple-compatible MP4 container.
     ///
     /// - Parameters:
     ///   - sourceUrl: The local file URL of the source video.
     ///   - onProgress: Closure receiving normalized progress (0.0 ... 1.0) and current speed text.
-    /// - Returns: The URL of the resulting .mp4 file stored in the temporary directory.
+    /// - Returns: The URL of the resulting .mp4 file stored in the Remux Cache directory.
     func remuxToMP4(
         sourceUrl: URL,
         onProgress: ((Double, String) -> Void)? = nil
     ) async throws -> URL {
-        let baseName = sourceUrl.deletingPathExtension().lastPathComponent
-        let sanitizedBaseName = baseName.isEmpty ? "movie" : baseName
-        let outputUrl = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(sanitizedBaseName)_optimized.mp4")
+        // Fast Cache Hit Check: If this video was already remuxed/optimized, reuse it instantly!
+        if let existing = Self.getExistingCachedRemux(for: sourceUrl) {
+            onProgress?(1.0, "Loaded from Remux Cache (Instant)")
+            return existing
+        }
 
+        let outputUrl = Self.cacheFileUrl(for: sourceUrl)
         try? FileManager.default.removeItem(at: outputUrl)
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: sourceUrl.path)[.size] as? Int64) ?? 0

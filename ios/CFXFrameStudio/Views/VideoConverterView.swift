@@ -626,28 +626,35 @@ struct VideoConverterView: View {
             if let movie = try await item.loadTransferable(type: MovieTransferable.self) {
                 var url = movie.url
                 if await MKVRemuxEngine.shared.requiresRemuxing(url: url) {
-                    await MainActor.run {
-                        self.isRemuxing = true
-                        self.remuxProgress = 0.0
-                        self.remuxSpeedText = "Optimizing for iOS playback..."
-                    }
-                    do {
-                        url = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { progress, speed in
-                            Task { @MainActor in
-                                self.remuxProgress = progress
-                                self.remuxSpeedText = speed
-                            }
+                    if let cached = MKVRemuxEngine.getExistingCachedRemux(for: url) {
+                        try? FileManager.default.removeItem(at: url)
+                        url = cached
+                    } else {
+                        await MainActor.run {
+                            self.isRemuxing = true
+                            self.remuxProgress = 0.0
+                            self.remuxSpeedText = "Optimizing for iOS playback..."
                         }
-                    } catch {
+                        do {
+                            let remuxed = try await MKVRemuxEngine.shared.remuxToMP4(sourceUrl: url) { progress, speed in
+                                Task { @MainActor in
+                                    self.remuxProgress = progress
+                                    self.remuxSpeedText = speed
+                                }
+                            }
+                            try? FileManager.default.removeItem(at: url)
+                            url = remuxed
+                        } catch {
+                            await MainActor.run {
+                                self.isRemuxing = false
+                                self.alertMessage = "Failed to optimize video: \(error.localizedDescription)"
+                                self.showAlert = true
+                            }
+                            return
+                        }
                         await MainActor.run {
                             self.isRemuxing = false
-                            self.alertMessage = "Failed to optimize video: \(error.localizedDescription)"
-                            self.showAlert = true
                         }
-                        return
-                    }
-                    await MainActor.run {
-                        self.isRemuxing = false
                     }
                 }
 
@@ -672,6 +679,21 @@ struct VideoConverterView: View {
             defer {
                 if isSecurityScoped {
                     url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            // Fast Cache Check: If an optimized remux for this file is already in RemuxCache, use it directly!
+            if let cached = MKVRemuxEngine.getExistingCachedRemux(for: url) {
+                do {
+                    let info = try await VideoEngine.shared.extractVideoInfo(from: cached)
+                    await MainActor.run {
+                        self.videoUrl = cached
+                        self.videoInfo = info
+                        self.convertedFileUrl = nil
+                    }
+                    return
+                } catch {
+                    // Fall back to staging if inspection fails
                 }
             }
 
