@@ -44,9 +44,33 @@ struct LauncherView: View {
                             }
                             .buttonStyle(BentoButtonStyle())
 
-                            // 2-Column Grid (9 Core Tools)
+                            // 2-Column Grid (10 Core Tools)
                             LazyVGrid(columns: columns, spacing: 12) {
-                                // 2. Video Trimmer
+                                // 1. Universal Downloader (Instagram, TikTok, Twitter/X, YouTube, Direct)
+                                NavigationLink(destination: DirectDownloaderView()) {
+                                    bentoCard(
+                                        title: "Downloader",
+                                        badge: "INSTA • TIKTOK • X • YT",
+                                        icon: "arrow.down.circle",
+                                        accentColor: .pinkAccent,
+                                        footerTag: "HD VIDEO • REELS • AUDIO"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
+
+                                // 2. VLC Pro Universal Player
+                                NavigationLink(destination: UniversalPlayerView()) {
+                                    bentoCard(
+                                        title: "VLC Pro Player",
+                                        badge: "ALL CODECS",
+                                        icon: "play.tv.fill",
+                                        accentColor: Color(hex: "FF8800"),
+                                        footerTag: "SWIPE HUD • 200% BOOST"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
+
+                                // 3. Video Trimmer
                                 NavigationLink(destination: VideoTrimmerView()) {
                                     bentoCard(
                                         title: "Video Trimmer",
@@ -54,31 +78,6 @@ struct LauncherView: View {
                                         icon: "scissors",
                                         accentColor: .brandAccent,
                                         footerTag: "KEYFRAME COPY"
-                                    )
-                                }
-                                .buttonStyle(BentoButtonStyle())
-
-                                // 3. Video Stitcher
-                                NavigationLink(destination: VideoStitcherView()) {
-                                    bentoCard(
-                                        title: "Clip Stitcher",
-                                        badge: "0% LOSS",
-                                        icon: "film.stack",
-                                        accentColor: .brandAccent,
-                                        footerTag: "MERGE CLIPS"
-                                    )
-                                }
-                                .buttonStyle(BentoButtonStyle())
-
-                                // 3. Audio Extractor (New!)
-                                NavigationLink(destination: AudioExtractorView()) {
-                                    bentoCard(
-                                        title: "Audio Extractor",
-                                        badge: "0% LOSS",
-                                        icon: "waveform",
-                                        accentColor: .brandAccent,
-                                        gradient: LinearGradient.brandGradient,
-                                        footerTag: "RIP M4A • MP3"
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
@@ -95,7 +94,19 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 5. Sequence Exporter (Batch Frames - New!)
+                                // 5. Video Stitcher
+                                NavigationLink(destination: VideoStitcherView()) {
+                                    bentoCard(
+                                        title: "Clip Stitcher",
+                                        badge: "0% LOSS",
+                                        icon: "film.stack",
+                                        accentColor: .brandAccent,
+                                        footerTag: "MERGE CLIPS"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
+
+                                // 6. Sequence Exporter (Batch Frames)
                                 NavigationLink(destination: FrameSequenceView()) {
                                     bentoCard(
                                         title: "Sequence Studio",
@@ -112,7 +123,20 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 6. Format Converter
+                                // 7. Audio Extractor
+                                NavigationLink(destination: AudioExtractorView()) {
+                                    bentoCard(
+                                        title: "Audio Extractor",
+                                        badge: "0% LOSS",
+                                        icon: "waveform",
+                                        accentColor: .brandAccent,
+                                        gradient: LinearGradient.brandGradient,
+                                        footerTag: "RIP M4A • MP3"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
+
+                                // 8. Format Converter
                                 NavigationLink(destination: VideoConverterView()) {
                                     bentoCard(
                                         title: "Converter",
@@ -124,7 +148,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 7. Slow-Mo Studio
+                                // 9. Slow-Mo Studio
                                 NavigationLink(destination: SlowMoView()) {
                                     bentoCard(
                                         title: "Slow-Mo Studio",
@@ -141,7 +165,7 @@ struct LauncherView: View {
                                 }
                                 .buttonStyle(BentoButtonStyle())
 
-                                // 8. Image Cropper
+                                // 10. Image Cropper
                                 NavigationLink(destination: ImageCropperView()) {
                                     bentoCard(
                                         title: "Image Cropper",
@@ -149,30 +173,6 @@ struct LauncherView: View {
                                         icon: "crop",
                                         accentColor: .amberAccent,
                                         footerTag: "PIXEL ACCURATE"
-                                    )
-                                }
-                                .buttonStyle(BentoButtonStyle())
-
-                                // 9. Universal Downloader (Instagram, TikTok, Twitter/X, YouTube, Direct)
-                                NavigationLink(destination: DirectDownloaderView()) {
-                                    bentoCard(
-                                        title: "Downloader",
-                                        badge: "INSTA • TIKTOK • X • YT",
-                                        icon: "arrow.down.circle",
-                                        accentColor: .pinkAccent,
-                                        footerTag: "HD VIDEO • REELS • AUDIO"
-                                    )
-                                }
-                                .buttonStyle(BentoButtonStyle())
-
-                                // 10. VLC Pro Universal Player
-                                NavigationLink(destination: UniversalPlayerView()) {
-                                    bentoCard(
-                                        title: "VLC Pro Player",
-                                        badge: "ALL CODECS",
-                                        icon: "play.tv.fill",
-                                        accentColor: Color(hex: "FF8800"),
-                                        footerTag: "SWIPE HUD • 200% BOOST"
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
