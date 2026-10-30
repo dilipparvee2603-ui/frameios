@@ -95,6 +95,10 @@ struct UniversalPlayerView: View {
     // Recent Files
     @State private var recentFiles: [URL] = []
 
+    // Copy Timecode Toast
+    @State private var showCopiedToast: Bool = false
+    @State private var copiedTimecodeString: String = ""
+
     enum ActiveGestureType {
         case brightness
         case volume
@@ -175,6 +179,28 @@ struct UniversalPlayerView: View {
             // 6. Player Control Overlays (Top, Bottom, Lock)
             if showControls || engine.isControlsLocked {
                 controlsOverlay
+            }
+
+            // 7. Floating Copied Toast
+            if showCopiedToast {
+                VStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.emeraldAccent)
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Timecode Copied: \(copiedTimecodeString)")
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(20)
+                    .shadow(color: .black.opacity(0.4), radius: 10, y: 5)
+                    .padding(.top, 70)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
     }
@@ -654,10 +680,23 @@ struct UniversalPlayerView: View {
                 .frame(height: 20)
 
                 HStack {
-                    Text(formatTime(engine.currentTime))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white)
+                    Button(action: copyCurrentTimecode) {
+                        HStack(spacing: 4) {
+                            Text(formatTime(engine.currentTime))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(.white)
+                            Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(showCopiedToast ? .emeraldAccent : .skyAccent)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.white.opacity(0.12))
+                        .cornerRadius(6)
+                    }
+
                     Spacer()
+
                     if engine.duration > 0 {
                         Text("-" + formatTime(max(0, engine.duration - engine.currentTime)))
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -810,6 +849,21 @@ struct UniversalPlayerView: View {
                     .padding(.vertical, 5)
                     .background(engine.sleepTimer != .off ? Color.skyAccent : Color.white.opacity(0.15))
                     .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+
+                // Copy Timecode Button
+                Button(action: copyCurrentTimecode) {
+                    HStack(spacing: 4) {
+                        Image(systemName: showCopiedToast ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(showCopiedToast ? "Copied" : "Copy Time")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(showCopiedToast ? Color.emeraldAccent : Color.white.opacity(0.15))
+                    .foregroundColor(showCopiedToast ? .black : .white)
                     .cornerRadius(8)
                 }
             }
@@ -1034,6 +1088,31 @@ struct UniversalPlayerView: View {
     }
 
     // MARK: - Helpers
+
+    private func copyCurrentTimecode() {
+        let precise = formatPreciseTimecode(engine.currentTime)
+        UIPasteboard.general.string = precise
+        copiedTimecodeString = precise
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showCopiedToast = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                showCopiedToast = false
+            }
+        }
+    }
+
+    private func formatPreciseTimecode(_ seconds: Double) -> String {
+        guard !seconds.isNaN && !seconds.isInfinite && seconds >= 0 else { return "00:00:00.000" }
+        let total = Int(seconds)
+        let hrs = total / 3600
+        let mins = (total % 3600) / 60
+        let secs = total % 60
+        let millis = Int((seconds.truncatingRemainder(dividingBy: 1.0)) * 1000)
+        return String(format: "%02d:%02d:%02d.%03d", hrs, mins, secs, millis)
+    }
 
     private func formatTime(_ seconds: Double) -> String {
         guard !seconds.isNaN && !seconds.isInfinite else { return "00:00" }

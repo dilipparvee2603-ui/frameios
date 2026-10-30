@@ -209,6 +209,24 @@ struct VideoTrimmerView: View {
                                             .background(Color.elevatedSurface)
                                             .cornerRadius(6)
                                         }
+                                        .contextMenu {
+                                            Button {
+                                                pasteTimecodeTo(target: .playhead, fps: info.fps, durationMs: info.durationMs)
+                                            } label: {
+                                                Label("Paste Timecode & Jump", systemImage: "doc.on.clipboard")
+                                            }
+                                            Button {
+                                                UIPasteboard.general.string = formatMsToTimecode(playerModel.currentPositionMs)
+                                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                            } label: {
+                                                Label("Copy Current Timecode", systemImage: "doc.on.doc")
+                                            }
+                                            Button {
+                                                activeTimecodeTarget = .playhead
+                                            } label: {
+                                                Label("Manual Jump Timecode...", systemImage: "keyboard")
+                                            }
+                                        }
 
                                         Spacer()
 
@@ -352,6 +370,24 @@ struct VideoTrimmerView: View {
                                                     .background(Color.elevatedSurface)
                                                     .cornerRadius(6)
                                             }
+                                            .contextMenu {
+                                                Button {
+                                                    pasteTimecodeTo(target: .inPoint, fps: info.fps, durationMs: info.durationMs)
+                                                } label: {
+                                                    Label("Paste Timecode to IN", systemImage: "doc.on.clipboard")
+                                                }
+                                                Button {
+                                                    UIPasteboard.general.string = formatMsToTimecode(inPointMs)
+                                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                                } label: {
+                                                    Label("Copy IN Timecode", systemImage: "doc.on.doc")
+                                                }
+                                                Button {
+                                                    activeTimecodeTarget = .inPoint
+                                                } label: {
+                                                    Label("Manual Timecode Entry...", systemImage: "keyboard")
+                                                }
+                                            }
                                         }
 
                                         HStack(spacing: 6) {
@@ -382,6 +418,24 @@ struct VideoTrimmerView: View {
                                                     .padding(.vertical, 4)
                                                     .background(Color.elevatedSurface)
                                                     .cornerRadius(6)
+                                            }
+                                            .contextMenu {
+                                                Button {
+                                                    pasteTimecodeTo(target: .outPoint, fps: info.fps, durationMs: info.durationMs)
+                                                } label: {
+                                                    Label("Paste Timecode to OUT", systemImage: "doc.on.clipboard")
+                                                }
+                                                Button {
+                                                    UIPasteboard.general.string = formatMsToTimecode(outPointMs)
+                                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                                } label: {
+                                                    Label("Copy OUT Timecode", systemImage: "doc.on.doc")
+                                                }
+                                                Button {
+                                                    activeTimecodeTarget = .outPoint
+                                                } label: {
+                                                    Label("Manual Timecode Entry...", systemImage: "keyboard")
+                                                }
                                             }
                                         }
                                     }
@@ -1039,6 +1093,23 @@ struct VideoTrimmerView: View {
         let savingsPct = max(0, min(99, Int(round((1.0 - ratio) * 100.0))))
 
         return (sizeFormatted, savingsPct)
+    }
+
+    private func pasteTimecodeTo(target: TimecodeTarget, fps: Double, durationMs: Int64) {
+        guard let clip = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let parsedMs = parseTimecodeToMs(clip, fps: fps) else { return }
+        let clamped = max(0, min(durationMs, parsedMs))
+        switch target {
+        case .inPoint:
+            inPointMs = min(clamped, outPointMs - 100)
+            playerModel.seek(to: inPointMs)
+        case .outPoint:
+            outPointMs = max(clamped, inPointMs + 100)
+            playerModel.seek(to: outPointMs)
+        case .playhead:
+            playerModel.seek(to: clamped)
+        }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 }
 

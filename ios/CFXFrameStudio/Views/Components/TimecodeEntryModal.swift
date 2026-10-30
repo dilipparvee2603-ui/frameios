@@ -18,6 +18,7 @@ struct TimecodeEntryModal: View {
 
     @State private var timecodeText: String = ""
     @State private var errorMessage: String? = nil
+    @State private var clipboardPreview: String? = nil
 
     init(
         target: TimecodeTarget,
@@ -36,6 +37,22 @@ struct TimecodeEntryModal: View {
         _timecodeText = State(initialValue: formatToSMPTETimecode(seconds: Double(initialMs) / 1000.0, fps: fps))
     }
 
+    private func checkClipboard() {
+        if let clip = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !clip.isEmpty {
+            if parseTimecodeToMs(clip, fps: fps) != nil {
+                clipboardPreview = clip
+            }
+        }
+    }
+
+    private func pasteFromClipboard() {
+        if let clip = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !clip.isEmpty {
+            timecodeText = clip
+            errorMessage = nil
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+    }
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.65)
@@ -47,21 +64,57 @@ struct TimecodeEntryModal: View {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.textPrimary)
 
-                Text("Enter timecode (HH:MM:SS.mmm, MM:SS.mmm, or seconds)")
+                Text("Enter or paste timecode (HH:MM:SS.mmm, MM:SS.mmm, or seconds)")
                     .font(.system(size: 12))
                     .foregroundColor(.textMuted)
 
-                TextField("00:00:00.000", text: $timecodeText)
-                    .font(.system(size: 15, weight: .medium, design: .monospaced))
-                    .padding(12)
-                    .background(Color.elevatedSurface)
-                    .cornerRadius(10)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(errorMessage != nil ? Color.brandAccent : Color.borderHairline, lineWidth: 1)
-                    )
-                    .foregroundColor(.textPrimary)
-                    .keyboardType(.numbersAndPunctuation)
+                HStack(spacing: 8) {
+                    TextField("00:00:00.000", text: $timecodeText)
+                        .font(.system(size: 15, weight: .medium, design: .monospaced))
+                        .padding(12)
+                        .background(Color.elevatedSurface)
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(errorMessage != nil ? Color.brandAccent : Color.borderHairline, lineWidth: 1)
+                        )
+                        .foregroundColor(.textPrimary)
+                        .keyboardType(.numbersAndPunctuation)
+
+                    Button(action: pasteFromClipboard) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.on.clipboard.fill")
+                            Text("Paste")
+                        }
+                        .font(.system(size: 13, weight: .bold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .background(Color.skyAccent.opacity(0.18))
+                        .foregroundColor(.skyAccent)
+                        .cornerRadius(10)
+                    }
+                }
+
+                if let clip = clipboardPreview, clip != timecodeText {
+                    Button(action: {
+                        timecodeText = clip
+                        errorMessage = nil
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .foregroundColor(.amberAccent)
+                                .font(.system(size: 11))
+                            Text("Clipboard: \"\(clip)\" • Tap to use")
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.textPrimary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.amberAccent.opacity(0.12))
+                        .cornerRadius(8)
+                    }
+                }
 
                 if let err = errorMessage {
                     Text(err)
@@ -106,6 +159,9 @@ struct TimecodeEntryModal: View {
             .padding(24)
             .shadow(color: .black.opacity(0.5), radius: 20)
         }
+        .onAppear {
+            checkClipboard()
+        }
     }
 }
 
@@ -139,12 +195,18 @@ func formatMsToSMPTETimecode(_ ms: Int64, fps: Double) -> String {
 }
 
 func parseTimecodeToMs(_ input: String, fps: Double = 30.0) -> Int64? {
-    let clean = input.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ";", with: ":")
+    var clean = input.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ";", with: ":")
     if clean.isEmpty { return nil }
+
+    // If string contains non-digit/punctuation text (e.g. "Timecode: 00:01:23.450"), extract timecode pattern
+    if let match = clean.range(of: #"\b\d{1,2}:\d{2}(:\d{2})?([.:]\d+)?\b"#, options: .regularExpression) {
+        clean = String(clean[match])
+    }
 
     // Plain seconds with decimal (e.g. "83.5")
     if !clean.contains(":") {
-        if let sec = Double(clean) {
+        let numericOnly = clean.trimmingCharacters(in: CharacterSet(charactersIn: "0123456789.").inverted)
+        if let sec = Double(numericOnly) {
             return Int64(round(sec * 1000.0))
         }
     }
