@@ -22,6 +22,7 @@ struct FrameExporterView: View {
     @State private var remuxProgress: Double = 0.0
     @State private var remuxSpeedText: String = ""
     @State private var showTimecodeModal: Bool = false
+    @State private var timelineZoom: Double = 1.0 // 1.0 (Overview), 5.0 (Fine), 20.0 (Micro)
     @State private var alertMessage: String? = nil
     @State private var showAlert: Bool = false
 
@@ -210,7 +211,20 @@ struct FrameExporterView: View {
                                             .foregroundColor(.textMuted)
                                     }
 
-                                    // Timeline Scrubber
+                                    // Timeline Zoom Controls (1x Overview, 5x Fine, 20x Micro)
+                                    HStack(spacing: 6) {
+                                        Text("Zoom:")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.textMuted)
+
+                                        zoomPill("1x Overview", zoom: 1.0)
+                                        zoomPill("5x Fine", zoom: 5.0)
+                                        zoomPill("20x Micro", zoom: 20.0)
+
+                                        Spacer()
+                                    }
+
+                                    // Timeline Scrubber (Full Overview)
                                     GeometryReader { geo in
                                         let width = geo.size.width
                                         let duration = max(1, Double(info.durationMs))
@@ -242,6 +256,46 @@ struct FrameExporterView: View {
                                         )
                                     }
                                     .frame(height: 18)
+
+                                    // Magnified Micro-Scrubber when zoomed (5x Fine or 20x Micro)
+                                    if timelineZoom > 1.0 {
+                                        GeometryReader { geo in
+                                            let width = geo.size.width
+                                            let windowMs = max(500, Int64(Double(info.durationMs) / timelineZoom))
+                                            let halfWin = windowMs / 2
+                                            let winStart = max(0, min(info.durationMs - windowMs, playerModel.currentPositionMs - halfWin))
+                                            let winEnd = winStart + windowMs
+                                            let winDuration = max(1, Double(winEnd - winStart))
+
+                                            let playheadRel = CGFloat(Double(playerModel.currentPositionMs - winStart) / winDuration)
+
+                                            ZStack(alignment: .leading) {
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .fill(Color.surfaceCard)
+                                                    .frame(height: 14)
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 4)
+                                                            .stroke(Color.skyAccent.opacity(0.3), lineWidth: 1)
+                                                    )
+
+                                                // Center playhead bar
+                                                Rectangle()
+                                                    .fill(Color.skyAccent)
+                                                    .frame(width: 3, height: 14)
+                                                    .offset(x: max(0, min(width - 3, playheadRel * width)))
+                                            }
+                                            .contentShape(Rectangle())
+                                            .gesture(
+                                                DragGesture(minimumDistance: 0)
+                                                    .onChanged { value in
+                                                        let fraction = max(0, min(1, value.location.x / width))
+                                                        let targetMs = winStart + Int64(fraction * winDuration)
+                                                        seek(to: targetMs)
+                                                    }
+                                            )
+                                        }
+                                        .frame(height: 14)
+                                    }
 
                                     // 1f & 10f Frame Stepping Controls
                                     HStack(spacing: 8) {
@@ -672,6 +726,21 @@ struct FrameExporterView: View {
                     self.showAlert = true
                 }
             }
+        }
+    }
+
+    private func zoomPill(_ title: String, zoom: Double) -> some View {
+        Button(action: {
+            timelineZoom = zoom
+            playerModel.triggerHaptic()
+        }) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(timelineZoom == zoom ? .white : .textMuted)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(timelineZoom == zoom ? Color.skyAccent : Color.elevatedSurface)
+                .cornerRadius(4)
         }
     }
 }

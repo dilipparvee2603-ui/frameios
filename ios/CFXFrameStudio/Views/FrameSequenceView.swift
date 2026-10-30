@@ -18,6 +18,7 @@ struct FrameSequenceView: View {
     @State private var endMs: Int64 = 0
     @State private var totalDurationMs: Int64 = 0
     @State private var sourceFps: Double = 30.0
+    @State private var timelineZoom: Double = 1.0 // 1.0 (Overview), 5.0 (Fine), 20.0 (Micro)
 
     @State private var selectedFormat: SequenceFormat = .png
     @State private var selectedFps: SequenceFPS = .source
@@ -385,6 +386,127 @@ struct FrameSequenceView: View {
                             .font(.system(size: 13, weight: .bold, design: .monospaced))
                             .foregroundColor(.skyAccent)
                     }
+                }
+
+                // Timeline Micro-Zoom Controls (1x Overview, 5x Fine, 20x Micro)
+                HStack(spacing: 6) {
+                    Text("Zoom:")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.textMuted)
+
+                    zoomPill("1x Overview", zoom: 1.0)
+                    zoomPill("5x Fine", zoom: 5.0)
+                    zoomPill("20x Micro", zoom: 20.0)
+
+                    Spacer()
+                }
+
+                // Interactive Scrubber Bar (Full Overview with IN-OUT Sequence Highlight)
+                GeometryReader { geo in
+                    let width = geo.size.width
+                    let duration = max(1, Double(totalDurationMs))
+                    let playheadFraction = CGFloat(Double(playerModel.currentPositionMs) / duration)
+
+                    let inFrac = CGFloat(Double(startMs) / duration)
+                    let outFrac = CGFloat(Double(endMs) / duration)
+
+                    ZStack(alignment: .leading) {
+                        // Track background
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.elevatedSurface)
+                            .frame(height: 10)
+
+                        // Highlighted IN-OUT export range
+                        if outFrac > inFrac {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.skyAccent.opacity(0.35))
+                                .frame(width: max(2, (outFrac - inFrac) * width), height: 10)
+                                .offset(x: inFrac * width)
+                        }
+
+                        // IN marker
+                        Rectangle()
+                            .fill(Color.brandAccent)
+                            .frame(width: 2, height: 14)
+                            .offset(x: max(0, min(width - 2, inFrac * width)))
+
+                        // OUT marker
+                        Rectangle()
+                            .fill(Color.skyAccent)
+                            .frame(width: 2, height: 14)
+                            .offset(x: max(0, min(width - 2, outFrac * width)))
+
+                        // Center playhead indicator
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 14, height: 14)
+                            .shadow(radius: 2)
+                            .offset(x: max(0, min(width - 14, playheadFraction * width - 7)))
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let fraction = max(0, min(1, value.location.x / width))
+                                let targetMs = Int64(fraction * duration)
+                                playerModel.seek(to: targetMs)
+                            }
+                    )
+                }
+                .frame(height: 16)
+
+                // Magnified Micro-Scrubber when zoomed (5x Fine or 20x Micro)
+                if timelineZoom > 1.0 {
+                    GeometryReader { geo in
+                        let width = geo.size.width
+                        let duration = max(1, Double(totalDurationMs))
+                        let windowMs = max(500, Int64(Double(totalDurationMs) / timelineZoom))
+                        let halfWin = windowMs / 2
+                        let winStart = max(0, min(totalDurationMs - windowMs, playerModel.currentPositionMs - halfWin))
+                        let winEnd = winStart + windowMs
+                        let winDuration = max(1, Double(winEnd - winStart))
+
+                        let playheadRel = CGFloat(Double(playerModel.currentPositionMs - winStart) / winDuration)
+
+                        let inFrac = CGFloat(Double(startMs - winStart) / winDuration)
+                        let outFrac = CGFloat(Double(endMs - winStart) / winDuration)
+                        let clampedInFrac = max(0.0, min(1.0, inFrac))
+                        let clampedOutFrac = max(0.0, min(1.0, outFrac))
+
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.surfaceCard)
+                                .frame(height: 14)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(Color.skyAccent.opacity(0.3), lineWidth: 1)
+                                )
+
+                            // Highlight active trimmed range in micro-window if visible
+                            if clampedOutFrac > clampedInFrac {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(Color.skyAccent.opacity(0.35))
+                                    .frame(width: max(2, (clampedOutFrac - clampedInFrac) * width), height: 10)
+                                    .offset(x: clampedInFrac * width, y: 2)
+                            }
+
+                            // Center playhead bar
+                            Rectangle()
+                                .fill(Color.skyAccent)
+                                .frame(width: 3, height: 14)
+                                .offset(x: max(0, min(width - 3, playheadRel * width)))
+                        }
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    let fraction = max(0, min(1, value.location.x / width))
+                                    let targetMs = winStart + Int64(fraction * winDuration)
+                                    playerModel.seek(to: targetMs)
+                                }
+                        )
+                    }
+                    .frame(height: 14)
                 }
 
                 // Range Sliders
@@ -981,6 +1103,21 @@ struct FrameSequenceView: View {
         let seconds = Int(totalSeconds) % 60
         let millis = Int((totalSeconds.truncatingRemainder(dividingBy: 1.0)) * 100)
         return String(format: "%02d:%02d.%02d", minutes, seconds, millis)
+    }
+
+    private func zoomPill(_ title: String, zoom: Double) -> some View {
+        Button(action: {
+            timelineZoom = zoom
+            playerModel.triggerHaptic()
+        }) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(timelineZoom == zoom ? .white : .textMuted)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(timelineZoom == zoom ? Color.skyAccent : Color.elevatedSurface)
+                .cornerRadius(4)
+        }
     }
 }
 
