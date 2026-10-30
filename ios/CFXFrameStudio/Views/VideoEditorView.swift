@@ -752,20 +752,19 @@ struct VideoEditorView: View {
                     ZStack(alignment: .topLeading) {
                         // Background track layer
                         VStack(alignment: .leading, spacing: 4) {
-                            // Seconds Ruler Row
-                            HStack(alignment: .bottom, spacing: 0) {
-                                ForEach(0...totalSec, id: \.self) { sec in
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(formatSeconds(sec))
-                                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                            .foregroundColor(.textTertiary)
-                                        Rectangle()
-                                            .fill(Color.borderHairlineBright)
-                                            .frame(width: 1, height: 6)
+                            // Dynamic Adaptive Time Ruler (LibreCuts TimeRulerView)
+                            DynamicTimeRulerView(
+                                durationMs: project.totalTimelineDurationMs,
+                                pointsPerSecond: pointsPerSecond,
+                                width: max(totalClipsWidth + 120, UIScreen.main.bounds.width),
+                                onSeek: { seekMs in
+                                    playheadMs = seekMs
+                                    if let activeIdx = project.clipIndex(at: playheadMs), activeIdx != selectedClipIndex {
+                                        selectedClipIndex = activeIdx
                                     }
-                                    .frame(width: pointsPerSecond, alignment: .leading)
+                                    syncPlayheadToPlayer(preservePlayback: playerModel.isPlaying)
                                 }
-                            }
+                            )
                             .padding(.leading, leadPad)
 
                             // Track 1: Clips Horizontal Row
@@ -801,62 +800,85 @@ struct VideoEditorView: View {
                         }
                         .frame(width: max(totalContentWidth, UIScreen.main.bounds.width + 120), alignment: .topLeading)
 
-                        // Playhead Needle
+                        // CapCut & LibreCuts Styled Playhead Needle (CustomVideoSeeker)
                         let playheadX = leadPad + (CGFloat(playheadMs) / 1000.0 * pointsPerSecond)
-                        VStack(spacing: 0) {
-                            // Draggable Top Cap
-                            Capsule()
-                                .fill(Color.brandAccent)
-                                .frame(width: 14, height: 16)
-                                .overlay(
-                                    Circle()
-                                        .fill(Color.white)
-                                        .frame(width: 5, height: 5)
-                                )
-                                .shadow(color: Color.brandAccent.opacity(0.6), radius: 3)
-                                .gesture(
-                                    DragGesture(minimumDistance: 1)
-                                        .onChanged { value in
-                                            if dragPlayheadInitialMs == nil {
-                                                dragPlayheadInitialMs = playheadMs
-                                                playerModel.pause()
-                                            }
-                                            if let initialMs = dragPlayheadInitialMs {
-                                                let deltaMs = Int64(round(Double(value.translation.width) / Double(pointsPerSecond) * 1000.0))
-                                                var newMs = max(0, min(project.totalTimelineDurationMs, initialMs + deltaMs))
+                        ZStack(alignment: .top) {
+                            // Subtle drop shadow for vertical stem
+                            Rectangle()
+                                .fill(Color.black.opacity(0.45))
+                                .frame(width: 3, height: 124)
+                                .offset(x: 1, y: 16)
+                                .allowsHitTesting(false)
 
-                                                // Magnetic Keyframe Snapping:
-                                                if let activeIdx = project.clipIndex(at: newMs) {
-                                                    let activeClip = project.clips[activeIdx]
-                                                    let clipStart = project.timelineStartTime(forClipIndex: activeIdx)
-                                                    let localMs = newMs - clipStart
-                                                    if let snapKf = activeClip.sortedKeyframes.first(where: { abs($0.timeMs - localMs) <= 120 }) {
-                                                        newMs = clipStart + snapKf.timeMs
-                                                    }
-                                                }
-
-                                                playheadMs = newMs
-
-                                                // Dynamically switch active clip if scrubbing crosses clip boundaries
-                                                if let activeIdx = project.clipIndex(at: playheadMs), activeIdx != selectedClipIndex {
-                                                    selectedClipIndex = activeIdx
-                                                }
-                                                syncPlayheadToPlayer(preservePlayback: false)
-                                            }
-                                        }
-                                        .onEnded { _ in
-                                            dragPlayheadInitialMs = nil
-                                        }
-                                )
-
-                            // Vertical Needle Line (covers both video and audio tracks)
+                            // Primary Needle Stem
                             Rectangle()
                                 .fill(Color.brandAccent)
-                                .frame(width: 2, height: 120)
-                                .shadow(color: Color.brandAccent.opacity(0.4), radius: 2)
+                                .frame(width: 1.5, height: 124)
+                                .offset(y: 16)
+                                .shadow(color: Color.brandAccent.opacity(0.5), radius: 2)
                                 .allowsHitTesting(false)
+
+                            // Teardrop / Shield Playhead Top Handle (LibreCuts CapCut-style)
+                            VStack(spacing: 0) {
+                                ZStack {
+                                    // Glow effect
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.brandAccent.opacity(0.35))
+                                        .frame(width: 18, height: 16)
+                                        .blur(radius: 2)
+
+                                    // Shield Head
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.brandAccent)
+                                        .frame(width: 14, height: 14)
+                                        .overlay(
+                                            Circle()
+                                                .fill(Color.white)
+                                                .frame(width: 4, height: 4)
+                                        )
+                                        .shadow(color: Color.black.opacity(0.5), radius: 2, y: 1)
+                                }
+
+                                TrianglePointer()
+                                    .fill(Color.brandAccent)
+                                    .frame(width: 8, height: 5)
+                            }
+                            .gesture(
+                                DragGesture(minimumDistance: 1)
+                                    .onChanged { value in
+                                        if dragPlayheadInitialMs == nil {
+                                            dragPlayheadInitialMs = playheadMs
+                                            playerModel.pause()
+                                        }
+                                        if let initialMs = dragPlayheadInitialMs {
+                                            let deltaMs = Int64(round(Double(value.translation.width) / Double(pointsPerSecond) * 1000.0))
+                                            var newMs = max(0, min(project.totalTimelineDurationMs, initialMs + deltaMs))
+
+                                            // Magnetic Keyframe & Clip Cut Snapping (LibreCuts style)
+                                            if let activeIdx = project.clipIndex(at: newMs) {
+                                                let activeClip = project.clips[activeIdx]
+                                                let clipStart = project.timelineStartTime(forClipIndex: activeIdx)
+                                                let localMs = newMs - clipStart
+                                                if let snapKf = activeClip.sortedKeyframes.first(where: { abs($0.timeMs - localMs) <= 120 }) {
+                                                    newMs = clipStart + snapKf.timeMs
+                                                }
+                                            }
+
+                                            playheadMs = newMs
+
+                                            // Dynamically switch active clip if scrubbing crosses clip boundaries
+                                            if let activeIdx = project.clipIndex(at: playheadMs), activeIdx != selectedClipIndex {
+                                                selectedClipIndex = activeIdx
+                                            }
+                                            syncPlayheadToPlayer(preservePlayback: false)
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        dragPlayheadInitialMs = nil
+                                    }
+                            )
                         }
-                        .offset(x: playheadX - 7, y: 2)
+                        .offset(x: playheadX - 9, y: 0)
                         .id("PLAYHEAD_NEEDLE")
                     }
                     .frame(height: 148)
@@ -1051,7 +1073,7 @@ struct VideoEditorView: View {
 
     @ViewBuilder
     private func audioTrackItem(clip: EditorClip, index: Int, isSelected: Bool, width: CGFloat) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             // Mute / Unmute Quick Tap Icon
             Button(action: {
                 recordUndo()
@@ -1068,30 +1090,8 @@ struct VideoEditorView: View {
                     .clipShape(Circle())
             }
 
-            // Audio Waveform Visualization
-            if clip.isMuted {
-                HStack(spacing: 2) {
-                    Rectangle()
-                        .fill(Color.textTertiary.opacity(0.35))
-                        .frame(height: 1)
-                    Text("MUTED")
-                        .font(.system(size: 7.5, weight: .heavy, design: .monospaced))
-                        .foregroundColor(.textTertiary)
-                    Rectangle()
-                        .fill(Color.textTertiary.opacity(0.35))
-                        .frame(height: 1)
-                }
-            } else {
-                HStack(spacing: 2) {
-                    let barCount = max(4, Int(width / 6.0))
-                    ForEach(0..<barCount, id: \.self) { i in
-                        let h = waveformBarHeight(index: i, count: barCount)
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(isSelected ? Color.emeraldAccent : Color.emeraldAccent.opacity(0.7))
-                            .frame(width: 2, height: CGFloat(h))
-                    }
-                }
-            }
+            // Real Audio Waveform Visualization from LibreCuts Architecture
+            ClipAudioWaveformView(clip: clip, width: max(20, width - 68), isSelected: isSelected)
 
             Spacer(minLength: 0)
 
@@ -1121,12 +1121,6 @@ struct VideoEditorView: View {
             playheadMs = startMs
             syncPlayheadToPlayer(preservePlayback: playerModel.isPlaying)
         }
-    }
-
-    private func waveformBarHeight(index: Int, count: Int) -> Double {
-        let wave = sin(Double(index) * 0.45) * cos(Double(index) * 0.25)
-        let normalized = (wave + 1.0) / 2.0
-        return 4.0 + (normalized * 12.0)
     }
 
     // MARK: - 5. Bottom Contextual Editing Dock
@@ -2407,5 +2401,171 @@ struct ClipThumbnailStripView: View {
                 self.thumbnails = imgs
             }
         }
+    }
+}
+
+// MARK: - Native Real Audio Waveform Strip (LibreCuts Architecture)
+struct ClipAudioWaveformView: View {
+    let clip: EditorClip
+    let width: CGFloat
+    let isSelected: Bool
+
+    @State private var waveformData: [Float] = []
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if clip.isMuted {
+                HStack(spacing: 4) {
+                    Rectangle()
+                        .fill(Color.textTertiary.opacity(0.35))
+                        .frame(height: 1)
+                    Text("MUTED")
+                        .font(.system(size: 7.5, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.textTertiary)
+                    Rectangle()
+                        .fill(Color.textTertiary.opacity(0.35))
+                        .frame(height: 1)
+                }
+            } else if waveformData.isEmpty {
+                // Loading / extracting shimmer
+                HStack(spacing: 2) {
+                    let barCount = max(6, Int(width / 5.0))
+                    ForEach(0..<barCount, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(Color.emeraldAccent.opacity(0.25))
+                            .frame(width: 2, height: 4)
+                    }
+                }
+            } else {
+                // Render real waveform bars mapped to the trimmed range
+                let barCount = max(6, Int(width / 4.0))
+                let totalDur = max(1.0, Double(clip.sourceDurationMs))
+                let inRatio = Double(clip.sourceInPointMs) / totalDur
+                let outRatio = Double(clip.sourceOutPointMs) / totalDur
+                let spanRatio = max(0.001, outRatio - inRatio)
+
+                ForEach(0..<barCount, id: \.self) { i in
+                    let fraction = Double(i) / Double(max(1, barCount - 1))
+                    let clipFraction = inRatio + (fraction * spanRatio)
+                    let sampleIndex = min(waveformData.count - 1, max(0, Int(clipFraction * Double(waveformData.count))))
+                    let rawAmp = waveformData[sampleIndex]
+                    let scaledAmp = Double(rawAmp) * min(2.0, max(0.0, clip.volume))
+                    let barHeight = max(2.5, min(18.0, 3.0 + (scaledAmp * 15.0)))
+
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(isSelected ? Color.emeraldAccent : Color.emeraldAccent.opacity(0.75))
+                        .frame(width: 2, height: CGFloat(barHeight))
+                }
+            }
+        }
+        .frame(height: 20)
+        .onAppear {
+            loadWaveform()
+        }
+        .onChange(of: clip.sourceUrl) { _ in
+            loadWaveform()
+        }
+    }
+
+    private func loadWaveform() {
+        AudioWaveformExtractor.shared.extractWaveform(for: clip.sourceUrl, targetSamples: 300) { amps in
+            self.waveformData = amps
+        }
+    }
+}
+
+// MARK: - Dynamic Adaptive Time Ruler View (LibreCuts TimeRulerView)
+struct DynamicTimeRulerView: View {
+    let durationMs: Int64
+    let pointsPerSecond: CGFloat
+    let width: CGFloat
+    let onSeek: (Int64) -> Void
+
+    var body: some View {
+        let msPerPoint = 1000.0 / max(1.0, Double(pointsPerSecond))
+        // Target ~75 points between major labeled ticks
+        let targetMs = Int64(round(75.0 * msPerPoint))
+
+        let stepMs: Int64 = {
+            switch targetMs {
+            case ...120: return 100
+            case ...300: return 200
+            case ...700: return 500
+            case ...1500: return 1000
+            case ...3500: return 2000
+            case ...7500: return 5000
+            case ...15000: return 10000
+            case ...45000: return 30000
+            case ...90000: return 60000
+            case ...180000: return 120000
+            case ...450000: return 300000
+            default: return 600000
+            }
+        }()
+
+        let minorStepMs = max(20, stepMs / 5)
+        let totalTicks = max(1, Int(durationMs / minorStepMs) + 2)
+
+        ZStack(alignment: .topLeading) {
+            // Invisible background touch catcher for instant tap-to-seek or scrub
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { val in
+                            let seekMs = Int64(max(0, min(Double(durationMs), Double(val.location.x) / Double(pointsPerSecond) * 1000.0)))
+                            onSeek(seekMs)
+                        }
+                )
+
+            // Tick marks & timecode labels
+            ForEach(0..<totalTicks, id: \.self) { i in
+                let tickMs = Int64(i) * minorStepMs
+                let x = CGFloat(tickMs) / 1000.0 * pointsPerSecond
+                let isMajor = (tickMs % stepMs == 0)
+
+                if isMajor {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(formatTickLabel(tickMs, stepMs: stepMs))
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(Color.textSecondary)
+                        Rectangle()
+                            .fill(Color.borderHairlineBright)
+                            .frame(width: 1.5, height: 7)
+                    }
+                    .offset(x: x)
+                } else {
+                    Rectangle()
+                        .fill(Color.borderHairline.opacity(0.6))
+                        .frame(width: 1, height: 4)
+                        .offset(x: x, y: 15)
+                }
+            }
+        }
+        .frame(width: width, height: 22, alignment: .topLeading)
+    }
+
+    private func formatTickLabel(_ ms: Int64, stepMs: Int64) -> String {
+        let totalSec = Double(ms) / 1000.0
+        let m = Int(totalSec) / 60
+        let s = Int(totalSec) % 60
+        if stepMs < 1000 {
+            let tenths = Int((totalSec.truncatingRemainder(dividingBy: 1.0)) * 10)
+            return String(format: "%02d:%02d.%d", m, s, tenths)
+        } else {
+            return String(format: "%02d:%02d", m, s)
+        }
+    }
+}
+
+// MARK: - Playhead Triangle Pointer
+struct TrianglePointer: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
