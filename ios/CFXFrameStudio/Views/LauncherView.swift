@@ -164,6 +164,18 @@ struct LauncherView: View {
                                     )
                                 }
                                 .buttonStyle(BentoButtonStyle())
+
+                                // 10. VLC Pro Universal Player
+                                NavigationLink(destination: UniversalPlayerView()) {
+                                    bentoCard(
+                                        title: "VLC Pro Player",
+                                        badge: "ALL CODECS",
+                                        icon: "play.tv.fill",
+                                        accentColor: Color(hex: "FF8800"),
+                                        footerTag: "SWIPE HUD • 200% BOOST"
+                                    )
+                                }
+                                .buttonStyle(BentoButtonStyle())
                             }
 
                             // System Telemetry Bento Bar (Full Width)

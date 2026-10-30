@@ -1521,6 +1521,22 @@ struct DirectDownloaderView: View {
                         .disabled(isRemuxingDownloadedFile)
                     }
 
+                    if inspection.isVideo {
+                        NavigationLink(destination: UniversalPlayerView(initialMediaUrl: fileUrl)) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "play.tv.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Play in VLC Pro Player")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                            .background(Color(hex: "FF8800"))
+                            .foregroundColor(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+
                     Button(action: { showShareSheet = true }) {
                         HStack(spacing: 8) {
                             Image(systemName: "square.and.arrow.up")
@@ -1689,6 +1705,15 @@ struct DirectDownloaderView: View {
                 }
 
                 Spacer()
+
+                NavigationLink(destination: UniversalPlayerView(initialMediaUrl: url)) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color(hex: "FF8800"))
+                        .padding(6)
+                        .background(Color.elevatedSurface)
+                        .clipShape(Circle())
+                }
 
                 Button(action: {
                     engine.downloadedFileUrl = url

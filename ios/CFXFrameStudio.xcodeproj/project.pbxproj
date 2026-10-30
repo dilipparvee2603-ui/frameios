@@ -52,6 +52,8 @@
 		E20000012900000100000034 /* CFXEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000034 /* CFXEditorTests.swift */; };
 		E20000012900000100000035 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000035 /* NotificationManager.swift */; };
 		E20000012900000100000036 /* BackgroundDownloadKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000036 /* BackgroundDownloadKeepAlive.swift */; };
+		E20000012900000100000037 /* UniversalPlayerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000037 /* UniversalPlayerEngine.swift */; };
+		E20000012900000100000038 /* UniversalPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000012900000100000038 /* UniversalPlayerView.swift */; };
 		E20000012900000100000050 /* FFmpeg-Kit in Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; };
 		E20000012900000100000051 /* FFmpeg-Kit in Embed Frameworks */ = {isa = PBXBuildFile; productRef = EA0000012900000100000002 /* FFmpeg-Kit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -104,6 +106,8 @@
 		E10000012900000100000034 /* CFXEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CFXEditorTests.swift; sourceTree = "<group>"; };
 		E10000012900000100000035 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		E10000012900000100000036 /* BackgroundDownloadKeepAlive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundDownloadKeepAlive.swift; sourceTree = "<group>"; };
+		E10000012900000100000037 /* UniversalPlayerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalPlayerEngine.swift; sourceTree = "<group>"; };
+		E10000012900000100000038 /* UniversalPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalPlayerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -191,6 +195,7 @@
 				E10000012900000100000034 /* CFXEditorTests.swift */,
 				E10000012900000100000035 /* NotificationManager.swift */,
 				E10000012900000100000036 /* BackgroundDownloadKeepAlive.swift */,
+				E10000012900000100000037 /* UniversalPlayerEngine.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -211,6 +216,7 @@
 				E10000012900000100000027 /* FrameSequenceView.swift */,
 				E10000012900000100000031 /* VideoEditorView.swift */,
 				E10000012900000100000032 /* ProjectGalleryView.swift */,
+				E10000012900000100000038 /* UniversalPlayerView.swift */,
 				E40000012900000100000006 /* Components */,
 			);
 			path = Views;
@@ -353,6 +359,8 @@
 				E20000012900000100000034 /* CFXEditorTests.swift in Sources */,
 				E20000012900000100000035 /* NotificationManager.swift in Sources */,
 				E20000012900000100000036 /* BackgroundDownloadKeepAlive.swift in Sources */,
+				E20000012900000100000037 /* UniversalPlayerEngine.swift in Sources */,
+				E20000012900000100000038 /* UniversalPlayerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
