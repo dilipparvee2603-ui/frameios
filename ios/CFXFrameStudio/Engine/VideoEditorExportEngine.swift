@@ -363,8 +363,7 @@ final class VideoEditorExportEngine {
 
             // Check if audio track exists on this clip
             let clipAsset = AVURLAsset(url: clipUrl)
-            let audioTracks = (try? await clipAsset.loadTracks(withMediaType: .audio)) ?? []
-            let hasAudioTrack = !audioTracks.isEmpty
+            let hasAudioTrack = !clipAsset.tracks(withMediaType: .audio).isEmpty
 
             // 1. Video Filters
             var vFilters: [String] = []
@@ -698,10 +697,9 @@ final class VideoEditorExportEngine {
             var photosNotice: String? = nil
             if config.saveToCameraRoll {
                 onProgress(0.97, "Saving to Camera Roll...")
-                do {
-                    _ = try await DirectDownloadEngine().saveVideoToPhotos(url: outputUrl)
-                } catch {
-                    photosNotice = "Export rendered successfully, but could not save to Photos: \(error.localizedDescription)"
+                let saved = await DirectDownloadEngine().saveVideoToPhotos(url: outputUrl)
+                if !saved {
+                    photosNotice = "Export rendered successfully, but could not be saved to Photos library (check Photos permissions)."
                 }
             }
 

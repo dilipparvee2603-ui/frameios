@@ -213,6 +213,12 @@ struct SpeedRampPoint: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var normalizedPosition: Double // 0.0 to 1.0 along the clip's trimmed source duration
     var speedMultiplier: Double    // 0.10 to 2.0 (e.g. 0.25 = 4x slow-mo, 1.0 = normal)
+
+    init(id: UUID = UUID(), normalizedPosition: Double, speedMultiplier: Double) {
+        self.id = id
+        self.normalizedPosition = normalizedPosition
+        self.speedMultiplier = speedMultiplier
+    }
 }
 
 // MARK: - Clip Speed Configuration
@@ -342,6 +348,38 @@ struct EditorClip: Identifiable, Codable, Equatable {
 
     var transitionOut: TransitionType = .cut
     var transitionDurationMs: Int64 = 500
+
+    init(
+        id: UUID = UUID(),
+        sourceUrl: URL,
+        filename: String,
+        sourceDurationMs: Int64,
+        sourceInPointMs: Int64,
+        sourceOutPointMs: Int64,
+        speedConfig: ClipSpeedConfiguration = ClipSpeedConfiguration(),
+        transform: TransformGeometry = TransformGeometry(),
+        color: ColorAdjustments = ColorAdjustments(),
+        keyframes: [ClipKeyframe] = [],
+        volume: Double = 1.0,
+        isMuted: Bool = false,
+        transitionOut: TransitionType = .cut,
+        transitionDurationMs: Int64 = 500
+    ) {
+        self.id = id
+        self.sourceUrl = sourceUrl
+        self.filename = filename
+        self.sourceDurationMs = sourceDurationMs
+        self.sourceInPointMs = sourceInPointMs
+        self.sourceOutPointMs = sourceOutPointMs
+        self.speedConfig = speedConfig
+        self.transform = transform
+        self.color = color
+        self.keyframes = keyframes
+        self.volume = volume
+        self.isMuted = isMuted
+        self.transitionOut = transitionOut
+        self.transitionDurationMs = transitionDurationMs
+    }
 
     // MARK: - InShot-Style Keyframe Animation System
     func hasKeyframes() -> Bool {
@@ -635,6 +673,28 @@ struct EditorAudioTrack: Identifiable, Codable, Equatable {
     var isMuted: Bool = false
     var fadeInMs: Int64 = 0
     var fadeOutMs: Int64 = 0
+
+    init(
+        id: UUID = UUID(),
+        url: URL,
+        title: String,
+        timelineStartMs: Int64 = 0,
+        durationMs: Int64,
+        volume: Double = 1.0,
+        isMuted: Bool = false,
+        fadeInMs: Int64 = 0,
+        fadeOutMs: Int64 = 0
+    ) {
+        self.id = id
+        self.url = url
+        self.title = title
+        self.timelineStartMs = timelineStartMs
+        self.durationMs = durationMs
+        self.volume = volume
+        self.isMuted = isMuted
+        self.fadeInMs = fadeInMs
+        self.fadeOutMs = fadeOutMs
+    }
 }
 
 // MARK: - Text / Graphic Overlay
@@ -651,6 +711,34 @@ struct EditorTextOverlay: Identifiable, Codable, Equatable {
     var posX: Double = 0.5 // 0.0 to 1.0 normalized screen coordinate
     var posY: Double = 0.8 // 0.0 to 1.0
     var scale: Double = 1.0
+
+    init(
+        id: UUID = UUID(),
+        text: String = "Title Text",
+        fontName: String = "HelveticaNeue-Bold",
+        fontSize: CGFloat = 36.0,
+        textColorHex: String = "FFFFFF",
+        backgroundColorHex: String? = nil,
+        alignment: String = "center",
+        timelineStartMs: Int64 = 0,
+        timelineEndMs: Int64 = 3000,
+        posX: Double = 0.5,
+        posY: Double = 0.8,
+        scale: Double = 1.0
+    ) {
+        self.id = id
+        self.text = text
+        self.fontName = fontName
+        self.fontSize = fontSize
+        self.textColorHex = textColorHex
+        self.backgroundColorHex = backgroundColorHex
+        self.alignment = alignment
+        self.timelineStartMs = timelineStartMs
+        self.timelineEndMs = timelineEndMs
+        self.posX = posX
+        self.posY = posY
+        self.scale = scale
+    }
 }
 
 // MARK: - Master Video Project Model

@@ -50,14 +50,17 @@ jobs:
             AD_HOC_CODE_SIGNING_ALLOWED=YES \
             COMPILER_INDEX_STORE_ENABLE=NO > build.log 2>&1 || {
               echo "=== XCODEBUILD COMPILATION ERROR LOG ==="
-              ERRORS=$(grep -E "(: error:|fatal error:)" build.log -C 2 || tail -n 60 build.log)
-              echo "$ERRORS"
-              echo "### Build Error" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              echo "$ERRORS" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat build.log | grep -E "(: error:|fatal error:)" -C 3 || tail -n 100 build.log
               exit 1
             }
+
+      - name: Upload Build Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Xcodebuild-Failure-Log
+          path: ios/build.log
+          retention-days: 7
 
       - name: Package .IPA for Sideloading
         run: |
